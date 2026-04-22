@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,8 +29,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.transformable
-import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -49,10 +49,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -400,6 +402,8 @@ fun SettingsScreen(
     onToggleAutoDownload: (Boolean) -> Unit,
     onTriggerChange: (Int) -> Unit,
     onBatchChange: (Int) -> Unit,
+    onToggleSmartCleanup: (Boolean) -> Unit,
+    onSmartCleanupKeepChange: (Int) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -445,6 +449,38 @@ fun SettingsScreen(
             enabled = settings.autoDownloadEnabled,
             onValueChange = onBatchChange,
         )
+
+        Text(
+            text = "Libera memoria intelligente",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Elimina i capitoli letti più vecchi",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = "Quando apri un capitolo, mantiene solo gli ultimi capitoli precedenti che scegli tu",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.smartCleanupEnabled,
+                onCheckedChange = onToggleSmartCleanup,
+            )
+        }
+        NumberSettingField(
+            label = "Capitoli precedenti da mantenere",
+            value = settings.smartCleanupKeepPreviousChapters,
+            enabled = settings.smartCleanupEnabled,
+            onValueChange = onSmartCleanupKeepChange,
+        )
     }
 }
 
@@ -456,9 +492,10 @@ fun DownloadedSeriesScreen(
     onDeleteChapter: (DownloadedChapter) -> Unit,
 ) {
     val isFullyRead = series.isFullyRead()
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     var chapterPendingDelete by remember { mutableStateOf<DownloadedChapter?>(null) }
+    val firstChapter = remember(series) { series.chapters.firstOrNull() }
+    val latestChapter = remember(series) { series.chapters.lastOrNull() }
+    val resumeChapter = remember(series) { series.resumeChapter() }
 
     Column(
         modifier = Modifier
@@ -473,31 +510,26 @@ fun DownloadedSeriesScreen(
             statusColor = ReadGreen,
         )
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-            ) {
-                items(series.chapters, key = { it.relativePath }) { chapter ->
-                    DownloadedChapterRow(
-                        chapter = chapter,
-                        onOpen = { onOpenChapter(chapter) },
-                        onDelete = { chapterPendingDelete = chapter },
-                    )
-                }
-            }
-            if (series.chapters.isNotEmpty()) {
-                ScrollToBottomButton(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                ) {
-                    scope.launch {
-                        listState.animateScrollToItem(series.chapters.lastIndex)
-                    }
-                }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+        ) {
+            items(series.chapters, key = { it.relativePath }) { chapter ->
+                DownloadedChapterRow(
+                    chapter = chapter,
+                    onOpen = { onOpenChapter(chapter) },
+                    onDelete = { chapterPendingDelete = chapter },
+                )
             }
         }
+
+        DownloadedSeriesActionBar(
+            readCount = series.chapters.count { it.isRead },
+            totalCount = series.chapters.size,
+            firstChapter = firstChapter,
+            resumeChapter = resumeChapter,
+            latestChapter = latestChapter,
+            onOpenChapter = onOpenChapter,
+        )
     }
 
     chapterPendingDelete?.let { chapter ->
@@ -509,6 +541,65 @@ fun DownloadedSeriesScreen(
                 onDeleteChapter(chapter)
             },
         )
+    }
+}
+
+@Composable
+private fun DownloadedSeriesActionBar(
+    readCount: Int,
+    totalCount: Int,
+    firstChapter: DownloadedChapter?,
+    resumeChapter: DownloadedChapter?,
+    latestChapter: DownloadedChapter?,
+    onOpenChapter: (DownloadedChapter) -> Unit,
+) {
+    Surface(
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = when {
+                    totalCount == 0 -> "Nessun capitolo disponibile"
+                    readCount == 0 -> "$totalCount capitoli scaricati"
+                    readCount >= totalCount -> "Hai letto tutti i $totalCount capitoli"
+                    else -> "$readCount / $totalCount capitoli letti"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { firstChapter?.let(onOpenChapter) },
+                    enabled = firstChapter != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Inizio")
+                }
+                FilledTonalButton(
+                    onClick = { resumeChapter?.let(onOpenChapter) },
+                    enabled = resumeChapter != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Riprendi")
+                }
+                OutlinedButton(
+                    onClick = { latestChapter?.let(onOpenChapter) },
+                    enabled = latestChapter != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Ultimo")
+                }
+            }
+        }
     }
 }
 
@@ -1457,6 +1548,10 @@ private fun EmptyStateText(
 
 private fun DownloadedSeries.isFullyRead(): Boolean {
     return chapters.isNotEmpty() && chapters.all { it.isRead }
+}
+
+private fun DownloadedSeries.resumeChapter(): DownloadedChapter? {
+    return chapters.firstOrNull { !it.isRead } ?: chapters.lastOrNull()
 }
 
 private fun buildSeriesInfoText(series: DownloadedSeries): String {

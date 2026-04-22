@@ -44,6 +44,8 @@ data class AppSettings(
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
+    val smartCleanupEnabled: Boolean = false,
+    val smartCleanupKeepPreviousChapters: Int = 3,
 )
 
 data class MangaUiState(
@@ -98,6 +100,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private var readerJob: Job? = null
     private var updateJob: Job? = null
     private var autoDownloadJob: Job? = null
+    private var smartCleanupJob: Job? = null
 
     init {
         observeQueryChanges()
@@ -182,6 +185,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAutoDownloadBatchSize(value: Int) {
         updateSettings { it.copy(autoDownloadBatchSize = value.coerceAtLeast(1)) }
+    }
+
+    fun setSmartCleanupEnabled(enabled: Boolean) {
+        updateSettings { it.copy(smartCleanupEnabled = enabled) }
+    }
+
+    fun setSmartCleanupKeepPreviousChapters(value: Int) {
+        updateSettings { it.copy(smartCleanupKeepPreviousChapters = value.coerceAtLeast(0)) }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -284,6 +295,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearDownloadedSelection() {
         readerJob?.cancel()
+        smartCleanupJob?.cancel()
         updateState {
             copy(
                 selectedDownloadedSeries = null,
@@ -325,6 +337,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         maybeTriggerAutoDownload(chapter)
+        maybePerformSmartCleanup(chapter)
     }
 
     private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
@@ -371,6 +384,40 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun maybePerformSmartCleanup(chapter: DownloadedChapter) {
+        val settings = _state.value.settings
+        if (!settings.smartCleanupEnabled) return
+        if (smartCleanupJob?.isActive == true) return
+
+        val series = _state.value.selectedDownloadedSeries ?: return
+        val currentIndex = series.chapters.indexOfFirst { it.relativePath == chapter.relativePath }
+        if (currentIndex <= 0) return
+
+        val keepPrevious = settings.smartCleanupKeepPreviousChapters.coerceAtLeast(0)
+        val deleteUntilIndex = (currentIndex - keepPrevious).coerceAtLeast(0)
+        if (deleteUntilIndex <= 0) return
+
+        val chaptersToDelete = series.chapters
+            .take(deleteUntilIndex)
+            .filter { it.isRead }
+
+        if (chaptersToDelete.isEmpty()) return
+
+        smartCleanupJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteChapters(series, chaptersToDelete)
+                }
+                val snapshot = scanLibrarySnapshot()
+                _state.value = _state.value.withLibrarySnapshot(snapshot)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Silent: automatic cleanup is best-effort
+            }
+        }
+    }
+
     fun closeReader() {
         readerJob?.cancel()
         updateState { clearedReaderState() }
@@ -384,6 +431,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         val series = _state.value.selectedDownloadedSeries ?: return
 
         libraryJob?.cancel()
+        smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
@@ -410,6 +458,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
         libraryJob?.cancel()
         readerJob?.cancel()
+        smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
@@ -651,6 +700,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             autoDownloadBatchSize = prefs
                 .getInt(KEY_AUTO_DOWNLOAD_BATCH, 3)
                 .coerceAtLeast(1),
+            smartCleanupEnabled = prefs.getBoolean(KEY_SMART_CLEANUP_ENABLED, false),
+            smartCleanupKeepPreviousChapters = prefs
+                .getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3)
+                .coerceAtLeast(0),
         )
     }
 
@@ -659,6 +712,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
             .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
+            .putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
+            .putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
             .apply()
     }
 
@@ -678,6 +733,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         private const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
         private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
+        private const val KEY_SMART_CLEANUP_ENABLED = "smart_cleanup_enabled"
+        private const val KEY_SMART_CLEANUP_KEEP_PREVIOUS = "smart_cleanup_keep_previous"
         private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L
     }

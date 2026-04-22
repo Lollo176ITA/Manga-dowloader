@@ -215,6 +215,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
+                    onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
+                    onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                 )
             }
             selectedManga != null -> {

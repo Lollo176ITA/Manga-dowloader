@@ -19,6 +19,7 @@ class HastaTeamSource(
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.HASTA_TEAM,
         displayName = "Hasta Team",
+        shortName = "HT",
     )
 
     override val invalidChapterUrlMessage: String =

@@ -14,6 +14,7 @@ class MangapillSource(
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.MANGAPILL,
         displayName = "Mangapill",
+        shortName = "MP",
     )
 
     override val invalidChapterUrlMessage: String =

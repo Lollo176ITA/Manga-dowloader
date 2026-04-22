@@ -2,10 +2,12 @@ package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,7 +26,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.transformable
+import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -53,10 +58,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -65,14 +70,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
@@ -521,8 +523,21 @@ fun ReaderScreen(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
 ) {
-    val zoomedPages = remember(chapter?.relativePath) { mutableStateMapOf<String, Boolean>() }
-    val isReaderScrollEnabled = zoomedPages.values.none { it }
+    val minScale = 1f
+    val maxScale = 4f
+    var readerScale by remember(chapter?.relativePath) { mutableStateOf(minScale) }
+    val horizontalScrollState = rememberScrollState()
+
+    LaunchedEffect(chapter?.relativePath) {
+        readerScale = minScale
+        horizontalScrollState.scrollTo(0)
+    }
+
+    LaunchedEffect(readerScale) {
+        if (readerScale <= minScale) {
+            horizontalScrollState.scrollTo(0)
+        }
+    }
 
     when {
         isLoading -> {
@@ -548,7 +563,6 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                userScrollEnabled = isReaderScrollEnabled,
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -564,9 +578,11 @@ fun ReaderScreen(
                     ZoomableReaderPage(
                         page = page,
                         contentDescription = chapter.title,
-                        onZoomStateChange = { isZoomed ->
-                            zoomedPages[page.absolutePath] = isZoomed
-                        },
+                        scale = readerScale,
+                        minScale = minScale,
+                        maxScale = maxScale,
+                        horizontalScrollState = horizontalScrollState,
+                        onScaleChange = { readerScale = it },
                     )
                 }
                 item("reader-nav-bottom") {
@@ -586,77 +602,47 @@ fun ReaderScreen(
 private fun ZoomableReaderPage(
     page: File,
     contentDescription: String,
-    onZoomStateChange: (Boolean) -> Unit,
+    scale: Float,
+    minScale: Float,
+    maxScale: Float,
+    horizontalScrollState: ScrollState,
+    onScaleChange: (Float) -> Unit,
 ) {
-    val minScale = 1f
-    val maxScale = 4f
-    var scale by remember(page.absolutePath) { mutableStateOf(minScale) }
-    var offsetX by remember(page.absolutePath) { mutableStateOf(0f) }
-    var offsetY by remember(page.absolutePath) { mutableStateOf(0f) }
-    var containerSize by remember(page.absolutePath) { mutableStateOf(IntSize.Zero) }
-
-    fun clampOffsets(targetScale: Float, targetX: Float, targetY: Float): Pair<Float, Float> {
-        val maxX = ((containerSize.width * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
-        val maxY = ((containerSize.height * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
-        return targetX.coerceIn(-maxX, maxX) to targetY.coerceIn(-maxY, maxY)
+    val transformableState = rememberTransformableState { zoomChange, _, _ ->
+        onScaleChange((scale * zoomChange).coerceIn(minScale, maxScale))
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(if (scale > minScale) RoundedCornerShape(12.dp) else RoundedCornerShape(0.dp))
             .background(if (scale > minScale) Color.Black else Color.Transparent)
             .clipToBounds()
-            .pointerInput(page.absolutePath) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val nextScale = (scale * zoom).coerceIn(minScale, maxScale)
-                    val scaledPan = if (nextScale > minScale) pan * nextScale else pan
-                    val (clampedX, clampedY) = clampOffsets(
-                        targetScale = nextScale,
-                        targetX = offsetX + scaledPan.x,
-                        targetY = offsetY + scaledPan.y,
-                    )
-                    scale = nextScale
-                    offsetX = clampedX
-                    offsetY = clampedY
-                    onZoomStateChange(nextScale > minScale)
-                }
-            }
-            .pointerInput(page.absolutePath) {
+            .transformable(state = transformableState)
+            .pointerInput(page.absolutePath, scale) {
                 detectTapGestures(
                     onDoubleTap = {
-                        if (scale > minScale) {
-                            scale = minScale
-                            offsetX = 0f
-                            offsetY = 0f
-                            onZoomStateChange(false)
-                        } else {
-                            scale = 2f
-                            onZoomStateChange(true)
-                        }
+                        onScaleChange(if (scale > minScale) minScale else 2f)
                     },
                 )
-            }
-            .onSizeChanged { size ->
-                containerSize = size
-                val (clampedX, clampedY) = clampOffsets(scale, offsetX, offsetY)
-                offsetX = clampedX
-                offsetY = clampedY
             },
     ) {
-        AsyncImage(
-            model = page,
-            contentDescription = contentDescription,
+        val contentWidth = maxWidth * scale
+
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
-                },
-            contentScale = ContentScale.FillWidth,
-        )
+                .horizontalScroll(
+                    state = horizontalScrollState,
+                    enabled = scale > minScale,
+                ),
+        ) {
+            AsyncImage(
+                model = page,
+                contentDescription = contentDescription,
+                modifier = Modifier.requiredWidth(contentWidth),
+                contentScale = ContentScale.FillWidth,
+            )
+        }
     }
 }
 

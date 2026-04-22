@@ -164,11 +164,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { it.query.trim() }
+                .map { it.query.trim() to it.settings.searchSourceId }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { q ->
+                .collect { (q, sourceId) ->
+                    val searchConfig = MangaSourceCatalog.searchConfig(sourceId)
                     when {
+                        q.isEmpty() && searchConfig.showAllOnEmptyQuery -> runSearch("")
                         q.isEmpty() -> {
                             searchJob?.cancel()
                             updateState {
@@ -179,7 +181,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                         }
-                        q.length >= MIN_QUERY_LENGTH -> runSearch(q)
+                        q.length >= searchConfig.minQueryLength -> runSearch(q)
                         else -> {
                             searchJob?.cancel()
                             updateState {
@@ -200,7 +202,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submitSearch() {
         val q = _state.value.query.trim()
-        if (q.length >= MIN_QUERY_LENGTH) {
+        val searchConfig = MangaSourceCatalog.searchConfig(_state.value.settings.searchSourceId)
+        if (q.isEmpty() && searchConfig.showAllOnEmptyQuery) {
+            runSearch("")
+        } else if (q.length >= searchConfig.minQueryLength) {
             runSearch(q)
         }
     }
@@ -237,6 +242,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun selectSearchSource(sourceId: String) {
         val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
         val query = _state.value.query.trim()
+        val searchConfig = MangaSourceCatalog.searchConfig(resolvedSourceId)
         updateSettings { it.copy(searchSourceId = resolvedSourceId) }
         updateState {
             copy(
@@ -244,8 +250,23 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         when {
-            query.length >= MIN_QUERY_LENGTH -> runSearch(query)
-            query.isBlank() || query.length < MIN_QUERY_LENGTH -> {
+            query.isEmpty() && searchConfig.showAllOnEmptyQuery -> {
+                updateState {
+                    copy(
+                        results = emptyList(),
+                        isSearching = true,
+                    )
+                }
+            }
+            query.length >= searchConfig.minQueryLength -> {
+                updateState {
+                    copy(
+                        results = emptyList(),
+                        isSearching = true,
+                    )
+                }
+            }
+            else -> {
                 searchJob?.cancel()
                 updateState {
                     copy(
@@ -1259,7 +1280,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_PARENTAL_PIN_SALT = "parental_pin_salt"
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         private const val PARENTAL_PIN_LENGTH = 6
-        private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L
     }
 }

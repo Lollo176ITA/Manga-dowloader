@@ -125,4 +125,58 @@ class MangaSourcesTest {
             apiUrl,
         )
     }
+
+    @Test
+    fun hastaFilterByTitle_supportsBlankAndSingleLetterQueries() {
+        val results = listOf(
+            MangaSearchResult(
+                sourceId = MangaSourceIds.HASTA_TEAM,
+                title = "Yotsuba&!",
+                mangaUrl = "https://reader.hastateam.com/comics/yotsuba",
+                coverUrl = null,
+            ),
+            MangaSearchResult(
+                sourceId = MangaSourceIds.HASTA_TEAM,
+                title = "Berserk",
+                mangaUrl = "https://reader.hastateam.com/comics/berserk",
+                coverUrl = null,
+            ),
+            MangaSearchResult(
+                sourceId = MangaSourceIds.HASTA_TEAM,
+                title = "Alive",
+                mangaUrl = "https://reader.hastateam.com/comics/alive",
+                coverUrl = null,
+            ),
+        )
+
+        assertEquals(
+            listOf("Alive", "Berserk", "Yotsuba&!"),
+            HastaTeamSource.run {
+                results
+                    .filterByTitle("")
+                    .sortedAlphabetically()
+                    .map(MangaSearchResult::title)
+            },
+        )
+        assertEquals(
+            listOf("Berserk"),
+            HastaTeamSource.run {
+                results
+                    .filterByTitle("k")
+                    .sortedAlphabetically()
+                    .map(MangaSearchResult::title)
+            },
+        )
+    }
+
+    @Test
+    fun searchConfig_allowsBrowseAllForHastaTeam() {
+        val hastaConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.HASTA_TEAM)
+        val mangapillConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.MANGAPILL)
+
+        assertEquals(1, hastaConfig.minQueryLength)
+        assertEquals(true, hastaConfig.showAllOnEmptyQuery)
+        assertEquals(3, mangapillConfig.minQueryLength)
+        assertEquals(false, mangapillConfig.showAllOnEmptyQuery)
+    }
 }

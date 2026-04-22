@@ -18,6 +18,12 @@ import kotlinx.coroutines.sync.withPermit
 data class MangaSourceDescriptor(
     val id: String,
     val displayName: String,
+    val shortName: String,
+)
+
+data class MangaSearchConfig(
+    val minQueryLength: Int,
+    val showAllOnEmptyQuery: Boolean = false,
 )
 
 object MangaSourceIds {
@@ -28,8 +34,8 @@ object MangaSourceIds {
 
 object MangaSourceCatalog {
     val descriptors = listOf(
-        MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill"),
-        MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team"),
+        MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP"),
+        MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT"),
     )
 
     fun resolveSourceId(
@@ -60,6 +66,21 @@ object MangaSourceCatalog {
     fun displayName(sourceId: String): String {
         val resolved = resolveSourceId(sourceId)
         return descriptors.firstOrNull { it.id == resolved }?.displayName ?: descriptors.first().displayName
+    }
+
+    fun shortDisplayName(sourceId: String): String {
+        val resolved = resolveSourceId(sourceId)
+        return descriptors.firstOrNull { it.id == resolved }?.shortName ?: descriptors.first().shortName
+    }
+
+    fun searchConfig(sourceId: String): MangaSearchConfig {
+        return when (resolveSourceId(sourceId)) {
+            MangaSourceIds.HASTA_TEAM -> MangaSearchConfig(
+                minQueryLength = 1,
+                showAllOnEmptyQuery = true,
+            )
+            else -> MangaSearchConfig(minQueryLength = DEFAULT_MIN_QUERY_LENGTH)
+        }
     }
 
     fun identityKey(
@@ -99,6 +120,8 @@ object MangaSourceCatalog {
             else -> normalizedUrl
         } ?: normalizedUrl
     }
+
+    private const val DEFAULT_MIN_QUERY_LENGTH = 3
 }
 
 interface MangaSource {

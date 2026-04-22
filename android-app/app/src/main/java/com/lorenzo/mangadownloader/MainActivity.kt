@@ -213,8 +213,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         state.currentTab,
         state.pendingSearchAccessReturnTab,
         showPager,
-        pagerState.currentPage,
-        pagerState.isScrollInProgress,
     ) {
         if (
             showPager &&
@@ -243,6 +241,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
+                onSelectSource = viewModel::selectSearchSource,
             )
         },
         bottomBar = {
@@ -325,17 +324,14 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             state = state,
                             padding = innerPadding,
                             onQueryChange = viewModel::onQueryChange,
-                            onSelectSource = viewModel::selectSearchSource,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
-                            selectedSourceId = state.settings.searchSourceId,
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,
-                            onSelectSource = viewModel::selectSearchSource,
                             onSelect = { favorite ->
                                 viewModel.selectManga(
                                     MangaSearchResult(
@@ -354,7 +350,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
                             onQueryChange = viewModel::onLibraryQueryChange,
-                            onSelectSource = viewModel::selectSearchSource,
                             onStopDownloads = {
                                 workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
                             },

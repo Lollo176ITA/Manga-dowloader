@@ -3,6 +3,7 @@ package com.lorenzo.mangadownloader
 import android.content.Context
 import java.math.BigDecimal
 import java.net.URI
+import java.util.Locale
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -27,17 +28,23 @@ class HastaTeamSource(
 
     override fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) {
-            return emptyList()
+        val results = when {
+            trimmed.isEmpty() || trimmed.length < REMOTE_SEARCH_MIN_QUERY_LENGTH -> {
+                parseSearchResponse(fetchString(allComicsApiUrl(), jsonHeaders()))
+                    .filterByTitle(trimmed)
+            }
+            else -> {
+                val url = BASE_URL.toHttpUrl()
+                    .newBuilder()
+                    .addPathSegment("api")
+                    .addPathSegment("search")
+                    .addPathSegment(trimmed)
+                    .build()
+                    .toString()
+                parseSearchResponse(fetchString(url, jsonHeaders()))
+            }
         }
-        val url = BASE_URL.toHttpUrl()
-            .newBuilder()
-            .addPathSegment("api")
-            .addPathSegment("search")
-            .addPathSegment(trimmed)
-            .build()
-            .toString()
-        return parseSearchResponse(fetchString(url, jsonHeaders()))
+        return results.sortedAlphabetically()
     }
 
     override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
@@ -68,6 +75,7 @@ class HastaTeamSource(
 
     companion object {
         private const val BASE_URL = "https://reader.hastateam.com/"
+        private const val REMOTE_SEARCH_MIN_QUERY_LENGTH = 3
         private val json = Json { ignoreUnknownKeys = true }
         private val comicsRegex =
             Regex("""^https?://reader\.hastateam\.com/comics/([^/?#]+)""", RegexOption.IGNORE_CASE)
@@ -236,6 +244,27 @@ class HastaTeamSource(
             } else {
                 URI(BASE_URL).resolve(normalized).toString()
             }
+        }
+
+        private fun allComicsApiUrl(): String {
+            return BASE_URL.toHttpUrl()
+                .newBuilder()
+                .addPathSegment("api")
+                .addPathSegment("comics")
+                .build()
+                .toString()
+        }
+
+        fun List<MangaSearchResult>.filterByTitle(query: String): List<MangaSearchResult> {
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) {
+                return this
+            }
+            return filter { result -> result.title.contains(trimmed, ignoreCase = true) }
+        }
+
+        fun List<MangaSearchResult>.sortedAlphabetically(): List<MangaSearchResult> {
+            return sortedBy { result -> result.title.lowercase(Locale.ROOT) }
         }
     }
 }

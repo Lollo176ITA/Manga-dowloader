@@ -37,15 +37,12 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -108,22 +105,17 @@ fun SearchScreen(
     state: MangaUiState,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
-    onSelectSource: (String) -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
     onToggleFavorite: (MangaSearchResult) -> Unit,
 ) {
     val trimmed = state.query.trim()
+    val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
     ) {
-        SourceSelectorField(
-            selectedSourceId = state.settings.searchSourceId,
-            onSelectSource = onSelectSource,
-        )
-
         SearchField(
             value = state.query,
             placeholder = "Cerca manga",
@@ -165,13 +157,21 @@ fun SearchScreen(
                 }
                 trimmed.isEmpty() -> {
                     EmptyStateText(
-                        text = "Digita per cercare",
+                        text = if (searchConfig.showAllOnEmptyQuery) {
+                            "Nessun risultato"
+                        } else {
+                            "Digita per cercare"
+                        },
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
-                trimmed.length < 3 -> {
+                trimmed.length < searchConfig.minQueryLength -> {
                     EmptyStateText(
-                        text = "Digita almeno 3 caratteri",
+                        text = if (searchConfig.minQueryLength == 1) {
+                            "Digita almeno 1 carattere"
+                        } else {
+                            "Digita almeno ${searchConfig.minQueryLength} caratteri"
+                        },
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
@@ -190,10 +190,8 @@ fun SearchScreen(
 fun FavoritesScreen(
     favorites: List<FavoriteManga>,
     query: String,
-    selectedSourceId: String,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
-    onSelectSource: (String) -> Unit,
     onSelect: (FavoriteManga) -> Unit,
 ) {
     val filtered = remember(favorites, query) {
@@ -207,11 +205,6 @@ fun FavoritesScreen(
             .fillMaxSize()
             .padding(padding),
     ) {
-        SourceSelectorField(
-            selectedSourceId = selectedSourceId,
-            onSelectSource = onSelectSource,
-        )
-
         SearchField(
             value = query,
             placeholder = "Cerca nei preferiti",
@@ -357,7 +350,6 @@ fun LibraryScreen(
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
     onQueryChange: (String) -> Unit,
-    onSelectSource: (String) -> Unit,
     onStopDownloads: () -> Unit,
 ) {
     val rows = remember(state.library, state.libraryQuery, downloadStatuses) {
@@ -373,11 +365,6 @@ fun LibraryScreen(
             .fillMaxSize()
             .padding(padding),
     ) {
-        SourceSelectorField(
-            selectedSourceId = state.settings.searchSourceId,
-            onSelectSource = onSelectSource,
-        )
-
         SearchField(
             value = state.libraryQuery,
             placeholder = "Cerca nella libreria",
@@ -838,63 +825,6 @@ fun ReaderScreen(
                         )
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun SourceSelectorField(
-    selectedSourceId: String,
-    onSelectSource: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val resolvedSourceId = remember(selectedSourceId) {
-        MangaSourceCatalog.resolveSourceId(selectedSourceId)
-    }
-    val selectedSourceName = remember(resolvedSourceId) {
-        MangaSourceCatalog.displayName(resolvedSourceId)
-    }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded },
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
-    ) {
-        OutlinedTextField(
-            value = selectedSourceName,
-            onValueChange = {},
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth(),
-            readOnly = true,
-            singleLine = true,
-            label = { Text("Server") },
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Storage, contentDescription = null)
-            },
-            trailingIcon = {
-                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-            },
-            shape = MaterialTheme.shapes.large,
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            MangaSourceCatalog.descriptors.forEach { source ->
-                DropdownMenuItem(
-                    text = { Text(source.displayName) },
-                    onClick = {
-                        expanded = false
-                        onSelectSource(source.id)
-                    },
-                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
-                )
             }
         }
     }

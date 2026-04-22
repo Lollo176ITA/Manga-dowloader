@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -17,18 +18,31 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class AppTab {
+    SEARCH,
+    DOWNLOADS,
+}
+
 data class MangaUiState(
+    val currentTab: AppTab = AppTab.SEARCH,
     val query: String = "",
     val results: List<MangaSearchResult> = emptyList(),
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val isLoadingDetails: Boolean = false,
+    val library: List<DownloadedSeries> = emptyList(),
+    val isLoadingLibrary: Boolean = false,
+    val selectedDownloadedSeries: DownloadedSeries? = null,
+    val readerChapter: DownloadedChapter? = null,
+    val readerPages: List<File> = emptyList(),
+    val isLoadingReader: Boolean = false,
     val errorMessage: String? = null,
 )
 
 class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private val client = MangapillClient(application)
+    private val libraryRepository = LibraryRepository(application)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
@@ -38,9 +52,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private var searchJob: Job? = null
     private var detailJob: Job? = null
+    private var libraryJob: Job? = null
+    private var readerJob: Job? = null
 
     init {
         observeQueryChanges()
+        refreshLibrary()
         if (_state.value.query.trim().length >= MIN_QUERY_LENGTH) {
             runSearch(_state.value.query.trim())
         }
@@ -87,22 +104,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun runSearch(q: String) {
-        prefs.edit().putString(KEY_LAST_QUERY, q).apply()
-        searchJob?.cancel()
-        _state.value = _state.value.copy(isSearching = true, errorMessage = null)
-        searchJob = viewModelScope.launch {
-            try {
-                val results = withContext(Dispatchers.IO) { client.searchManga(q) }
-                _state.value = _state.value.copy(results = results, isSearching = false)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isSearching = false,
-                    errorMessage = exc.message ?: "Errore di ricerca",
-                )
-            }
+    fun selectTab(tab: AppTab) {
+        _state.value = _state.value.copy(currentTab = tab)
+        if (tab == AppTab.DOWNLOADS) {
+            refreshLibrary()
         }
     }
 
@@ -138,8 +143,142 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(selected = null, isLoadingDetails = false, errorMessage = null)
     }
 
+    fun refreshLibrary() {
+        libraryJob?.cancel()
+        _state.value = _state.value.copy(isLoadingLibrary = true)
+        libraryJob = viewModelScope.launch {
+            try {
+                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+                _state.value = _state.value.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isLoadingLibrary = false,
+                    errorMessage = exc.message ?: "Errore caricamento libreria",
+                )
+            }
+        }
+    }
+
+    fun selectDownloadedSeries(series: DownloadedSeries) {
+        _state.value = _state.value.copy(
+            selectedDownloadedSeries = series,
+            currentTab = AppTab.DOWNLOADS,
+            errorMessage = null,
+        )
+    }
+
+    fun clearDownloadedSelection() {
+        readerJob?.cancel()
+        _state.value = _state.value.copy(
+            selectedDownloadedSeries = null,
+            readerChapter = null,
+            readerPages = emptyList(),
+            isLoadingReader = false,
+            errorMessage = null,
+        )
+    }
+
+    fun openReader(chapter: DownloadedChapter) {
+        readerJob?.cancel()
+        libraryRepository.markChapterRead(chapter)
+        _state.value = _state.value.copy(
+            readerChapter = chapter.copy(isRead = true),
+            readerPages = emptyList(),
+            isLoadingReader = true,
+            errorMessage = null,
+        ).withReadChapter(chapter.relativePath)
+
+        readerJob = viewModelScope.launch {
+            try {
+                val pages = libraryRepository.extractReaderPages(chapter)
+                val updated = _state.value.readerChapter?.copy(isRead = true) ?: chapter.copy(isRead = true)
+                _state.value = _state.value.copy(
+                    readerChapter = updated,
+                    readerPages = pages,
+                    isLoadingReader = false,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isLoadingReader = false,
+                    errorMessage = exc.message ?: "Impossibile aprire il reader",
+                )
+            }
+        }
+    }
+
+    fun closeReader() {
+        readerJob?.cancel()
+        _state.value = _state.value.copy(
+            readerChapter = null,
+            readerPages = emptyList(),
+            isLoadingReader = false,
+        )
+    }
+
     fun dismissError() {
         _state.value = _state.value.copy(errorMessage = null)
+    }
+
+    private fun runSearch(q: String) {
+        prefs.edit().putString(KEY_LAST_QUERY, q).apply()
+        searchJob?.cancel()
+        _state.value = _state.value.copy(isSearching = true, errorMessage = null)
+        searchJob = viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) { client.searchManga(q) }
+                _state.value = _state.value.copy(results = results, isSearching = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isSearching = false,
+                    errorMessage = exc.message ?: "Errore di ricerca",
+                )
+            }
+        }
+    }
+
+    private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
+        val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
+        val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
+        val readerPath = readerChapter?.relativePath
+        val updatedReader = updatedSelected?.chapters?.firstOrNull { it.relativePath == readerPath }
+            ?: snapshot.asSequence()
+                .flatMap { it.chapters.asSequence() }
+                .firstOrNull { it.relativePath == readerPath }
+
+        return copy(
+            library = snapshot,
+            selectedDownloadedSeries = updatedSelected,
+            readerChapter = updatedReader ?: readerChapter,
+        )
+    }
+
+    private fun MangaUiState.withReadChapter(relativePath: String): MangaUiState {
+        fun DownloadedChapter.markIfSame(): DownloadedChapter {
+            return if (this.relativePath == relativePath) copy(isRead = true) else this
+        }
+
+        val updatedLibrary = library.map { series ->
+            series.copy(chapters = series.chapters.map { chapter -> chapter.markIfSame() })
+        }
+        val updatedSelected = selectedDownloadedSeries?.copy(
+            chapters = selectedDownloadedSeries.chapters.map { chapter -> chapter.markIfSame() },
+        )
+        val updatedReader = if (readerChapter?.relativePath == relativePath) {
+            readerChapter.copy(isRead = true)
+        } else {
+            readerChapter
+        }
+        return copy(
+            library = updatedLibrary,
+            selectedDownloadedSeries = updatedSelected,
+            readerChapter = updatedReader,
+        )
     }
 
     companion object {

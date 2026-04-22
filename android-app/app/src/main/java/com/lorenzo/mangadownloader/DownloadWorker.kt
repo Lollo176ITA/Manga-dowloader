@@ -19,6 +19,15 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 class DownloadWorker(
     appContext: Context,
@@ -36,58 +45,101 @@ class DownloadWorker(
         return try {
             safeSetForeground("Preparazione download")
             val plan = client.buildDownloadPlan(firstUrl)
+            client.prepareSeriesStorage(plan)
             updateStatus(
                 message = "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} in poi",
                 doneChapters = 0,
                 totalChapters = plan.chapters.size,
             )
 
-            var completed = 0
-            for ((index, chapter) in plan.chapters.withIndex()) {
-                if (isStopped) {
-                    return Result.success()
-                }
+            val totalChapters = plan.chapters.size
+            val completedChapters = AtomicInteger(0)
+            val statusMutex = Mutex()
+            val chapterSemaphore = Semaphore(CHAPTER_CONCURRENCY)
 
-                val chapterLabel = chapter.displayNumber()
-                updateStatus(
-                    message = "Capitolo $chapterLabel (${index + 1}/${plan.chapters.size})",
-                    doneChapters = completed,
-                    totalChapters = plan.chapters.size,
-                )
+            coroutineScope {
+                plan.chapters.map { chapter ->
+                    async(Dispatchers.IO) {
+                        chapterSemaphore.withPermit {
+                            ensureActiveDownload()
+                            val chapterLabel = chapter.displayNumber()
+                            emitStatus(
+                                mutex = statusMutex,
+                                message = "Capitolo $chapterLabel in download",
+                                doneChapters = completedChapters.get(),
+                                totalChapters = totalChapters,
+                            )
 
-                val result = client.downloadChapterAsCbz(
-                    chapter = chapter,
-                    outputDir = plan.outputDir,
-                ) { pageIndex, pageTotal ->
-                    val pageMessage = "Capitolo $chapterLabel: pagina $pageIndex/$pageTotal"
-                    updateStatus(
-                        message = pageMessage,
-                        doneChapters = completed,
-                        totalChapters = plan.chapters.size,
-                    )
-                }
+                            val result = client.downloadChapterAsCbz(
+                                chapter = chapter,
+                                outputDir = plan.outputDir,
+                                pageConcurrency = PAGE_CONCURRENCY,
+                            ) { pageDone, pageTotal ->
+                                emitStatus(
+                                    mutex = statusMutex,
+                                    message = "Capitolo $chapterLabel: pagina $pageDone/$pageTotal",
+                                    doneChapters = completedChapters.get(),
+                                    totalChapters = totalChapters,
+                                )
+                            }
 
-                if (result == DownloadResult.DOWNLOADED || result == DownloadResult.SKIPPED_EXISTING) {
-                    completed += 1
-                }
+                            val done = completedChapters.incrementAndGet()
+                            val message = when (result) {
+                                DownloadResult.DOWNLOADED ->
+                                    "Capitolo $chapterLabel completato"
+                                DownloadResult.SKIPPED_EXISTING ->
+                                    "Capitolo $chapterLabel già presente"
+                            }
+                            emitStatus(
+                                mutex = statusMutex,
+                                message = message,
+                                doneChapters = done,
+                                totalChapters = totalChapters,
+                            )
+                        }
+                    }
+                }.awaitAll()
             }
 
             updateStatus(
-                message = "Download completato: ${plan.chapters.size} capitoli",
-                doneChapters = plan.chapters.size,
-                totalChapters = plan.chapters.size,
+                message = "Download completato: $totalChapters capitoli",
+                doneChapters = totalChapters,
+                totalChapters = totalChapters,
             )
             Result.success(
                 workDataOf(
                     PROGRESS_MESSAGE to "Completato",
-                    PROGRESS_DONE_CHAPTERS to plan.chapters.size,
-                    PROGRESS_TOTAL_CHAPTERS to plan.chapters.size,
+                    PROGRESS_DONE_CHAPTERS to totalChapters,
+                    PROGRESS_TOTAL_CHAPTERS to totalChapters,
                 ),
             )
         } catch (ioe: IOException) {
             Result.retry()
+        } catch (cancelled: DownloadStoppedException) {
+            Result.success(
+                workDataOf(
+                    PROGRESS_MESSAGE to "Fermato",
+                ),
+            )
         } catch (exc: Exception) {
             Result.failure(workDataOf(PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto")))
+        }
+    }
+
+    private suspend fun emitStatus(
+        mutex: Mutex,
+        message: String,
+        doneChapters: Int,
+        totalChapters: Int,
+    ) {
+        mutex.withLock {
+            updateStatus(message, doneChapters, totalChapters)
+        }
+    }
+
+    private fun ensureActiveDownload() {
+        if (isStopped) {
+            throw DownloadStoppedException()
         }
     }
 
@@ -171,6 +223,8 @@ class DownloadWorker(
         private const val KEY_FIRST_URL = "first_url"
         private const val NOTIFICATION_CHANNEL_ID = "manga_downloads"
         private const val NOTIFICATION_ID = 1001
+        private const val CHAPTER_CONCURRENCY = 2
+        private const val PAGE_CONCURRENCY = 4
 
         fun enqueue(context: Context, firstUrl: String) {
             val input = Data.Builder()
@@ -194,3 +248,5 @@ class DownloadWorker(
         }
     }
 }
+
+private class DownloadStoppedException : RuntimeException()

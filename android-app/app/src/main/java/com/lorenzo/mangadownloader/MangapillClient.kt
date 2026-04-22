@@ -1,7 +1,12 @@
 package com.lorenzo.mangadownloader
 
 import android.content.Context
-import android.os.Environment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,6 +35,8 @@ data class ChapterEntry(
 
 data class DownloadPlan(
     val seriesTitle: String,
+    val mangaUrl: String,
+    val coverUrl: String?,
     val outputDir: File,
     val chapters: List<ChapterEntry>,
     val startChapterLabel: String,
@@ -141,32 +148,60 @@ class MangapillClient(
             ?: throw IllegalArgumentException("Per ora l'app supporta solo URL capitolo di Mangapill")
         val document = fetchDocument(canonical)
         val seriesTitle = document.selectFirst("h1")?.text()?.trim().orEmpty().ifBlank { "manga" }
+        val coverUrl = findCoverImage(document)?.let { absolutize(canonical, it) }
         val allChapters = fetchChapterEntries(document, canonical)
         val selected = allChapters.filter { it.numberValue >= startChapter }
 
         if (selected.isEmpty()) {
-            throw IllegalStateException("Nessun capitolo trovato da ${startChapter.stripTrailingZeros().toPlainString()} in poi")
+            throw IllegalStateException(
+                "Nessun capitolo trovato da ${startChapter.stripTrailingZeros().toPlainString()} in poi",
+            )
         }
 
-        val root = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?: throw IllegalStateException("Cartella download dell'app non disponibile")
-        val outputDir = File(root, "MangaDownloader/${safeFilename(seriesTitle)}")
+        val outputDir = File(
+            DownloadStorage.libraryRoot(context),
+            DownloadStorage.safeFilename(seriesTitle),
+        )
         if (!outputDir.exists()) {
             outputDir.mkdirs()
         }
 
         return DownloadPlan(
             seriesTitle = seriesTitle,
+            mangaUrl = canonical,
+            coverUrl = coverUrl,
             outputDir = outputDir,
             chapters = selected,
             startChapterLabel = startChapter.stripTrailingZeros().toPlainString(),
         )
     }
 
+    fun prepareSeriesStorage(plan: DownloadPlan) {
+        val coverFileName = ensureCoverFile(plan.coverUrl, plan.outputDir)
+        val metadata = SeriesMetadata(
+            title = plan.seriesTitle,
+            mangaUrl = plan.mangaUrl,
+            coverFileName = coverFileName,
+            chapters = plan.chapters.map { chapter ->
+                SeriesMetadataChapter(
+                    numberText = chapter.displayNumber(),
+                    url = chapter.url,
+                    slug = chapter.slug,
+                    fileName = DownloadStorage.buildChapterFileName(chapter),
+                )
+            },
+        )
+        SeriesMetadataJson.write(
+            File(plan.outputDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            metadata,
+        )
+    }
+
     suspend fun downloadChapterAsCbz(
         chapter: ChapterEntry,
         outputDir: File,
-        onPageProgress: suspend (pageIndex: Int, pageTotal: Int) -> Unit,
+        pageConcurrency: Int,
+        onPageProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
     ): DownloadResult {
         val outputFile = buildChapterOutputFile(outputDir, chapter)
         if (outputFile.exists()) {
@@ -178,33 +213,109 @@ class MangapillClient(
             tempFile.delete()
         }
 
-        val pageUrls = fetchPageImageUrls(chapter.url)
-        ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
-            for ((index, pageUrl) in pageUrls.withIndex()) {
-                val imageBytes = fetchBytes(pageUrl, referer = chapter.url)
-                val extension = extractImageExtension(pageUrl)
-                zip.putNextEntry(ZipEntry("${(index + 1).toString().padStart(3, '0')}.$extension"))
-                zip.write(imageBytes)
-                zip.closeEntry()
-                onPageProgress(index + 1, pageUrls.size)
+        val tempPageDir = File(outputDir, ".${outputFile.nameWithoutExtension}_pages")
+        if (tempPageDir.exists()) {
+            tempPageDir.deleteRecursively()
+        }
+        tempPageDir.mkdirs()
+
+        try {
+            val pageFiles = downloadPageFiles(
+                chapter = chapter,
+                pageConcurrency = pageConcurrency,
+                outputDir = tempPageDir,
+                onPageProgress = onPageProgress,
+            )
+
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
+                for (page in pageFiles.sortedBy { it.index }) {
+                    zip.putNextEntry(ZipEntry(page.file.name))
+                    page.file.inputStream().buffered().use { input ->
+                        input.copyTo(zip)
+                    }
+                    zip.closeEntry()
+                }
+            }
+
+            if (!tempFile.renameTo(outputFile)) {
+                throw IOException("Impossibile finalizzare ${outputFile.name}")
+            }
+            return DownloadResult.DOWNLOADED
+        } finally {
+            tempPageDir.deleteRecursively()
+            if (tempFile.exists() && !outputFile.exists()) {
+                tempFile.delete()
             }
         }
+    }
 
-        if (!tempFile.renameTo(outputFile)) {
-            tempFile.delete()
-            throw IOException("Impossibile finalizzare ${outputFile.name}")
+    private suspend fun downloadPageFiles(
+        chapter: ChapterEntry,
+        pageConcurrency: Int,
+        outputDir: File,
+        onPageProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
+    ): List<DownloadedPageTempFile> = coroutineScope {
+        val pageUrls = fetchPageImageUrls(chapter.url)
+        val semaphore = Semaphore(pageConcurrency)
+        val progressLock = Any()
+        var completedPages = 0
+
+        pageUrls.mapIndexed { index, pageUrl ->
+            async(Dispatchers.IO) {
+                semaphore.withPermit {
+                    val extension = extractImageExtension(pageUrl)
+                    val finalName = "${(index + 1).toString().padStart(3, '0')}.$extension"
+                    val tempName = "$finalName.part"
+                    val tempFile = File(outputDir, tempName)
+                    val finalFile = File(outputDir, finalName)
+
+                    tempFile.outputStream().buffered().use { output ->
+                        output.write(fetchBytes(pageUrl, referer = chapter.url))
+                    }
+
+                    if (!tempFile.renameTo(finalFile)) {
+                        tempFile.delete()
+                        throw IOException("Impossibile finalizzare la pagina $finalName")
+                    }
+
+                    val progressValue = synchronized(progressLock) {
+                        completedPages += 1
+                        completedPages
+                    }
+                    onPageProgress(progressValue, pageUrls.size)
+                    DownloadedPageTempFile(index = index, file = finalFile)
+                }
+            }
+        }.awaitAll()
+    }
+
+    private fun ensureCoverFile(coverUrl: String?, outputDir: File): String? {
+        val existing = outputDir.listFiles()
+            ?.firstOrNull { file ->
+                file.isFile && file.name.startsWith("cover.", ignoreCase = true)
+            }
+        if (existing != null) {
+            return existing.name
         }
-        return DownloadResult.DOWNLOADED
+        if (coverUrl.isNullOrBlank()) {
+            return null
+        }
+
+        val extension = extractImageExtension(coverUrl)
+        val finalFile = File(outputDir, "cover.$extension")
+        val tempFile = File(outputDir, "${finalFile.name}.part")
+        tempFile.outputStream().buffered().use { output ->
+            output.write(fetchBytes(coverUrl, referer = "https://mangapill.com/"))
+        }
+        if (!tempFile.renameTo(finalFile)) {
+            tempFile.delete()
+            throw IOException("Impossibile salvare la copertina")
+        }
+        return finalFile.name
     }
 
     private fun buildChapterOutputFile(outputDir: File, chapter: ChapterEntry): File {
-        val chapterLabel = chapter.displayNumber()
-        val padded = if (chapterLabel.all(Char::isDigit)) {
-            chapterLabel.padStart(3, '0')
-        } else {
-            chapterLabel
-        }
-        return File(outputDir, "chapter_${safeFilename(padded)}.cbz")
+        return File(outputDir, DownloadStorage.buildChapterFileName(chapter))
     }
 
     private fun fetchChapterEntries(document: Document, mangaUrl: String): List<ChapterEntry> {
@@ -276,7 +387,10 @@ class MangapillClient(
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", USER_AGENT)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            )
             .header("Accept-Language", "it,en;q=0.8")
             .build()
 
@@ -305,12 +419,17 @@ class MangapillClient(
 
     private fun canonicalMangaUrl(url: String): String? {
         val normalized = url.trim()
-        val mangaMatch = Regex("""^https?://mangapill\.com/manga/([^/?#]+)(?:/([^/?#]+))?""", RegexOption.IGNORE_CASE)
-            .find(normalized)
+        val mangaMatch =
+            Regex("""^https?://mangapill\.com/manga/([^/?#]+)(?:/([^/?#]+))?""", RegexOption.IGNORE_CASE)
+                .find(normalized)
         if (mangaMatch != null) {
             val id = mangaMatch.groupValues[1]
             val slug = mangaMatch.groupValues.getOrNull(2).orEmpty()
-            return if (slug.isBlank()) "https://mangapill.com/manga/$id" else "https://mangapill.com/manga/$id/$slug"
+            return if (slug.isBlank()) {
+                "https://mangapill.com/manga/$id"
+            } else {
+                "https://mangapill.com/manga/$id/$slug"
+            }
         }
         val chapterMatch = Regex("""^https?://mangapill\.com/chapters/([^/]+)/""", RegexOption.IGNORE_CASE)
             .find(normalized)
@@ -378,13 +497,14 @@ class MangapillClient(
         return if (cleaned.isBlank()) "jpg" else cleaned
     }
 
-    private fun safeFilename(input: String): String {
-        return input.replace(Regex("""[^A-Za-z0-9._-]+"""), "_").trim('_').ifBlank { "manga" }
-    }
-
     companion object {
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     }
 }
+
+private data class DownloadedPageTempFile(
+    val index: Int,
+    val file: File,
+)

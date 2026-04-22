@@ -94,6 +94,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
+
+    testImplementation("junit:junit:4.13.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

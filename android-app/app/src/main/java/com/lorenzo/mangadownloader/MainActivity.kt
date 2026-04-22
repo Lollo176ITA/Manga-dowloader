@@ -56,7 +56,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,7 +67,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -72,6 +74,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.menuAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -689,6 +692,7 @@ private fun FavoritesSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DetailScreen(
     details: MangaDetails,
@@ -698,6 +702,7 @@ private fun DetailScreen(
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
+    var endMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -715,15 +720,6 @@ private fun DetailScreen(
             } else {
                 null
             },
-            onScrollToBottom = if (details.chapters.isNotEmpty()) {
-                {
-                    scope.launch {
-                        listState.animateScrollToItem(details.chapters.lastIndex)
-                    }
-                }
-            } else {
-                null
-            },
         )
 
         if (isLoading && details.chapters.isEmpty()) {
@@ -731,16 +727,31 @@ private fun DetailScreen(
                 CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = listState,
-            ) {
-                items(details.chapters, key = { it.url }) { chapter ->
-                    ChapterRow(
-                        chapter = chapter,
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                ) {
+                    items(details.chapters, key = { it.url }) { chapter ->
+                        ChapterRow(
+                            chapter = chapter,
+                            onClick = {
+                                pendingStart = chapter
+                                pendingEnd = chapter
+                                endMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+                if (details.chapters.isNotEmpty()) {
+                    ScrollToBottomButton(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
                         onClick = {
-                            pendingStart = chapter
-                            pendingEnd = chapter
+                            scope.launch {
+                                listState.animateScrollToItem(details.chapters.lastIndex)
+                            }
                         },
                     )
                 }
@@ -759,29 +770,48 @@ private fun DetailScreen(
             onDismissRequest = {
                 pendingStart = null
                 pendingEnd = null
+                endMenuExpanded = false
             },
             title = { Text("Seleziona intervallo download") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Da capitolo ${dialogStart.displayNumber()} a:")
-                    LazyColumn(
-                        modifier = Modifier.height(220.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    OutlinedTextField(
+                        value = "Capitolo ${dialogStart.displayNumber()}",
+                        onValueChange = {},
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Da") },
+                        readOnly = true,
+                        singleLine = true,
+                    )
+                    ExposedDropdownMenuBox(
+                        expanded = endMenuExpanded,
+                        onExpandedChange = { endMenuExpanded = !endMenuExpanded },
                     ) {
-                        items(endOptions, key = { it.url }) { candidate ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { pendingEnd = candidate }
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(
-                                    selected = candidate.url == dialogEnd.url,
-                                    onClick = { pendingEnd = candidate },
+                        OutlinedTextField(
+                            value = "Capitolo ${dialogEnd.displayNumber()}",
+                            onValueChange = {},
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            readOnly = true,
+                            singleLine = true,
+                            label = { Text("A") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = endMenuExpanded)
+                            },
+                        )
+                        ExposedDropdownMenu(
+                            expanded = endMenuExpanded,
+                            onDismissRequest = { endMenuExpanded = false },
+                        ) {
+                            endOptions.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text("Capitolo ${candidate.displayNumber()}") },
+                                    onClick = {
+                                        pendingEnd = candidate
+                                        endMenuExpanded = false
+                                    },
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Capitolo ${candidate.displayNumber()}")
                             }
                         }
                     }
@@ -792,6 +822,7 @@ private fun DetailScreen(
                     val finalEnd = pendingEnd ?: dialogStart
                     pendingStart = null
                     pendingEnd = null
+                    endMenuExpanded = false
                     onStart(dialogStart, finalEnd)
                 }) { Text("Avvia") }
             },
@@ -799,6 +830,7 @@ private fun DetailScreen(
                 TextButton(onClick = {
                     pendingStart = null
                     pendingEnd = null
+                    endMenuExpanded = false
                 }) { Text("Annulla") }
             },
         )
@@ -1006,34 +1038,39 @@ private fun DownloadedSeriesScreen(
             subtitle = "${series.chapters.size} capitoli scaricati",
             status = if (isFullyRead) "Letto" else null,
             statusColor = ReadGreen,
-            onScrollToBottom = if (series.chapters.isNotEmpty()) {
-                {
-                    scope.launch {
-                        listState.animateScrollToItem(series.chapters.lastIndex)
-                    }
-                }
-            } else {
-                null
-            },
         )
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = listState,
-        ) {
-            items(series.chapters, key = { it.relativePath }) { chapter ->
-                DownloadedChapterRow(
-                    chapter = chapter,
-                    isSelected = chapter.relativePath in selectedChapterPaths,
-                    selectionMode = selectionMode,
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+            ) {
+                items(series.chapters, key = { it.relativePath }) { chapter ->
+                    DownloadedChapterRow(
+                        chapter = chapter,
+                        isSelected = chapter.relativePath in selectedChapterPaths,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            if (selectionMode) {
+                                onToggleChapterSelection(chapter)
+                            } else {
+                                onOpenChapter(chapter)
+                            }
+                        },
+                        onLongClick = { onStartChapterSelection(chapter) },
+                    )
+                }
+            }
+            if (series.chapters.isNotEmpty()) {
+                ScrollToBottomButton(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
                     onClick = {
-                        if (selectionMode) {
-                            onToggleChapterSelection(chapter)
-                        } else {
-                            onOpenChapter(chapter)
+                        scope.launch {
+                            listState.animateScrollToItem(series.chapters.lastIndex)
                         }
                     },
-                    onLongClick = { onStartChapterSelection(chapter) },
                 )
             }
         }
@@ -1154,91 +1191,70 @@ private fun SeriesHeader(
     status: String? = null,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onDownloadAll: (() -> Unit)? = null,
-    onScrollToBottom: (() -> Unit)? = null,
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        CoverImage(
+            model = coverModel,
+            title = title,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = 56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CoverImage(
-                model = coverModel,
-                title = title,
-                modifier = Modifier
-                    .width(96.dp)
-                    .height(144.dp)
-                    .clip(MaterialTheme.shapes.medium),
+                .width(96.dp)
+                .height(144.dp)
+                .clip(MaterialTheme.shapes.medium),
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!status.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = status,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = statusColor,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                if (!status.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = statusColor,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
             }
         }
         onDownloadAll?.let { downloadAll ->
-            HeaderActionButton(
-                modifier = Modifier.align(Alignment.TopEnd),
-                imageVector = Icons.Default.Download,
-                contentDescription = "Scarica tutto il manga",
-                onClick = downloadAll,
-            )
-        }
-        onScrollToBottom?.let { scrollToBottom ->
-            HeaderActionButton(
-                modifier = Modifier.align(Alignment.BottomEnd),
-                imageVector = Icons.Default.KeyboardDoubleArrowDown,
-                contentDescription = "Vai in fondo",
-                onClick = scrollToBottom,
-            )
+            IconButton(onClick = downloadAll) {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = "Scarica tutto il manga",
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HeaderActionButton(
+private fun ScrollToBottomButton(
     modifier: Modifier = Modifier,
-    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
     onClick: () -> Unit,
 ) {
-    Surface(
-        modifier = modifier.size(40.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.primary,
-        shadowElevation = 2.dp,
+    IconButton(
+        modifier = modifier,
+        onClick = onClick,
     ) {
-        IconButton(onClick = onClick) {
-            Icon(
-                imageVector = imageVector,
-                contentDescription = contentDescription,
-                tint = Color.White,
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.KeyboardDoubleArrowDown,
+            contentDescription = "Vai in fondo",
+            tint = Color.White,
+        )
     }
 }
 

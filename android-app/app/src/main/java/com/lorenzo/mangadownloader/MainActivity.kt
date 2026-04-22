@@ -1734,13 +1734,13 @@ private fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, 
         val mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?: workInfo.inputData.getString(DownloadWorker.INPUT_MANGA_URL)
+            ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX)
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
         val title = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?: workInfo.inputData.getString(DownloadWorker.INPUT_SERIES_TITLE)
+            ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX)
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
         val key = downloadSeriesKey(mangaUrl = mangaUrl, title = title) ?: continue
@@ -1751,9 +1751,9 @@ private fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, 
         val workInfo = entries.first()
         SeriesDownloadStatus(
             seriesTitle = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
-                ?: workInfo.inputData.getString(DownloadWorker.INPUT_SERIES_TITLE),
+                ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX),
             mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
-                ?: workInfo.inputData.getString(DownloadWorker.INPUT_MANGA_URL),
+                ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
             message = workInfo.progress.getString(DownloadWorker.PROGRESS_MESSAGE),
             doneChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1),
             totalChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1),
@@ -1804,6 +1804,10 @@ private fun statePriority(state: WorkInfo.State): Int {
         WorkInfo.State.BLOCKED -> 2
         else -> 3
     }
+}
+
+private fun WorkInfo.tagValue(prefix: String): String? {
+    return tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
 }
 
 @Composable

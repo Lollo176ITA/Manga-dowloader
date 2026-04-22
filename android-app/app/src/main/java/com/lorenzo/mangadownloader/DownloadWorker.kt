@@ -260,6 +260,8 @@ class DownloadWorker(
         const val PROGRESS_MANGA_URL = "progress_manga_url"
         const val INPUT_SERIES_TITLE = "series_title"
         const val INPUT_MANGA_URL = "manga_url"
+        const val TAG_SERIES_TITLE_PREFIX = "series_title:"
+        const val TAG_MANGA_URL_PREFIX = "manga_url:"
 
         private const val KEY_FIRST_URL = "first_url"
         private const val KEY_LAST_URL = "last_url"
@@ -284,6 +286,14 @@ class DownloadWorker(
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setInputData(input)
+                .apply {
+                    seriesTitle?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { addTag("$TAG_SERIES_TITLE_PREFIX$it") }
+                    mangaUrl?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { addTag("$TAG_MANGA_URL_PREFIX$it") }
+                }
                 .setConstraints(
                     androidx.work.Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)

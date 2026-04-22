@@ -39,15 +39,19 @@ class DownloadWorker(
     override suspend fun doWork(): Result {
         val firstUrl = inputData.getString(KEY_FIRST_URL)?.trim().orEmpty()
         val lastUrl = inputData.getString(KEY_LAST_URL)?.trim().orEmpty().ifBlank { null }
+        val inputSeriesTitle = inputData.getString(INPUT_SERIES_TITLE)?.trim().orEmpty().ifBlank { null }
+        val inputMangaUrl = inputData.getString(INPUT_MANGA_URL)?.trim().orEmpty().ifBlank { null }
         if (firstUrl.isEmpty()) {
             return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL capitolo iniziale mancante"))
         }
 
         return try {
-            safeSetForeground("Preparazione download")
+            safeSetForeground(inputSeriesTitle ?: "Preparazione download")
             val plan = client.buildDownloadPlan(firstUrl, lastUrl)
             client.prepareSeriesStorage(plan)
             updateStatus(
+                seriesTitle = plan.seriesTitle,
+                mangaUrl = plan.mangaUrl,
                 message = if (plan.startChapterLabel == plan.endChapterLabel) {
                     "Trovato 1 capitolo: ${plan.startChapterLabel}"
                 } else {
@@ -70,6 +74,8 @@ class DownloadWorker(
                             val chapterLabel = chapter.displayNumber()
                             emitStatus(
                                 mutex = statusMutex,
+                                seriesTitle = plan.seriesTitle,
+                                mangaUrl = plan.mangaUrl,
                                 message = "Capitolo $chapterLabel in download",
                                 doneChapters = completedChapters.get(),
                                 totalChapters = totalChapters,
@@ -82,6 +88,8 @@ class DownloadWorker(
                             ) { pageDone, pageTotal ->
                                 emitStatus(
                                     mutex = statusMutex,
+                                    seriesTitle = plan.seriesTitle,
+                                    mangaUrl = plan.mangaUrl,
                                     message = "Capitolo $chapterLabel: pagina $pageDone/$pageTotal",
                                     doneChapters = completedChapters.get(),
                                     totalChapters = totalChapters,
@@ -97,6 +105,8 @@ class DownloadWorker(
                             }
                             emitStatus(
                                 mutex = statusMutex,
+                                seriesTitle = plan.seriesTitle,
+                                mangaUrl = plan.mangaUrl,
                                 message = message,
                                 doneChapters = done,
                                 totalChapters = totalChapters,
@@ -107,6 +117,8 @@ class DownloadWorker(
             }
 
             updateStatus(
+                seriesTitle = plan.seriesTitle,
+                mangaUrl = plan.mangaUrl,
                 message = "Download completato: $totalChapters capitoli",
                 doneChapters = totalChapters,
                 totalChapters = totalChapters,
@@ -116,6 +128,8 @@ class DownloadWorker(
                     PROGRESS_MESSAGE to "Completato",
                     PROGRESS_DONE_CHAPTERS to totalChapters,
                     PROGRESS_TOTAL_CHAPTERS to totalChapters,
+                    PROGRESS_SERIES_TITLE to plan.seriesTitle,
+                    PROGRESS_MANGA_URL to plan.mangaUrl,
                 ),
             )
         } catch (ioe: IOException) {
@@ -124,21 +138,31 @@ class DownloadWorker(
             Result.success(
                 workDataOf(
                     PROGRESS_MESSAGE to "Fermato",
+                    PROGRESS_SERIES_TITLE to inputSeriesTitle,
+                    PROGRESS_MANGA_URL to inputMangaUrl,
                 ),
             )
         } catch (exc: Exception) {
-            Result.failure(workDataOf(PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto")))
+            Result.failure(
+                workDataOf(
+                    PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto"),
+                    PROGRESS_SERIES_TITLE to inputSeriesTitle,
+                    PROGRESS_MANGA_URL to inputMangaUrl,
+                ),
+            )
         }
     }
 
     private suspend fun emitStatus(
         mutex: Mutex,
+        seriesTitle: String,
+        mangaUrl: String,
         message: String,
         doneChapters: Int,
         totalChapters: Int,
     ) {
         mutex.withLock {
-            updateStatus(message, doneChapters, totalChapters)
+            updateStatus(seriesTitle, mangaUrl, message, doneChapters, totalChapters)
         }
     }
 
@@ -148,9 +172,17 @@ class DownloadWorker(
         }
     }
 
-    private suspend fun updateStatus(message: String, doneChapters: Int, totalChapters: Int) {
+    private suspend fun updateStatus(
+        seriesTitle: String?,
+        mangaUrl: String?,
+        message: String,
+        doneChapters: Int,
+        totalChapters: Int,
+    ) {
         setProgress(
             workDataOf(
+                PROGRESS_SERIES_TITLE to seriesTitle,
+                PROGRESS_MANGA_URL to mangaUrl,
                 PROGRESS_MESSAGE to message,
                 PROGRESS_DONE_CHAPTERS to doneChapters,
                 PROGRESS_TOTAL_CHAPTERS to totalChapters,
@@ -224,6 +256,10 @@ class DownloadWorker(
         const val PROGRESS_MESSAGE = "progress_message"
         const val PROGRESS_DONE_CHAPTERS = "progress_done_chapters"
         const val PROGRESS_TOTAL_CHAPTERS = "progress_total_chapters"
+        const val PROGRESS_SERIES_TITLE = "progress_series_title"
+        const val PROGRESS_MANGA_URL = "progress_manga_url"
+        const val INPUT_SERIES_TITLE = "series_title"
+        const val INPUT_MANGA_URL = "manga_url"
 
         private const val KEY_FIRST_URL = "first_url"
         private const val KEY_LAST_URL = "last_url"
@@ -232,10 +268,18 @@ class DownloadWorker(
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
 
-        fun enqueue(context: Context, firstUrl: String, lastUrl: String? = null) {
+        fun enqueue(
+            context: Context,
+            firstUrl: String,
+            lastUrl: String? = null,
+            seriesTitle: String? = null,
+            mangaUrl: String? = null,
+        ) {
             val input = Data.Builder()
                 .putString(KEY_FIRST_URL, firstUrl.trim())
                 .putString(KEY_LAST_URL, lastUrl?.trim())
+                .putString(INPUT_SERIES_TITLE, seriesTitle?.trim())
+                .putString(INPUT_MANGA_URL, mangaUrl?.trim())
                 .build()
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()

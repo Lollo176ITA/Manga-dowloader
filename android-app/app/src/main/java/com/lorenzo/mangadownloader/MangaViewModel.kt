@@ -357,6 +357,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                         getApplication<Application>(),
                         missing.first().url,
                         missing.last().url,
+                        series.title,
+                        mangaUrl,
                     )
                 }
             } catch (e: CancellationException) {

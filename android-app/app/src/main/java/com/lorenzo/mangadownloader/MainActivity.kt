@@ -50,7 +50,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -114,6 +113,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class SeriesDownloadStatus(
+    val seriesTitle: String?,
+    val mangaUrl: String?,
+    val message: String?,
+    val doneChapters: Int,
+    val totalChapters: Int,
+    val state: WorkInfo.State,
+    val requestCount: Int,
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
@@ -129,7 +138,9 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     }
     val statusWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
         ?: activeWorkInfos.firstOrNull()
+    val latestMessage = statusWork?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
     val latestDone = statusWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
+    val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -140,7 +151,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showDeleteSeriesDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(statusWork?.id, statusWork?.state, latestDone, activeWorkInfos.size) {
+    LaunchedEffect(statusWork?.id, statusWork?.state, latestDone, latestMessage, activeWorkInfos.size) {
         viewModel.refreshLibrary()
     }
 
@@ -170,7 +181,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         viewModel.checkForAppUpdate()
     }
 
-    val onStartDownload: (ChapterEntry, ChapterEntry) -> Unit = { startChapter, endChapter ->
+    val onStartDownload: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit = { details, startChapter, endChapter ->
         val firstUrl = startChapter.url.trim()
         val lastUrl = endChapter.url.trim()
         if (firstUrl.isBlank()) {
@@ -179,7 +190,13 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             }
         } else {
             try {
-                DownloadWorker.enqueue(appContext, firstUrl, lastUrl)
+                DownloadWorker.enqueue(
+                    context = appContext,
+                    firstUrl = firstUrl,
+                    lastUrl = lastUrl,
+                    seriesTitle = details.title,
+                    mangaUrl = details.mangaUrl,
+                )
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         if (startChapter.url == endChapter.url) {
@@ -201,7 +218,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         initialPage = state.currentTab.ordinal,
         pageCount = { AppTab.entries.size },
     )
-    val isDownloadActive = activeWorkInfos.isNotEmpty()
     val showPager = state.readerChapter == null &&
         !state.showSettings &&
         state.selected == null &&
@@ -295,11 +311,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 DetailScreen(
                     details = activeDetail,
                     isLoading = state.isLoadingDetails,
-                    downloadStatus = statusWork,
-                    isDownloadActive = isDownloadActive,
                     padding = innerPadding,
                     onStart = onStartDownload,
-                    onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                 )
             }
             state.currentTab == AppTab.LIBRARY && activeSeries != null -> {
@@ -344,10 +357,14 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         )
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,
+                            downloadStatuses = downloadStatuses,
                             padding = innerPadding,
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
                             onQueryChange = viewModel::onLibraryQueryChange,
+                            onStopDownloads = {
+                                workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
+                            },
                         )
                     }
                 }
@@ -882,11 +899,8 @@ private fun FavoriteCard(favorite: FavoriteManga, onClick: () -> Unit) {
 private fun DetailScreen(
     details: MangaDetails,
     isLoading: Boolean,
-    downloadStatus: WorkInfo?,
-    isDownloadActive: Boolean,
     padding: PaddingValues,
-    onStart: (ChapterEntry, ChapterEntry) -> Unit,
-    onStopDownload: () -> Unit,
+    onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
@@ -904,16 +918,10 @@ private fun DetailScreen(
             title = details.title,
             subtitle = "${details.chapters.size} capitoli disponibili",
             onDownloadAll = if (details.chapters.isNotEmpty()) {
-                { onStart(details.chapters.first(), details.chapters.last()) }
+                { onStart(details, details.chapters.first(), details.chapters.last()) }
             } else {
                 null
             },
-        )
-
-        DownloadStatusStrip(
-            status = downloadStatus,
-            isActive = isDownloadActive,
-            onStop = onStopDownload,
         )
 
         if (isLoading && details.chapters.isEmpty()) {
@@ -1014,7 +1022,7 @@ private fun DetailScreen(
                     pendingStart = null
                     pendingEnd = null
                     endMenuExpanded = false
-                    onStart(dialogStart, finalEnd)
+                    onStart(details, dialogStart, finalEnd)
                 }) { Text("Avvia") }
             },
             dismissButton = {
@@ -1031,10 +1039,12 @@ private fun DetailScreen(
 @Composable
 private fun LibraryScreen(
     state: MangaUiState,
+    downloadStatuses: Map<String, SeriesDownloadStatus>,
     padding: PaddingValues,
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
     onQueryChange: (String) -> Unit,
+    onStopDownloads: () -> Unit,
 ) {
     val filtered = remember(state.library, state.libraryQuery) {
         val trimmed = state.libraryQuery.trim()
@@ -1083,8 +1093,10 @@ private fun LibraryScreen(
                     items(filtered, key = { it.directory.absolutePath }) { series ->
                         DownloadedSeriesCard(
                             series = series,
+                            downloadStatus = downloadStatusForSeries(downloadStatuses, series),
                             onClick = { onOpenSeries(series) },
                             onDelete = { onDeleteSeries(series) },
+                            onStopDownloads = onStopDownloads,
                         )
                     }
                 }
@@ -1173,8 +1185,10 @@ private fun NumberSettingField(
 @Composable
 private fun DownloadedSeriesCard(
     series: DownloadedSeries,
+    downloadStatus: SeriesDownloadStatus?,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onStopDownloads: () -> Unit,
 ) {
     val isFullyRead = series.isFullyRead()
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1217,6 +1231,13 @@ private fun DownloadedSeriesCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                downloadStatus?.let { status ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    SeriesDownloadSummary(
+                        status = status,
+                        onStopDownloads = onStopDownloads,
+                    )
+                }
             }
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
@@ -1288,6 +1309,76 @@ private fun DownloadedSeriesCard(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun SeriesDownloadSummary(
+    status: SeriesDownloadStatus,
+    onStopDownloads: () -> Unit,
+) {
+    val fraction = if (status.doneChapters >= 0 && status.totalChapters > 0) {
+        status.doneChapters.toFloat() / status.totalChapters.toFloat()
+    } else {
+        null
+    }
+    val title = when (status.state) {
+        WorkInfo.State.RUNNING -> status.message ?: "Download in corso"
+        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
+            if (status.requestCount > 1) "In coda (${status.requestCount})" else "In coda"
+        else -> status.message ?: "Download"
+    }
+    val supporting = when {
+        status.state == WorkInfo.State.RUNNING && fraction != null ->
+            "${status.doneChapters} / ${status.totalChapters} capitoli"
+        status.state == WorkInfo.State.RUNNING -> "Preparazione download"
+        !status.message.isNullOrBlank() -> status.message
+        else -> null
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    supporting?.let { text ->
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                TextButton(onClick = onStopDownloads) {
+                    Text("Ferma coda")
+                }
+            }
+            if (status.state == WorkInfo.State.RUNNING) {
+                Spacer(modifier = Modifier.height(8.dp))
+                if (fraction != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
     }
 }
 
@@ -1636,65 +1727,82 @@ private fun DownloadedChapterRow(
     }
 }
 
-@Composable
-private fun DownloadStatusStrip(
-    status: WorkInfo?,
-    isActive: Boolean,
-    onStop: () -> Unit,
-) {
-    val progressMessage = status?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
-    val visibleMessage = progressMessage
-    val done = status?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
-    val total = status?.progress?.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1) ?: -1
-
-    if (!isActive) {
-        return
+private fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDownloadStatus> {
+    val sorted = workInfos.sortedBy { statePriority(it.state) }
+    val grouped = linkedMapOf<String, MutableList<WorkInfo>>()
+    for (workInfo in sorted) {
+        val mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: workInfo.inputData.getString(DownloadWorker.INPUT_MANGA_URL)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        val title = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: workInfo.inputData.getString(DownloadWorker.INPUT_SERIES_TITLE)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        val key = downloadSeriesKey(mangaUrl = mangaUrl, title = title) ?: continue
+        grouped.getOrPut(key) { mutableListOf() } += workInfo
     }
 
-    val fraction = if (done >= 0 && total > 0) done.toFloat() / total.toFloat() else null
-    val title = visibleMessage ?: "Download in corso"
+    return grouped.mapValues { (_, entries) ->
+        val workInfo = entries.first()
+        SeriesDownloadStatus(
+            seriesTitle = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
+                ?: workInfo.inputData.getString(DownloadWorker.INPUT_SERIES_TITLE),
+            mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
+                ?: workInfo.inputData.getString(DownloadWorker.INPUT_MANGA_URL),
+            message = workInfo.progress.getString(DownloadWorker.PROGRESS_MESSAGE),
+            doneChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1),
+            totalChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1),
+            state = workInfo.state,
+            requestCount = entries.size,
+        )
+    }
+}
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 2.dp,
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (isActive) {
-                    IconButton(onClick = onStop) {
-                        Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Ferma download",
-                        )
-                    }
-                }
-            }
-            if (fraction != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "$done / $total",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            } else if (isActive) {
-                Spacer(modifier = Modifier.height(6.dp))
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+private fun downloadStatusForSeries(
+    downloadStatuses: Map<String, SeriesDownloadStatus>,
+    series: DownloadedSeries,
+): SeriesDownloadStatus? {
+    val primaryKey = downloadSeriesKey(series.mangaUrl, series.title)
+    if (primaryKey != null) {
+        downloadStatuses[primaryKey]?.let { return it }
+    }
+    val fallbackKey = downloadSeriesKey(null, series.title) ?: return null
+    return downloadStatuses[fallbackKey]
+}
+
+private fun downloadSeriesKey(mangaUrl: String?, title: String?): String? {
+    val normalizedUrl = mangaUrl?.trim()?.takeIf { it.isNotBlank() }
+    if (normalizedUrl != null) {
+        val mangaMatch = Regex("""^https?://mangapill\.com/manga/([^/?#]+)""", RegexOption.IGNORE_CASE)
+            .find(normalizedUrl)
+        if (mangaMatch != null) {
+            return "url:https://mangapill.com/manga/${mangaMatch.groupValues[1]}"
+        }
+        val chapterMatch = Regex("""^https?://mangapill\.com/chapters/([^/]+)/""", RegexOption.IGNORE_CASE)
+            .find(normalizedUrl)
+        if (chapterMatch != null) {
+            val mangaId = chapterMatch.groupValues[1].substringBefore('-')
+            if (mangaId.isNotBlank()) {
+                return "url:https://mangapill.com/manga/$mangaId"
             }
         }
+        return "url:$normalizedUrl"
+    }
+    val normalizedTitle = title?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+    return normalizedTitle?.let { "title:$it" }
+}
+
+private fun statePriority(state: WorkInfo.State): Int {
+    return when (state) {
+        WorkInfo.State.RUNNING -> 0
+        WorkInfo.State.ENQUEUED -> 1
+        WorkInfo.State.BLOCKED -> 2
+        else -> 3
     }
 }
 

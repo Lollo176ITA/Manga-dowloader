@@ -47,13 +47,58 @@ jobs:
           mkdir -p "$(dirname "$ANDROID_KEYSTORE_PATH")"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           test -s "$ANDROID_KEYSTORE_PATH" || { echo "Decoded keystore is empty"; exit 1; }
+          echo "Decoded keystore size: $(wc -c < "$ANDROID_KEYSTORE_PATH") bytes"
 
       - name: Verify keystore
         run: |
+          set +e
           keytool -list \
             -keystore "$ANDROID_KEYSTORE_PATH" \
             -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" > /dev/null
+            > /tmp/keystore-check.stdout 2> /tmp/keystore-check.stderr
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Failed to open keystore. This usually means ANDROID_KEYSTORE_BASE64 or ANDROID_KEYSTORE_PASSWORD is wrong."
+            cat /tmp/keystore-check.stderr
+            exit "$status"
+          fi
+
+          set +e
+          keytool -list \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            > /tmp/alias-check.stdout 2> /tmp/alias-check.stderr
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Keystore opened, but the alias check failed. ANDROID_KEY_ALIAS does not exist in this keystore."
+            cat /tmp/alias-check.stderr
+            exit "$status"
+          fi
+
+          mkdir -p /tmp/signing-check
+          printf 'signing check\n' > /tmp/signing-check/check.txt
+          jar --create --file /tmp/signing-check.jar -C /tmp/signing-check check.txt
+
+          set +e
+          jarsigner \
+            -keystore "$ANDROID_KEYSTORE_PATH" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -keypass "$ANDROID_KEY_PASSWORD" \
+            /tmp/signing-check.jar "$ANDROID_KEY_ALIAS" \
+            > /tmp/signing-check.stdout 2> /tmp/signing-check.stderr
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            echo "Keystore and alias are valid, but signing failed. ANDROID_KEY_PASSWORD does not match the selected key."
+            cat /tmp/signing-check.stderr
+            exit "$status"
+          fi
 
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace

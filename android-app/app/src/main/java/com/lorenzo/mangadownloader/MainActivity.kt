@@ -139,6 +139,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        viewModel.checkForAppUpdate()
     }
 
     val onStartDownload: (ChapterEntry) -> Unit = { chapter ->
@@ -267,6 +268,45 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     CrashReporter.clearLastCrash(appContext)
                     lastCrashReport = null
                 }) { Text("Chiudi") }
+            },
+        )
+    }
+
+    state.availableUpdate?.let { update ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!state.isInstallingUpdate) {
+                    viewModel.dismissAvailableUpdate()
+                }
+            },
+            title = { Text("Aggiornamento disponibile") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("È disponibile la versione ${update.versionName}.")
+                    if (state.isInstallingUpdate) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Scaricamento e apertura installer...")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.installAvailableUpdate() },
+                    enabled = !state.isInstallingUpdate,
+                ) {
+                    Text("Aggiorna")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissAvailableUpdate() },
+                    enabled = !state.isInstallingUpdate,
+                ) {
+                    Text("Più tardi")
+                }
             },
         )
     }

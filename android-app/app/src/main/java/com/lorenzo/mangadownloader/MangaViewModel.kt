@@ -36,6 +36,9 @@ data class MangaUiState(
     val readerChapter: DownloadedChapter? = null,
     val readerPages: List<File> = emptyList(),
     val isLoadingReader: Boolean = false,
+    val availableUpdate: AppUpdateInfo? = null,
+    val isCheckingUpdate: Boolean = false,
+    val isInstallingUpdate: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -43,6 +46,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private val client = MangapillClient(application)
     private val libraryRepository = LibraryRepository(application)
+    private val appUpdateRepository = AppUpdateRepository(application)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
@@ -54,6 +58,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private var detailJob: Job? = null
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
+    private var updateJob: Job? = null
 
     init {
         observeQueryChanges()
@@ -221,6 +226,74 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissError() {
         _state.value = _state.value.copy(errorMessage = null)
+    }
+
+    fun checkForAppUpdate(force: Boolean = false) {
+        if (updateJob?.isActive == true) {
+            return
+        }
+        if (!force && _state.value.availableUpdate != null) {
+            return
+        }
+
+        _state.value = _state.value.copy(isCheckingUpdate = true)
+        updateJob = viewModelScope.launch {
+            try {
+                val update = appUpdateRepository.checkForUpdate()
+                _state.value = _state.value.copy(
+                    availableUpdate = update,
+                    isCheckingUpdate = false,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = if (force) {
+                    _state.value.copy(
+                        isCheckingUpdate = false,
+                        errorMessage = exc.message ?: "Errore controllo aggiornamenti",
+                    )
+                } else {
+                    _state.value.copy(isCheckingUpdate = false)
+                }
+            }
+        }
+    }
+
+    fun dismissAvailableUpdate() {
+        _state.value = _state.value.copy(availableUpdate = null)
+    }
+
+    fun installAvailableUpdate() {
+        val update = _state.value.availableUpdate ?: return
+        updateJob?.cancel()
+        _state.value = _state.value.copy(isInstallingUpdate = true, errorMessage = null)
+        updateJob = viewModelScope.launch {
+            try {
+                val context = getApplication<Application>()
+                if (!AppUpdateInstaller.canInstallPackages(context)) {
+                    AppUpdateInstaller.openInstallPermissionSettings(context)
+                    _state.value = _state.value.copy(
+                        isInstallingUpdate = false,
+                        errorMessage = "Abilita l'installazione da questa app e riprova",
+                    )
+                    return@launch
+                }
+
+                val apkFile = appUpdateRepository.downloadUpdateApk(update)
+                AppUpdateInstaller.installApk(context, apkFile)
+                _state.value = _state.value.copy(
+                    isInstallingUpdate = false,
+                    availableUpdate = null,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isInstallingUpdate = false,
+                    errorMessage = exc.message ?: "Errore installazione aggiornamento",
+                )
+            }
+        }
     }
 
     private fun runSearch(q: String) {

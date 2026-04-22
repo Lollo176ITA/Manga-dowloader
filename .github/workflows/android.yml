@@ -1,5 +1,8 @@
 name: Android release APK
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -102,6 +105,42 @@ jobs:
 
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
+
+      - name: Read app version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          VERSION_NAME="$(grep '^versionName=' version.properties | cut -d= -f2-)"
+          RELEASE_TAG="$(grep '^releaseTag=' version.properties | cut -d= -f2-)"
+          test -n "$VERSION_NAME" || { echo "Missing versionName in version.properties"; exit 1; }
+          test -n "$RELEASE_TAG" || { echo "Missing releaseTag in version.properties"; exit 1; }
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+
+      - name: Create or update GitHub release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Android $VERSION_NAME"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Android $VERSION_NAME" \
+              --notes "APK release $VERSION_NAME"
+          fi
+
+      - name: Upload APK to GitHub release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            app/build/outputs/apk/release/app-release.apk#app-release.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

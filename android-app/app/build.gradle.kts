@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val versionProperties = Properties().apply {
+    val versionFile = rootProject.file("version.properties")
+    versionFile.inputStream().use(::load)
+}
+val appVersionCode = versionProperties.getProperty("versionCode").toInt()
+val appVersionName = versionProperties.getProperty("versionName")
+val updateConfigUrl = versionProperties.getProperty("updateConfigUrl")
 
 val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
@@ -21,8 +31,9 @@ android {
         applicationId = "com.lorenzo.mangadownloader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+        buildConfigField("String", "UPDATE_CONFIG_URL", "\"$updateConfigUrl\"")
     }
 
     signingConfigs {

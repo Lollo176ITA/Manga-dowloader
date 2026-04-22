@@ -47,6 +47,12 @@ Oppure trasferisci l'APK sul telefono e aprilo (ricordati di abilitare "Installa
 
 Il repo include `.github/workflows/android.yml`: ad ogni push su `main` o sui branch `claude/**` GitHub costruisce l'APK release firmato e lo carica come artifact chiamato `manga-downloader-release`.
 
+La versione Android ora vive in `android-app/version.properties`. Per pubblicare una nuova release e renderla visibile all'auto-update dell'app, aggiorna almeno:
+
+- `versionCode`
+- `versionName`
+- `releaseTag`
+
 Secrets richiesti nel repository GitHub:
 
 - `ANDROID_KEYSTORE_BASE64`: contenuto della keystore `.jks` codificato in Base64
@@ -71,6 +77,8 @@ Per scaricarlo:
 1. apri la tab **Actions** del repo su GitHub
 2. seleziona l'ultimo run "Android release APK"
 3. scarica l'artifact `manga-downloader-release` (contiene `app-release.apk`)
+
+Su `main`, lo stesso workflow crea o aggiorna anche una GitHub Release con l'asset `app-release.apk`: l'app Android usa quel file per controllare e installare gli aggiornamenti.
 
 ## Uso
 

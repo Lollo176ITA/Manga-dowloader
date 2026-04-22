@@ -252,48 +252,6 @@ fun ParentalPinEntryDialog(
 }
 
 @Composable
-fun ParentalManagementDialog(
-    settings: AppSettings,
-    onDismiss: () -> Unit,
-    onChangePin: () -> Unit,
-    onDisable: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Parental control") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    if (settings.parentalPinConfigured) {
-                        "Il parental control e attivo e protegge la schermata Cerca."
-                    } else {
-                        "Il parental control e attivo ma il PIN non e ancora configurato."
-                    },
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    TextButton(onClick = onChangePin) {
-                        Text("Cambia PIN")
-                    }
-                    TextButton(onClick = onDisable) {
-                        Text("Disattiva parental control")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
-            }
-        },
-    )
-}
-
-@Composable
 fun SearchSourceDialog(
     selectedSourceId: String,
     sources: List<MangaSourceDescriptor>,

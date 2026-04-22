@@ -12,6 +12,9 @@ val versionProperties = Properties().apply {
 val appVersionName = versionProperties.getProperty("versionName")
 val appVersionCode = appVersionName.toAndroidVersionCode()
 val updateConfigUrl = versionProperties.getProperty("updateConfigUrl")
+val repoOwner = versionProperties.getProperty("repoOwner")
+val repoName = versionProperties.getProperty("repoName")
+val apkAssetName = versionProperties.getProperty("apkAssetName")
 
 fun String?.toAndroidVersionCode(): Int {
     val raw = this?.trim().orEmpty()
@@ -54,6 +57,9 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         buildConfigField("String", "UPDATE_CONFIG_URL", "\"$updateConfigUrl\"")
+        buildConfigField("String", "UPDATE_REPO_OWNER", "\"${repoOwner.orEmpty()}\"")
+        buildConfigField("String", "UPDATE_REPO_NAME", "\"${repoName.orEmpty()}\"")
+        buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"${apkAssetName.orEmpty()}\"")
     }
 
     signingConfigs {
@@ -104,6 +110,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -130,6 +140,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

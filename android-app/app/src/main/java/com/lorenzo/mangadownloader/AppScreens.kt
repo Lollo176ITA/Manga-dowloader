@@ -514,7 +514,7 @@ fun SettingsScreen(
                         if (settings.parentalPinConfigured) {
                             "PIN configurato. Cerca richiede autenticazione a ogni accesso."
                         } else {
-                            "Attivo ma da configurare dal menu in alto a destra."
+                            "Attivo ma PIN non ancora configurato."
                         }
                     } else {
                         "Disattivato di default. Preferiti e Libreria restano sempre liberi."
@@ -555,24 +555,12 @@ fun SettingsScreen(
         }
 
         if (settings.parentalControlEnabled && settings.parentalPinConfigured) {
-            Row(
+            FilledTonalButton(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                enabled = !isParentalAuthInProgress,
+                onClick = onRequestChangeParentalPin,
             ) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    enabled = !isParentalAuthInProgress,
-                    onClick = onRequestChangeParentalPin,
-                ) {
-                    Text("Cambia PIN")
-                }
-                FilledTonalButton(
-                    modifier = Modifier.weight(1f),
-                    enabled = !isParentalAuthInProgress,
-                    onClick = { onToggleParentalControl(false) },
-                ) {
-                    Text("Disattiva")
-                }
+                Text("Cambia PIN")
             }
         }
     }

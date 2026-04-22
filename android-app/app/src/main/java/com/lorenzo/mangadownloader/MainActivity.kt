@@ -209,8 +209,19 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         state.handleBack(viewModel)
     }
 
-    LaunchedEffect(state.currentTab) {
-        if (pagerState.currentPage != state.currentTab.ordinal) {
+    LaunchedEffect(
+        state.currentTab,
+        state.pendingSearchAccessReturnTab,
+        showPager,
+        pagerState.currentPage,
+        pagerState.isScrollInProgress,
+    ) {
+        if (
+            showPager &&
+            !pagerState.isScrollInProgress &&
+            state.pendingSearchAccessReturnTab == null &&
+            pagerState.currentPage != state.currentTab.ordinal
+        ) {
             pagerState.animateScrollToPage(state.currentTab.ordinal)
         }
     }
@@ -233,7 +244,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
                 onOpenSearchSource = viewModel::openSearchSourceDialog,
-                onOpenParentalControl = viewModel::openParentalControlMenu,
             )
         },
         bottomBar = {
@@ -298,7 +308,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = showPager && !state.settings.parentalControlEnabled,
+                    userScrollEnabled = showPager,
                     beyondBoundsPageCount = 1,
                 ) { page ->
                     when (AppTab.entries[page]) {
@@ -369,15 +379,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             onPinChange = viewModel::onParentalPinEntryChange,
             onDismiss = viewModel::dismissParentalPinEntry,
             onConfirm = viewModel::confirmParentalPinEntry,
-        )
-    }
-
-    if (state.showParentalManagementDialog) {
-        ParentalManagementDialog(
-            settings = state.settings,
-            onDismiss = viewModel::dismissParentalManagementDialog,
-            onChangePin = viewModel::changeParentalPinFromManagement,
-            onDisable = viewModel::disableParentalControlFromManagement,
         )
     }
 

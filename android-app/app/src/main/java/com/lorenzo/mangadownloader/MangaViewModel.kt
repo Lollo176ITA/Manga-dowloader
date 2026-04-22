@@ -58,7 +58,6 @@ data class AppSettings(
 
 enum class ParentalAction {
     OPEN_SEARCH,
-    OPEN_MANAGEMENT,
     CHANGE_PIN,
     DISABLE_PARENTAL_CONTROL,
     ENABLE_BIOMETRIC,
@@ -93,6 +92,7 @@ data class ParentalBiometricPromptRequest(
 
 data class MangaUiState(
     val currentTab: AppTab = AppTab.SEARCH,
+    val pendingSearchAccessReturnTab: AppTab? = null,
     val query: String = "",
     val favoritesQuery: String = "",
     val libraryQuery: String = "",
@@ -121,7 +121,6 @@ data class MangaUiState(
     val parentalPinSetupState: ParentalPinSetupState? = null,
     val parentalPinEntryState: ParentalPinEntryState? = null,
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
-    val showParentalManagementDialog: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -208,6 +207,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tab: AppTab) {
+        if (tab == _state.value.currentTab) {
+            if (tab == AppTab.LIBRARY) {
+                refreshLibrary()
+            }
+            return
+        }
         if (tab == AppTab.SEARCH && _state.value.settings.parentalControlEnabled) {
             requestSearchAccess()
             return
@@ -269,16 +274,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun setParentalControlEnabled(enabled: Boolean) {
         val currentSettings = _state.value.settings
         if (enabled) {
-            updateSettings {
-                it.copy(parentalControlEnabled = true)
-            }
-            updateState {
-                if (currentTab == AppTab.SEARCH) {
-                    copy(currentTab = AppTab.LIBRARY)
-                } else {
-                    this
-                }
-            }
+            if (currentSettings.parentalControlEnabled) return
+            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE)
             return
         }
 
@@ -287,19 +284,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             disableParentalControl(clearCredentials = true)
         } else {
             requestParentalAuthentication(ParentalAction.DISABLE_PARENTAL_CONTROL)
-        }
-    }
-
-    fun openParentalControlMenu() {
-        val settings = _state.value.settings
-        if (!settings.parentalControlEnabled) return
-        if (!settings.parentalPinConfigured) {
-            startParentalPinSetup(
-                mode = ParentalPinSetupMode.CREATE,
-                completionAction = ParentalAction.OPEN_MANAGEMENT,
-            )
-        } else {
-            requestParentalAuthentication(ParentalAction.OPEN_MANAGEMENT)
         }
     }
 
@@ -324,19 +308,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         requestParentalAuthentication(action)
     }
 
-    fun dismissParentalManagementDialog() {
-        updateState { copy(showParentalManagementDialog = false) }
-    }
-
-    fun changeParentalPinFromManagement() {
-        updateState { copy(showParentalManagementDialog = false) }
-        startParentalPinSetup(mode = ParentalPinSetupMode.CHANGE)
-    }
-
-    fun disableParentalControlFromManagement() {
-        disableParentalControl(clearCredentials = true)
-    }
-
     fun onParentalPinSetupChange(pin: String? = null, confirmPin: String? = null) {
         val setupState = _state.value.parentalPinSetupState ?: return
         updateState {
@@ -351,10 +322,20 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissParentalPinSetup() {
+        val setupState = _state.value.parentalPinSetupState ?: return
+        if (setupState.mode == ParentalPinSetupMode.CREATE && !_state.value.settings.parentalPinConfigured) {
+            disableParentalControl(clearCredentials = true)
+            return
+        }
         updateState {
             copy(
                 parentalPinSetupState = null,
                 isParentalAuthInProgress = false,
+                pendingSearchAccessReturnTab = if (setupState.completionAction == ParentalAction.OPEN_SEARCH) {
+                    null
+                } else {
+                    pendingSearchAccessReturnTab
+                },
             )
         }
     }
@@ -396,12 +377,21 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         parentalControlEnabled = true,
                         parentalPinConfigured = true,
+                        parentalBiometricEnabled = _state.value.isBiometricAvailable,
                         parentalPinSalt = salt,
                         parentalPinHash = hash,
                     )
                 }
                 updateState {
                     copy(
+                        currentTab = if (
+                            setupState.completionAction == null &&
+                            currentTab == AppTab.SEARCH
+                        ) {
+                            AppTab.LIBRARY
+                        } else {
+                            currentTab
+                        },
                         parentalPinSetupState = null,
                         isParentalAuthInProgress = false,
                     )
@@ -424,10 +414,16 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissParentalPinEntry() {
+        val pinEntryState = _state.value.parentalPinEntryState ?: return
         updateState {
             copy(
                 parentalPinEntryState = null,
                 isParentalAuthInProgress = false,
+                pendingSearchAccessReturnTab = if (pinEntryState.action == ParentalAction.OPEN_SEARCH) {
+                    null
+                } else {
+                    pendingSearchAccessReturnTab
+                },
             )
         }
     }
@@ -507,6 +503,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             copy(
                 biometricPromptRequest = null,
                 isParentalAuthInProgress = false,
+                pendingSearchAccessReturnTab = if (request.action == ParentalAction.OPEN_SEARCH) {
+                    null
+                } else {
+                    pendingSearchAccessReturnTab
+                },
                 errorMessage = message ?: errorMessage,
             )
         }
@@ -933,10 +934,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun requestSearchAccess() {
         val settings = _state.value.settings
+        val originTab = _state.value.currentTab
         if (!settings.parentalControlEnabled) {
             updateState { copy(currentTab = AppTab.SEARCH) }
             return
         }
+        updateState { copy(pendingSearchAccessReturnTab = originTab) }
         if (!settings.parentalPinConfigured) {
             startParentalPinSetup(
                 mode = ParentalPinSetupMode.CREATE,
@@ -966,7 +969,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                         title = "Parental control",
                         subtitle = when (action) {
                             ParentalAction.OPEN_SEARCH -> "Autenticati per aprire Cerca"
-                            ParentalAction.OPEN_MANAGEMENT -> "Autenticati per gestire il parental control"
                             ParentalAction.CHANGE_PIN -> "Autenticati per cambiare il PIN"
                             ParentalAction.DISABLE_PARENTAL_CONTROL ->
                                 "Autenticati per disattivare il parental control"
@@ -991,7 +993,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 isParentalAuthInProgress = true,
                 parentalPinEntryState = null,
                 biometricPromptRequest = null,
-                showParentalManagementDialog = false,
                 parentalPinSetupState = ParentalPinSetupState(
                     mode = mode,
                     completionAction = completionAction,
@@ -1012,8 +1013,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun completeParentalAction(action: ParentalAction) {
         when (action) {
-            ParentalAction.OPEN_SEARCH -> updateState { copy(currentTab = AppTab.SEARCH) }
-            ParentalAction.OPEN_MANAGEMENT -> updateState { copy(showParentalManagementDialog = true) }
+            ParentalAction.OPEN_SEARCH -> updateState {
+                copy(
+                    currentTab = AppTab.SEARCH,
+                    pendingSearchAccessReturnTab = null,
+                )
+            }
             ParentalAction.CHANGE_PIN -> startParentalPinSetup(mode = ParentalPinSetupMode.CHANGE)
             ParentalAction.DISABLE_PARENTAL_CONTROL -> disableParentalControl(clearCredentials = true)
             ParentalAction.ENABLE_BIOMETRIC -> updateSettings { it.copy(parentalBiometricEnabled = true) }
@@ -1038,7 +1043,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         updateState {
             copy(
                 currentTab = if (currentTab == AppTab.SEARCH) AppTab.LIBRARY else currentTab,
-                showParentalManagementDialog = false,
+                pendingSearchAccessReturnTab = null,
                 parentalPinSetupState = null,
                 parentalPinEntryState = null,
                 biometricPromptRequest = null,

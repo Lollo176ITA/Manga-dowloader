@@ -127,16 +127,25 @@ class MangapillClient(
         )
     }
 
-    fun buildDownloadPlan(mangaUrl: String, startChapterNumber: BigDecimal): DownloadPlan {
-        val canonical = canonicalMangaUrl(mangaUrl)
-            ?: throw IllegalArgumentException("URL manga non valido")
+    fun buildDownloadPlan(firstChapterUrl: String): DownloadPlan {
+        val normalizedFirstUrl = firstChapterUrl.trim()
+        val startChapter = parseChapterNumber(
+            Regex("""chapter-(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+                .find(normalizedFirstUrl)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?: throw IllegalArgumentException("URL capitolo non valido"),
+        )
+
+        val canonical = canonicalMangaUrl(normalizedFirstUrl)
+            ?: throw IllegalArgumentException("Per ora l'app supporta solo URL capitolo di Mangapill")
         val document = fetchDocument(canonical)
         val seriesTitle = document.selectFirst("h1")?.text()?.trim().orEmpty().ifBlank { "manga" }
         val allChapters = fetchChapterEntries(document, canonical)
-        val selected = allChapters.filter { it.numberValue >= startChapterNumber }
+        val selected = allChapters.filter { it.numberValue >= startChapter }
 
         if (selected.isEmpty()) {
-            throw IllegalStateException("Nessun capitolo trovato da ${startChapterNumber.stripTrailingZeros().toPlainString()} in poi")
+            throw IllegalStateException("Nessun capitolo trovato da ${startChapter.stripTrailingZeros().toPlainString()} in poi")
         }
 
         val root = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
@@ -150,7 +159,7 @@ class MangapillClient(
             seriesTitle = seriesTitle,
             outputDir = outputDir,
             chapters = selected,
-            startChapterLabel = startChapterNumber.stripTrailingZeros().toPlainString(),
+            startChapterLabel = startChapter.stripTrailingZeros().toPlainString(),
         )
     }
 
@@ -201,7 +210,7 @@ class MangapillClient(
     private fun fetchChapterEntries(document: Document, mangaUrl: String): List<ChapterEntry> {
         val entries = linkedMapOf<String, ChapterEntry>()
 
-        for (link in document.select("""a[href^="/chapters/"]""")) {
+        for (link in document.select("""#chapters a[href^="/chapters/"]""")) {
             val href = link.attr("href").trim()
             if (href.isBlank()) {
                 continue

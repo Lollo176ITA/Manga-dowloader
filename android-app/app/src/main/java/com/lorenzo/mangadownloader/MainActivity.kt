@@ -70,7 +70,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import coil.compose.AsyncImage
-import java.math.BigDecimal
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -128,32 +127,23 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         }
     }
 
-    val onStartDownload: (String, String) -> Unit = { mangaUrl, chapterLabel ->
-        val cleanUrl = mangaUrl.trim()
-        val cleanChapter = chapterLabel.trim()
-        val chapterNumber = try {
-            BigDecimal(cleanChapter).stripTrailingZeros().toPlainString()
-        } catch (_: NumberFormatException) {
-            null
-        }
-
-        when {
-            cleanUrl.isBlank() -> scope.launch {
-                snackbarHostState.showSnackbar("URL manga non valido")
+    val onStartDownload: (ChapterEntry) -> Unit = { chapter ->
+        val firstUrl = chapter.url.trim()
+        if (firstUrl.isBlank()) {
+            scope.launch {
+                snackbarHostState.showSnackbar("URL capitolo non valido")
             }
-            chapterNumber == null -> scope.launch {
-                snackbarHostState.showSnackbar("Numero capitolo non valido")
-            }
-            else -> {
-                try {
-                    DownloadWorker.enqueue(appContext, cleanUrl, chapterNumber)
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Download avviato dal capitolo $chapterNumber")
-                    }
-                } catch (exc: Exception) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
-                    }
+        } else {
+            try {
+                DownloadWorker.enqueue(appContext, firstUrl)
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        "Download avviato dal capitolo ${chapter.displayNumber()}",
+                    )
+                }
+            } catch (exc: Exception) {
+                scope.launch {
+                    snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
                 }
             }
         }
@@ -354,12 +344,12 @@ private fun DetailScreen(
     details: MangaDetails,
     isLoading: Boolean,
     padding: PaddingValues,
-    onStart: (mangaUrl: String, chapterLabel: String) -> Unit,
+    onStart: (ChapterEntry) -> Unit,
     status: WorkInfo?,
     isDownloadActive: Boolean,
     onStopDownload: () -> Unit,
 ) {
-    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    var pending by rememberSaveable { mutableStateOf<ChapterEntry?>(null) }
 
     Column(
         modifier = Modifier
@@ -402,13 +392,14 @@ private fun DetailScreen(
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(details.chapters.reversed(), key = { it.url }) { chapter ->
-                    ChapterRow(chapter = chapter, onClick = { pending = chapter.displayNumber() })
+                    ChapterRow(chapter = chapter, onClick = { pending = chapter })
                 }
             }
         }
     }
 
-    pending?.let { label ->
+    pending?.let { chapter ->
+        val label = chapter.displayNumber()
         AlertDialog(
             onDismissRequest = { pending = null },
             title = { Text("Capitolo $label") },
@@ -416,7 +407,7 @@ private fun DetailScreen(
             confirmButton = {
                 TextButton(onClick = {
                     pending = null
-                    onStart(details.mangaUrl, label)
+                    onStart(chapter)
                 }) { Text("Avvia") }
             },
             dismissButton = {

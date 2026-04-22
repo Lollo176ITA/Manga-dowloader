@@ -19,7 +19,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.io.IOException
-import java.math.BigDecimal
 
 class DownloadWorker(
     appContext: Context,
@@ -29,21 +28,14 @@ class DownloadWorker(
     private val client = MangapillClient(appContext)
 
     override suspend fun doWork(): Result {
-        val mangaUrl = inputData.getString(KEY_MANGA_URL)?.trim().orEmpty()
-        val startLabel = inputData.getString(KEY_START_CHAPTER)?.trim().orEmpty()
-        if (mangaUrl.isEmpty() || startLabel.isEmpty()) {
-            return Result.failure(workDataOf(PROGRESS_MESSAGE to "Manga o capitolo iniziale mancante"))
-        }
-
-        val startNumber = try {
-            BigDecimal(startLabel)
-        } catch (_: NumberFormatException) {
-            return Result.failure(workDataOf(PROGRESS_MESSAGE to "Numero capitolo non valido: $startLabel"))
+        val firstUrl = inputData.getString(KEY_FIRST_URL)?.trim().orEmpty()
+        if (firstUrl.isEmpty()) {
+            return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL capitolo iniziale mancante"))
         }
 
         return try {
             safeSetForeground("Preparazione download")
-            val plan = client.buildDownloadPlan(mangaUrl, startNumber)
+            val plan = client.buildDownloadPlan(firstUrl)
             updateStatus(
                 message = "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} in poi",
                 doneChapters = 0,
@@ -176,15 +168,13 @@ class DownloadWorker(
         const val PROGRESS_DONE_CHAPTERS = "progress_done_chapters"
         const val PROGRESS_TOTAL_CHAPTERS = "progress_total_chapters"
 
-        private const val KEY_MANGA_URL = "manga_url"
-        private const val KEY_START_CHAPTER = "start_chapter"
+        private const val KEY_FIRST_URL = "first_url"
         private const val NOTIFICATION_CHANNEL_ID = "manga_downloads"
         private const val NOTIFICATION_ID = 1001
 
-        fun enqueue(context: Context, mangaUrl: String, startChapterLabel: String) {
+        fun enqueue(context: Context, firstUrl: String) {
             val input = Data.Builder()
-                .putString(KEY_MANGA_URL, mangaUrl.trim())
-                .putString(KEY_START_CHAPTER, startChapterLabel.trim())
+                .putString(KEY_FIRST_URL, firstUrl.trim())
                 .build()
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()

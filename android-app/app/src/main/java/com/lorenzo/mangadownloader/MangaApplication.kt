@@ -6,6 +6,10 @@ import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient
 
 class MangaApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        CrashReporter.install(this)
+    }
 
     override fun newImageLoader(): ImageLoader {
         val okHttpClient = OkHttpClient.Builder()

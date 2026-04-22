@@ -99,6 +99,9 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val appContext = remember(context) { context.applicationContext }
+    var lastCrashReport by remember {
+        mutableStateOf(CrashReporter.readLastCrash(appContext))
+    }
 
     LaunchedEffect(state.errorMessage) {
         val msg = state.errorMessage
@@ -200,6 +203,33 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
             )
         }
+    }
+
+    lastCrashReport?.let { report ->
+        val crashPath = remember(appContext) { CrashReporter.crashFilePath(appContext).orEmpty() }
+        AlertDialog(
+            onDismissRequest = {
+                CrashReporter.clearLastCrash(appContext)
+                lastCrashReport = null
+            },
+            title = { Text("Ultimo crash rilevato") },
+            text = {
+                Text(
+                    text = buildString {
+                        append(report.lineSequence().take(10).joinToString("\n"))
+                        if (crashPath.isNotBlank()) {
+                            append("\n\nFile: $crashPath")
+                        }
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    CrashReporter.clearLastCrash(appContext)
+                    lastCrashReport = null
+                }) { Text("Chiudi") }
+            },
+        )
     }
 }
 
@@ -419,6 +449,8 @@ private fun DownloadStatusStrip(
     onStop: () -> Unit,
 ) {
     val progressMessage = status?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
+    val resultMessage = status?.outputData?.getString(DownloadWorker.PROGRESS_MESSAGE)
+    val visibleMessage = progressMessage ?: resultMessage
     val done = status?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
     val total = status?.progress?.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1) ?: -1
     val showRecent = status?.state == WorkInfo.State.SUCCEEDED ||
@@ -432,11 +464,11 @@ private fun DownloadStatusStrip(
     val fraction = if (done >= 0 && total > 0) done.toFloat() / total.toFloat() else null
     val title = when (status?.state) {
         WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
-            progressMessage ?: "Download in corso"
+            visibleMessage ?: "Download in corso"
         WorkInfo.State.SUCCEEDED -> "Completato"
-        WorkInfo.State.FAILED -> progressMessage ?: "Errore"
+        WorkInfo.State.FAILED -> visibleMessage ?: "Errore"
         WorkInfo.State.CANCELLED -> "Fermato"
-        else -> progressMessage ?: ""
+        else -> visibleMessage ?: ""
     }
 
     Surface(

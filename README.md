@@ -45,11 +45,11 @@ Oppure trasferisci l'APK sul telefono e aprilo (ricordati di abilitare "Installa
 
 ### Build automatica via GitHub Actions
 
-Il repo include `.github/workflows/android.yml`: ad ogni push su `main` o sui branch `claude/**` GitHub costruisce l'APK debug e lo carica come artifact chiamato `manga-downloader-debug`. Per scaricarlo:
+Il repo include `.github/workflows/android.yml`: ad ogni push su `main` o sui branch `claude/**` GitHub costruisce l'APK release e lo carica come artifact chiamato `manga-downloader-release`. Per scaricarlo:
 
 1. apri la tab **Actions** del repo su GitHub
-2. seleziona l'ultimo run "Android debug APK"
-3. scarica l'artifact `manga-downloader-debug` (contiene `app-debug.apk`)
+2. seleziona l'ultimo run "Android release APK"
+3. scarica l'artifact `manga-downloader-release` (contiene `app-release-unsigned.apk`)
 
 ## Uso
 

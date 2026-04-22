@@ -82,6 +82,7 @@ import java.io.File
 import kotlinx.coroutines.launch
 
 data class SeriesDownloadStatus(
+    val sourceId: String,
     val seriesTitle: String?,
     val mangaUrl: String?,
     val coverUrl: String?,
@@ -137,10 +138,16 @@ fun SearchScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(state.results, key = { it.mangaUrl }) { result ->
+                        items(
+                            state.results,
+                            key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
+                        ) { result ->
                             ResultCard(
                                 result = result,
-                                isFavorite = result.mangaUrl in state.favoriteMangaUrls,
+                                isFavorite = MangaSourceCatalog.identityKey(
+                                    result.sourceId,
+                                    result.mangaUrl,
+                                ) in state.favoriteMangaKeys,
                                 onClick = { onSelect(result) },
                                 onToggleFavorite = { onToggleFavorite(result) },
                             )
@@ -217,7 +224,10 @@ fun FavoritesScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(filtered, key = { it.mangaUrl }) { favorite ->
+                        items(
+                            filtered,
+                            key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
+                        ) { favorite ->
                             FavoriteCard(
                                 favorite = favorite,
                                 onClick = { onSelect(favorite) },
@@ -1489,6 +1499,12 @@ fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDo
     val grouped = linkedMapOf<String, MutableList<WorkInfo>>()
 
     for (workInfo in sorted) {
+        val sourceId = workInfo.progress.getString(DownloadWorker.PROGRESS_SOURCE_ID)
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: workInfo.tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX)
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
         val mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
             ?.trim()
             ?.takeIf(String::isNotBlank)
@@ -1501,13 +1517,20 @@ fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDo
             ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX)
                 ?.trim()
                 ?.takeIf(String::isNotBlank)
-        val key = downloadSeriesKey(mangaUrl = mangaUrl, title = title) ?: continue
+        val key = downloadSeriesKey(sourceId = sourceId, mangaUrl = mangaUrl, title = title) ?: continue
         grouped.getOrPut(key) { mutableListOf() } += workInfo
     }
 
     return grouped.mapValues { (_, entries) ->
         val workInfo = entries.first()
         SeriesDownloadStatus(
+            sourceId = workInfo.progress.getString(DownloadWorker.PROGRESS_SOURCE_ID)
+                ?: workInfo.tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX)
+                ?: MangaSourceCatalog.resolveSourceId(
+                    null,
+                    workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
+                        ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
+                ),
             seriesTitle = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
                 ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX),
             mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
@@ -1526,11 +1549,11 @@ private fun downloadStatusForSeries(
     downloadStatuses: Map<String, SeriesDownloadStatus>,
     series: DownloadedSeries,
 ): SeriesDownloadStatus? {
-    val primaryKey = downloadSeriesKey(series.mangaUrl, series.title)
+    val primaryKey = downloadSeriesKey(series.sourceId, series.mangaUrl, series.title)
     if (primaryKey != null) {
         downloadStatuses[primaryKey]?.let { return it }
     }
-    return downloadSeriesKey(null, series.title)?.let(downloadStatuses::get)
+    return downloadSeriesKey(series.sourceId, null, series.title)?.let(downloadStatuses::get)
 }
 
 private fun buildLibraryRowItems(
@@ -1543,7 +1566,9 @@ private fun buildLibraryRowItems(
 
     library.forEach { series ->
         val status = downloadStatusForSeries(downloadStatuses, series)
-        downloadSeriesKey(series.mangaUrl, series.title)?.takeIf { status != null }?.let(usedStatusKeys::add)
+        downloadSeriesKey(series.sourceId, series.mangaUrl, series.title)
+            ?.takeIf { status != null }
+            ?.let(usedStatusKeys::add)
         if (query.isBlank() || series.title.contains(query, ignoreCase = true)) {
             rows += LibraryRowItem(
                 key = "series:${series.directory.absolutePath}",
@@ -1575,25 +1600,12 @@ private fun buildLibraryRowItems(
     )
 }
 
-private fun downloadSeriesKey(mangaUrl: String?, title: String?): String? {
-    val normalizedUrl = mangaUrl?.trim()?.takeIf(String::isNotBlank)
-    if (normalizedUrl != null) {
-        val mangaMatch = Regex("""^https?://mangapill\.com/manga/([^/?#]+)""", RegexOption.IGNORE_CASE)
-            .find(normalizedUrl)
-        if (mangaMatch != null) {
-            return "url:https://mangapill.com/manga/${mangaMatch.groupValues[1]}"
-        }
-        val chapterMatch = Regex("""^https?://mangapill\.com/chapters/([^/]+)/""", RegexOption.IGNORE_CASE)
-            .find(normalizedUrl)
-        if (chapterMatch != null) {
-            val mangaId = chapterMatch.groupValues[1].substringBefore('-')
-            if (mangaId.isNotBlank()) {
-                return "url:https://mangapill.com/manga/$mangaId"
-            }
-        }
-        return "url:$normalizedUrl"
-    }
-    return title?.trim()?.lowercase()?.takeIf(String::isNotBlank)?.let { "title:$it" }
+private fun downloadSeriesKey(
+    sourceId: String?,
+    mangaUrl: String?,
+    title: String?,
+): String? {
+    return MangaSourceCatalog.identityKeyOrNull(sourceId, mangaUrl, title)
 }
 
 private fun statePriority(state: WorkInfo.State): Int {

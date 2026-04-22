@@ -41,6 +41,7 @@ class LibraryScannerTest {
         SeriesMetadataJson.write(
             File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
             SeriesMetadata(
+                sourceId = MangaSourceIds.MANGAPILL,
                 title = "Berserk",
                 mangaUrl = "https://mangapill.com/manga/1/berserk",
                 coverFileName = "cover.jpg",
@@ -71,6 +72,7 @@ class LibraryScannerTest {
 
         assertEquals(1, series.size)
         assertEquals("Berserk", series.first().title)
+        assertEquals(MangaSourceIds.MANGAPILL, series.first().sourceId)
         assertNotNull(series.first().coverFile)
         assertEquals(2, series.first().chapters.size)
         assertFalse(series.first().chapters.first().isRead)
@@ -88,8 +90,25 @@ class LibraryScannerTest {
 
         assertEquals(1, series.size)
         assertEquals("my series", series.first().title)
+        assertEquals(MangaSourceIds.MANGAPILL, series.first().sourceId)
         assertEquals(listOf("1", "10.5"), series.first().chapters.map { it.numberText })
         assertTrue(series.first().chapters.none { it.isRead })
+    }
+
+    @Test
+    fun parse_metadataWithoutSourceId_infersProviderFromUrl() {
+        val parsed = SeriesMetadataJson.parse(
+            """
+            {
+              "title": "Yotsuba",
+              "mangaUrl": "https://reader.hastateam.com/comics/yotsuba",
+              "chapters": []
+            }
+            """.trimIndent(),
+        )
+
+        assertNotNull(parsed)
+        assertEquals(MangaSourceIds.HASTA_TEAM, parsed?.sourceId)
     }
 
     private fun createTempDirectory(): File {

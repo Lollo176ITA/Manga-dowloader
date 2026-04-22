@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -36,6 +37,7 @@ fun AppTopBar(
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearchSource: () -> Unit,
     onOpenParentalControl: () -> Unit,
 ) {
     val readerChapter = state.readerChapter
@@ -87,7 +89,10 @@ fun AppTopBar(
         },
         actions = {
             if (inDetail && selectedManga != null) {
-                val isFavorite = selectedManga.mangaUrl in state.favoriteMangaUrls
+                val isFavorite = MangaSourceCatalog.identityKey(
+                    selectedManga.sourceId,
+                    selectedManga.mangaUrl,
+                ) in state.favoriteMangaKeys
                 IconButton(onClick = onToggleFavorite) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
@@ -109,6 +114,18 @@ fun AppTopBar(
                         expanded = overflowExpanded,
                         onDismissRequest = { overflowExpanded = false },
                     ) {
+                        if (visibleTab == AppTab.SEARCH) {
+                            DropdownMenuItem(
+                                text = { Text("Server") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Storage, contentDescription = null)
+                                },
+                                onClick = {
+                                    overflowExpanded = false
+                                    onOpenSearchSource()
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Impostazioni") },
                             leadingIcon = {

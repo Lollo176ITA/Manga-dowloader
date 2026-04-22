@@ -36,12 +36,14 @@ enum class AppTab {
 }
 
 data class FavoriteManga(
+    val sourceId: String,
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
 )
 
 data class AppSettings(
+    val searchSourceId: String = MangaSourceIds.DEFAULT,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -96,7 +98,7 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val results: List<MangaSearchResult> = emptyList(),
     val favorites: List<FavoriteManga> = emptyList(),
-    val favoriteMangaUrls: Set<String> = emptySet(),
+    val favoriteMangaKeys: Set<String> = emptySet(),
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val isLoadingDetails: Boolean = false,
@@ -113,6 +115,7 @@ data class MangaUiState(
     val isInstallingUpdate: Boolean = false,
     val showSettings: Boolean = false,
     val settings: AppSettings = AppSettings(),
+    val showSearchSourceDialog: Boolean = false,
     val isBiometricAvailable: Boolean = false,
     val isParentalAuthInProgress: Boolean = false,
     val parentalPinSetupState: ParentalPinSetupState? = null,
@@ -124,7 +127,7 @@ data class MangaUiState(
 
 class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val client = MangapillClient(application)
+    private val sourceRegistry = MangaSourceRegistry(application)
     private val libraryRepository = LibraryRepository(application)
     private val appUpdateRepository = AppUpdateRepository(application)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -136,7 +139,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         MangaUiState(
             currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
             favorites = initialFavorites,
-            favoriteMangaUrls = initialFavorites.mapTo(linkedSetOf()) { it.mangaUrl },
+            favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
+                MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
+            },
             settings = initialSettings,
             isBiometricAvailable = isBiometricAvailable(application),
         ),
@@ -223,6 +228,38 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openSettings() {
         updateState { copy(showSettings = true) }
+    }
+
+    fun openSearchSourceDialog() {
+        updateState { copy(showSearchSourceDialog = true) }
+    }
+
+    fun dismissSearchSourceDialog() {
+        updateState { copy(showSearchSourceDialog = false) }
+    }
+
+    fun selectSearchSource(sourceId: String) {
+        val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
+        val query = _state.value.query.trim()
+        updateSettings { it.copy(searchSourceId = resolvedSourceId) }
+        updateState {
+            copy(
+                showSearchSourceDialog = false,
+                errorMessage = null,
+            )
+        }
+        when {
+            query.length >= MIN_QUERY_LENGTH -> runSearch(query)
+            query.isBlank() || query.length < MIN_QUERY_LENGTH -> {
+                searchJob?.cancel()
+                updateState {
+                    copy(
+                        results = emptyList(),
+                        isSearching = false,
+                    )
+                }
+            }
+        }
     }
 
     fun closeSettings() {
@@ -498,6 +535,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
         toggleFavorite(
             FavoriteManga(
+                sourceId = result.sourceId,
                 title = result.title,
                 mangaUrl = result.mangaUrl,
                 coverUrl = result.coverUrl,
@@ -511,6 +549,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             isLoadingDetails = true,
             errorMessage = null,
             selected = MangaDetails(
+                sourceId = result.sourceId,
                 title = result.title,
                 coverUrl = result.coverUrl,
                 mangaUrl = result.mangaUrl,
@@ -519,7 +558,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         )
         detailJob = viewModelScope.launch {
             try {
-                val details = withContext(Dispatchers.IO) { client.fetchMangaDetails(result.mangaUrl) }
+                val details = withContext(Dispatchers.IO) {
+                    sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
+                }
                 _state.value = _state.value.copy(selected = details, isLoadingDetails = false)
             } catch (e: CancellationException) {
                 throw e
@@ -539,7 +580,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFavorite(manga: FavoriteManga) {
         val current = _state.value.favorites.toMutableList()
-        val existingIndex = current.indexOfFirst { it.mangaUrl == manga.mangaUrl }
+        val targetKey = MangaSourceCatalog.identityKey(manga.sourceId, manga.mangaUrl)
+        val existingIndex = current.indexOfFirst {
+            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+        }
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
         } else {
@@ -549,7 +593,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         updateState {
             copy(
                 favorites = current,
-                favoriteMangaUrls = current.mapTo(linkedSetOf()) { it.mangaUrl },
+                favoriteMangaKeys = current.mapTo(linkedSetOf()) {
+                    MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
+                },
             )
         }
     }
@@ -558,6 +604,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         val selected = _state.value.selected ?: return
         toggleFavorite(
             FavoriteManga(
+                sourceId = selected.sourceId,
                 title = selected.title,
                 mangaUrl = selected.mangaUrl,
                 coverUrl = selected.coverUrl,
@@ -660,7 +707,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
         autoDownloadJob = viewModelScope.launch {
             try {
-                val details = withContext(Dispatchers.IO) { client.fetchMangaDetails(mangaUrl) }
+                val details = withContext(Dispatchers.IO) {
+                    sourceRegistry.resolve(series.sourceId, mangaUrl).fetchMangaDetails(mangaUrl)
+                }
                 val missing = details.chapters
                     .asSequence()
                     .filter { remote ->
@@ -676,6 +725,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                         getApplication<Application>(),
                         missing.first().url,
                         missing.last().url,
+                        sourceId = series.sourceId,
                         series.title,
                         mangaUrl,
                     )
@@ -866,7 +916,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         updateState { copy(isSearching = true, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
-                val results = withContext(Dispatchers.IO) { client.searchManga(q) }
+                val results = withContext(Dispatchers.IO) {
+                    sourceRegistry.requireById(_state.value.settings.searchSourceId).searchManga(q)
+                }
                 _state.value = _state.value.copy(results = results, isSearching = false)
             } catch (e: CancellationException) {
                 throw e
@@ -1098,6 +1150,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                     null
                 } else {
                     FavoriteManga(
+                        sourceId = MangaSourceCatalog.resolveSourceId(
+                            sourceId = item["sourceId"]?.jsonPrimitive?.contentOrNull,
+                            url = mangaUrl,
+                        ),
                         title = title,
                         mangaUrl = mangaUrl,
                         coverUrl = item["coverUrl"]?.jsonPrimitive?.contentOrNull,
@@ -1114,6 +1170,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             favorites.forEach { manga ->
                 add(
                     buildJsonObject {
+                        put("sourceId", JsonPrimitive(manga.sourceId))
                         put("title", JsonPrimitive(manga.title))
                         put("mangaUrl", JsonPrimitive(manga.mangaUrl))
                         manga.coverUrl?.let { put("coverUrl", JsonPrimitive(it)) }
@@ -1144,6 +1201,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun readSettings(): AppSettings {
         return AppSettings(
+            searchSourceId = MangaSourceCatalog.resolveSourceId(
+                prefs.getString(KEY_SEARCH_SOURCE_ID, null),
+            ),
             autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
             autoDownloadTriggerChapters = prefs
                 .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
@@ -1165,6 +1225,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun persistSettings(settings: AppSettings) {
         prefs.edit()
+            .putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
             .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
             .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
@@ -1191,6 +1252,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
         private const val KEY_FAVORITES_JSON = "favorites_json"
+        private const val KEY_SEARCH_SOURCE_ID = "search_source_id"
         private const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         private const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
         private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"

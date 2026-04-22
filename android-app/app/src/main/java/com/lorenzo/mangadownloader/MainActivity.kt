@@ -168,6 +168,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     context = appContext,
                     firstUrl = firstUrl,
                     lastUrl = lastUrl,
+                    sourceId = details.sourceId,
                     seriesTitle = details.title,
                     mangaUrl = details.mangaUrl,
                     coverUrl = details.coverUrl,
@@ -231,6 +232,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
+                onOpenSearchSource = viewModel::openSearchSourceDialog,
                 onOpenParentalControl = viewModel::openParentalControlMenu,
             )
         },
@@ -315,6 +317,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             onSelect = { favorite ->
                                 viewModel.selectManga(
                                     MangaSearchResult(
+                                        sourceId = favorite.sourceId,
                                         title = favorite.title,
                                         mangaUrl = favorite.mangaUrl,
                                         coverUrl = favorite.coverUrl,
@@ -375,6 +378,15 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             onDismiss = viewModel::dismissParentalManagementDialog,
             onChangePin = viewModel::changeParentalPinFromManagement,
             onDisable = viewModel::disableParentalControlFromManagement,
+        )
+    }
+
+    if (state.showSearchSourceDialog) {
+        SearchSourceDialog(
+            selectedSourceId = state.settings.searchSourceId,
+            sources = MangaSourceCatalog.descriptors,
+            onDismiss = viewModel::dismissSearchSourceDialog,
+            onSelect = viewModel::selectSearchSource,
         )
     }
 

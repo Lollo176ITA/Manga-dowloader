@@ -32,6 +32,7 @@ data class DownloadedChapter(
 )
 
 data class DownloadedSeries(
+    val sourceId: String,
     val title: String,
     val mangaUrl: String?,
     val coverFile: File?,
@@ -42,6 +43,7 @@ data class DownloadedSeries(
 )
 
 data class SeriesMetadata(
+    val sourceId: String,
     val title: String,
     val mangaUrl: String?,
     val coverFileName: String?,
@@ -137,6 +139,7 @@ object SeriesMetadataJson {
 
     fun write(target: File, metadata: SeriesMetadata) {
         val payload = buildJsonObject {
+            put("sourceId", JsonPrimitive(metadata.sourceId))
             put("title", JsonPrimitive(metadata.title))
             metadata.mangaUrl?.let { put("mangaUrl", JsonPrimitive(it)) }
             metadata.coverFileName?.let { put("coverFileName", JsonPrimitive(it)) }
@@ -189,9 +192,14 @@ object SeriesMetadataJson {
                 ?.jsonArray
                 ?.mapNotNull { element -> parseChapter(element.jsonObject) }
                 .orEmpty()
+            val mangaUrl = root["mangaUrl"]?.jsonPrimitive?.contentOrNull
             SeriesMetadata(
+                sourceId = MangaSourceCatalog.resolveSourceId(
+                    sourceId = root["sourceId"]?.jsonPrimitive?.contentOrNull,
+                    url = mangaUrl,
+                ),
                 title = title,
-                mangaUrl = root["mangaUrl"]?.jsonPrimitive?.contentOrNull,
+                mangaUrl = mangaUrl,
                 coverFileName = root["coverFileName"]?.jsonPrimitive?.contentOrNull,
                 totalChapters = root["totalChapters"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
                 readChapterIds = root["readChapterIds"]
@@ -244,6 +252,10 @@ object LibraryScanner {
         val metadataByFileName = metadata?.chapters?.associateBy { it.fileName }.orEmpty()
         val persistedReadIds = metadata?.readChapterIds.orEmpty()
         val coverFile = resolveCoverFile(directory, metadata)
+        val sourceId = MangaSourceCatalog.resolveSourceId(
+            sourceId = metadata?.sourceId,
+            url = metadata?.mangaUrl,
+        )
 
         val chapters = directory.listFiles()
             ?.filter { it.isFile && it.extension.equals("cbz", ignoreCase = true) }
@@ -287,6 +299,7 @@ object LibraryScanner {
             .coerceAtLeast(readChapterIds.size)
 
         return DownloadedSeries(
+            sourceId = sourceId,
             title = metadata?.title?.takeIf { it.isNotBlank() }
                 ?: directory.name.replace('_', ' ').trim(),
             mangaUrl = metadata?.mangaUrl,
@@ -328,7 +341,7 @@ class LibraryRepository(
     fun scanLibrary(): List<DownloadedSeries> {
         val root = DownloadStorage.libraryRoot(context)
         val series = LibraryScanner.scan(root, ::isChapterRead)
-        series.forEach(::backfillMetadataIfMissing)
+        series.forEach(::backfillMetadata)
         return series
     }
 
@@ -336,7 +349,8 @@ class LibraryRepository(
         prefs.edit()
             .putBoolean(readPrefKey(chapter.relativePath), true)
             .apply()
-        updateSeriesMetadata(chapter.file.parentFile) { metadata ->
+        val parentDirectory = chapter.file.parentFile ?: return
+        updateSeriesMetadata(parentDirectory) { metadata ->
             val updatedReadIds = metadata.readChapterIds + chapter.chapterId
             metadata.copy(
                 totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
@@ -452,13 +466,26 @@ class LibraryRepository(
         extracted.sortedBy { it.name }
     }
 
-    private fun backfillMetadataIfMissing(series: DownloadedSeries) {
+    private fun backfillMetadata(series: DownloadedSeries) {
         val metadataFile = File(series.directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        if (metadataFile.isFile) {
+        val existingMetadata = SeriesMetadataJson.read(metadataFile)
+        if (existingMetadata != null) {
+            val resolvedSourceId = MangaSourceCatalog.resolveSourceId(
+                sourceId = existingMetadata.sourceId,
+                url = existingMetadata.mangaUrl ?: series.mangaUrl,
+            )
+            if (existingMetadata.sourceId == resolvedSourceId) {
+                return
+            }
+            SeriesMetadataJson.write(
+                metadataFile,
+                existingMetadata.copy(sourceId = resolvedSourceId),
+            )
             return
         }
 
         val metadata = SeriesMetadata(
+            sourceId = series.sourceId,
             title = series.title,
             mangaUrl = series.mangaUrl,
             coverFileName = series.coverFile?.name,
@@ -492,6 +519,8 @@ class LibraryRepository(
             .sortedBy { it.name }
 
         val updated = SeriesMetadata(
+            sourceId = existingMetadata?.sourceId
+                ?: MangaSourceCatalog.resolveSourceId(null, fallbackMangaUrl),
             title = existingMetadata?.title?.takeIf { it.isNotBlank() } ?: fallbackTitle,
             mangaUrl = existingMetadata?.mangaUrl ?: fallbackMangaUrl,
             coverFileName = existingMetadata?.coverFileName ?: fallbackCoverFileName,

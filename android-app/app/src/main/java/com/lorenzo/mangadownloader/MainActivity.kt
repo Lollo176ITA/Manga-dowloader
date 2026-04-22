@@ -1,48 +1,78 @@
 package com.lorenzo.mangadownloader
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,7 +81,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                MangaDownloaderScreen()
+                MangaDownloaderApp()
             }
         }
     }
@@ -59,188 +89,351 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MangaDownloaderScreen() {
+private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
+    val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     val workManager = remember { WorkManager.getInstance(context) }
     val workInfos by workManager.getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE_WORK_NAME)
         .observeAsState(emptyList())
     val latestWork = workInfos.maxByOrNull { it.id.toString() }
 
-    var url by rememberSaveable {
-        mutableStateOf(prefs.getString(KEY_LAST_URL, "") ?: "")
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(state.errorMessage) {
+        val msg = state.errorMessage
+        if (!msg.isNullOrBlank()) {
+            scope.launch {
+                snackbarHostState.showSnackbar(msg)
+                viewModel.dismissError()
+            }
+        }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (!granted) {
-            // Download still works, but the foreground notification may be hidden on newer Android versions.
+    ) { _ -> }
+
+    val onStartDownload: (String, String) -> Unit = { mangaUrl, chapterLabel ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        DownloadWorker.enqueue(context, mangaUrl, chapterLabel)
     }
 
-    val outputRoot = remember {
-        context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?.resolve("MangaDownloader")
-            ?.absolutePath
-            ?: "App external downloads folder unavailable"
-    }
     val isDownloadActive = latestWork?.state == WorkInfo.State.RUNNING ||
         latestWork?.state == WorkInfo.State.ENQUEUED ||
         latestWork?.state == WorkInfo.State.BLOCKED
-    val trimmedUrl = url.trim()
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Manga Downloader") },
+                navigationIcon = {
+                    if (state.selected != null) {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Indietro",
+                            )
+                        }
+                    }
+                },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
-        Column(
+        val selected = state.selected
+        if (selected == null) {
+            SearchScreen(
+                state = state,
+                padding = innerPadding,
+                onQueryChange = viewModel::onQueryChange,
+                onSubmit = viewModel::submitSearch,
+                onSelect = viewModel::selectManga,
+                status = latestWork,
+                isDownloadActive = isDownloadActive,
+                onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
+            )
+        } else {
+            DetailScreen(
+                details = selected,
+                isLoading = state.isLoadingDetails,
+                padding = innerPadding,
+                onStart = onStartDownload,
+                status = latestWork,
+                isDownloadActive = isDownloadActive,
+                onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchScreen(
+    state: MangaUiState,
+    padding: PaddingValues,
+    onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onSelect: (MangaSearchResult) -> Unit,
+    status: WorkInfo?,
+    isDownloadActive: Boolean,
+    onStopDownload: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    ) {
+        OutlinedTextField(
+            value = state.query,
+            onValueChange = onQueryChange,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Text(
-                        text = "Scarica capitoli da Mangapill",
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                    Text(
-                        text = "Incolla il primo chapter URL. L'app scarica da quel capitolo in poi e continua in background.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = url,
-                        onValueChange = { url = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Primo chapter URL") },
-                        supportingText = {
-                            Text("Esempio: https://mangapill.com/chapters/11-10001000/20-seiki-shounen-chapter-1")
-                        },
-                        minLines = 3,
-                    )
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        tonalElevation = 2.dp,
-                    ) {
-                        Text(
-                            text = "Output locale: $outputRoot",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            placeholder = { Text("Cerca manga") },
+            singleLine = true,
+            leadingIcon = {
+                Icon(imageVector = Icons.Default.Search, contentDescription = null)
+            },
+            trailingIcon = {
+                if (state.query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Pulisci")
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+            shape = MaterialTheme.shapes.large,
+        )
+
+        DownloadStatusStrip(
+            status = status,
+            isActive = isDownloadActive,
+            onStop = onStopDownload,
+        )
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                state.isSearching -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 24.dp),
+                    )
+                }
+                state.results.isNotEmpty() -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Button(
-                            onClick = {
-                                if (trimmedUrl.isEmpty()) {
-                                    return@Button
-                                }
-                                prefs.edit().putString(KEY_LAST_URL, trimmedUrl).apply()
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                    ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.POST_NOTIFICATIONS,
-                                    ) != PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-                                DownloadWorker.enqueue(context, trimmedUrl)
-                            },
-                            enabled = trimmedUrl.isNotEmpty(),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Avvia download")
-                        }
-                        FilledTonalButton(
-                            onClick = {
-                                workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
-                            },
-                            enabled = isDownloadActive,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Ferma download")
+                        items(state.results, key = { it.mangaUrl }) { result ->
+                            ResultCard(result = result, onClick = { onSelect(result) })
                         }
                     }
                 }
             }
-
-            StatusCard(workInfo = latestWork)
         }
     }
 }
 
 @Composable
-private fun StatusCard(workInfo: WorkInfo?) {
-    val progressMessage = workInfo?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
-    val done = workInfo?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
-    val total = workInfo?.progress?.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1) ?: -1
-    val stateTitle = when (workInfo?.state) {
-        WorkInfo.State.RUNNING -> "Download in corso"
-        WorkInfo.State.ENQUEUED -> "In coda"
-        WorkInfo.State.SUCCEEDED -> "Completato"
-        WorkInfo.State.FAILED -> "Errore"
-        WorkInfo.State.CANCELLED -> "Fermato"
-        WorkInfo.State.BLOCKED -> "Bloccato"
-        null -> "Nessun download attivo"
-    }
-    val progressCounts = if (done >= 0 && total > 0) "Capitoli completati: $done/$total" else null
-    val fraction = if (done >= 0 && total > 0) done.toFloat() / total.toFloat() else null
-
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "Stato download",
-                style = MaterialTheme.typography.titleLarge,
+private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Column {
+            AsyncImage(
+                model = result.coverUrl,
+                contentDescription = result.title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f),
+                contentScale = ContentScale.Crop,
             )
             Text(
-                text = stateTitle,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (fraction != null) {
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (!progressMessage.isNullOrBlank()) {
-                Text(
-                    text = progressMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            if (progressCounts != null) {
-                Text(
-                    text = progressCounts,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Text(
-                text = "Formato salvato: un file .cbz per capitolo. I capitoli gia presenti vengono saltati al riavvio.",
+                text = result.title,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
-private const val PREFS_NAME = "manga_downloader_prefs"
-private const val KEY_LAST_URL = "last_url"
+@Composable
+private fun DetailScreen(
+    details: MangaDetails,
+    isLoading: Boolean,
+    padding: PaddingValues,
+    onStart: (mangaUrl: String, chapterLabel: String) -> Unit,
+    status: WorkInfo?,
+    isDownloadActive: Boolean,
+    onStopDownload: () -> Unit,
+) {
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = details.coverUrl,
+                contentDescription = details.title,
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(144.dp),
+                contentScale = ContentScale.Crop,
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = details.title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        DownloadStatusStrip(
+            status = status,
+            isActive = isDownloadActive,
+            onStop = onStopDownload,
+        )
+
+        if (isLoading && details.chapters.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(details.chapters.reversed(), key = { it.url }) { chapter ->
+                    ChapterRow(chapter = chapter, onClick = { pending = chapter.displayNumber() })
+                }
+            }
+        }
+    }
+
+    pending?.let { label ->
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text("Capitolo $label") },
+            text = { Text("Scarica da questo capitolo in poi?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onStart(details.mangaUrl, label)
+                    pending = null
+                }) { Text("Avvia") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pending = null }) { Text("Annulla") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ChapterRow(chapter: ChapterEntry, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Text(
+            text = "Capitolo ${chapter.displayNumber()}",
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun DownloadStatusStrip(
+    status: WorkInfo?,
+    isActive: Boolean,
+    onStop: () -> Unit,
+) {
+    val progressMessage = status?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
+    val done = status?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
+    val total = status?.progress?.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1) ?: -1
+    val showRecent = status?.state == WorkInfo.State.SUCCEEDED ||
+        status?.state == WorkInfo.State.FAILED ||
+        status?.state == WorkInfo.State.CANCELLED
+
+    if (!isActive && !showRecent) {
+        return
+    }
+
+    val fraction = if (done >= 0 && total > 0) done.toFloat() / total.toFloat() else null
+    val title = when (status?.state) {
+        WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
+            progressMessage ?: "Download in corso"
+        WorkInfo.State.SUCCEEDED -> "Completato"
+        WorkInfo.State.FAILED -> progressMessage ?: "Errore"
+        WorkInfo.State.CANCELLED -> "Fermato"
+        else -> progressMessage ?: ""
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (isActive) {
+                    IconButton(onClick = onStop) {
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Ferma download",
+                        )
+                    }
+                }
+            }
+            if (fraction != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "$done / $total",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            } else if (isActive) {
+                Spacer(modifier = Modifier.height(6.dp))
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}

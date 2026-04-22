@@ -2,7 +2,7 @@
 
 Scarica un capitolo da **mangaworld.mx** o **mangapill.com** e lo salva in un unico **PDF** o in una singola immagine **JPG**.
 
-Il repo contiene anche un MVP Android in [android-app](./android-app) con una singola schermata: incolli il primo URL capitolo di Mangapill, avvii il download e il job continua in background tramite `WorkManager`.
+Il repo contiene anche un'app Android in [android-app](./android-app): cerchi il manga per nome direttamente dentro l'app, scegli il capitolo da cui partire e il download continua in background tramite `WorkManager`.
 
 ## Installazione
 
@@ -12,31 +12,44 @@ pip install -r requirements.txt
 
 ## App Android
 
-L'app Android si trova in `android-app/` ed &egrave; pensata per questo flusso:
+L'app Android si trova in `android-app/` e offre un flusso completamente nativo:
 
-1. incolli il primo chapter URL, per esempio `https://mangapill.com/chapters/11-10001000/20-seiki-shounen-chapter-1`
-2. premi `Avvia download`
-3. l'app ricava la pagina manga, trova tutti i capitoli dal primo in poi e li scarica in background
+1. apri l'app, digita il nome del manga nella barra di ricerca
+2. tocca uno dei risultati per vedere copertina, titolo e lista capitoli
+3. tocca il capitolo da cui vuoi partire e conferma: il download continua in background
 
-Dettagli del MVP Android:
+Dettagli:
 
-- supporto iniziale: solo **Mangapill**
-- output: un file `.cbz` per capitolo
+- supporto: solo **Mangapill**
+- ricerca, browsing e download interamente dentro l'app (nessun URL da copiare)
+- output: un file `.cbz` per capitolo in `Android/data/com.lorenzo.mangadownloader/files/Download/MangaDownloader/<manga>/`
 - resume: i capitoli gi&agrave; salvati vengono saltati al riavvio
 - background: `WorkManager` + notifica foreground
 
-Per importarla in Android Studio:
+### Build locale dell'APK
+
+Serve una **JDK 17 o 21** e l'**Android SDK** (platform 35, build-tools 35). In Android Studio Ã¨ sufficiente aprire la cartella `android-app/` e far fare all'IDE il resto. Da riga di comando:
 
 ```bash
 cd android-app
-./gradlew wrapper
+./gradlew assembleDebug
 ```
 
-Note build Android:
+L'APK firmato con la chiave di debug di Android finisce in `android-app/app/build/outputs/apk/debug/app-debug.apk`. Per installarlo sul telefono:
 
-- serve una **JDK 17 o 21** per Gradle/Android Studio
-- nel mio ambiente era disponibile solo Java `25.0.2`, quindi non ho potuto completare una build Android locale
-- il progetto Gradle e il wrapper sono comunque gi&agrave; presenti nel repo
+```bash
+adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Oppure trasferisci l'APK sul telefono e aprilo (ricordati di abilitare "Installa da sorgenti sconosciute").
+
+### Build automatica via GitHub Actions
+
+Il repo include `.github/workflows/android.yml`: ad ogni push su `main` o sui branch `claude/**` GitHub costruisce l'APK debug e lo carica come artifact chiamato `manga-downloader-debug`. Per scaricarlo:
+
+1. apri la tab **Actions** del repo su GitHub
+2. seleziona l'ultimo run "Android debug APK"
+3. scarica l'artifact `manga-downloader-debug` (contiene `app-debug.apk`)
 
 ## Uso
 

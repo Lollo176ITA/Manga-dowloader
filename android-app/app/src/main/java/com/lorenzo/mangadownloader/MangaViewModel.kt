@@ -116,19 +116,23 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                     when {
                         q.isEmpty() -> {
                             searchJob?.cancel()
-                            _state.value = _state.value.copy(
-                                results = emptyList(),
-                                isSearching = false,
-                                errorMessage = null,
-                            )
+                            updateState {
+                                copy(
+                                    results = emptyList(),
+                                    isSearching = false,
+                                    errorMessage = null,
+                                )
+                            }
                         }
                         q.length >= MIN_QUERY_LENGTH -> runSearch(q)
                         else -> {
                             searchJob?.cancel()
-                            _state.value = _state.value.copy(
-                                results = emptyList(),
-                                isSearching = false,
-                            )
+                            updateState {
+                                copy(
+                                    results = emptyList(),
+                                    isSearching = false,
+                                )
+                            }
                         }
                     }
                 }
@@ -136,7 +140,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onQueryChange(text: String) {
-        _state.value = _state.value.copy(query = text)
+        updateState { copy(query = text) }
     }
 
     fun submitSearch() {
@@ -147,26 +151,26 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tab: AppTab) {
-        _state.value = _state.value.copy(currentTab = tab)
+        updateState { copy(currentTab = tab) }
         if (tab == AppTab.LIBRARY) {
             refreshLibrary()
         }
     }
 
     fun onFavoritesQueryChange(text: String) {
-        _state.value = _state.value.copy(favoritesQuery = text)
+        updateState { copy(favoritesQuery = text) }
     }
 
     fun onLibraryQueryChange(text: String) {
-        _state.value = _state.value.copy(libraryQuery = text)
+        updateState { copy(libraryQuery = text) }
     }
 
     fun openSettings() {
-        _state.value = _state.value.copy(showSettings = true)
+        updateState { copy(showSettings = true) }
     }
 
     fun closeSettings() {
-        _state.value = _state.value.copy(showSettings = false)
+        updateState { copy(showSettings = false) }
     }
 
     fun setAutoDownloadEnabled(enabled: Boolean) {
@@ -232,10 +236,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             current.add(0, manga)
         }
         persistFavorites(current)
-        _state.value = _state.value.copy(
-            favorites = current,
-            favoriteMangaUrls = current.mapTo(linkedSetOf()) { it.mangaUrl },
-        )
+        updateState {
+            copy(
+                favorites = current,
+                favoriteMangaUrls = current.mapTo(linkedSetOf()) { it.mangaUrl },
+            )
+        }
     }
 
     fun toggleFavoriteSelectedManga() {
@@ -251,10 +257,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshLibrary() {
         libraryJob?.cancel()
-        _state.value = _state.value.copy(isLoadingLibrary = true)
+        updateState { copy(isLoadingLibrary = true) }
         libraryJob = viewModelScope.launch {
             try {
-                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+                val snapshot = scanLibrarySnapshot()
                 _state.value = _state.value.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
             } catch (e: CancellationException) {
                 throw e
@@ -268,26 +274,25 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectDownloadedSeries(series: DownloadedSeries) {
-        _state.value = _state.value.copy(
-            selectedDownloadedSeries = series,
-            selectedChapterPaths = emptySet(),
-            currentTab = AppTab.LIBRARY,
-            errorMessage = null,
-        )
+        updateState {
+            copy(
+                selectedDownloadedSeries = series,
+                selectedChapterPaths = emptySet(),
+                currentTab = AppTab.LIBRARY,
+                errorMessage = null,
+            )
+        }
     }
 
     fun clearDownloadedSelection() {
         readerJob?.cancel()
-        _state.value = _state.value.copy(
-            selectedDownloadedSeries = null,
-            selectedChapterPaths = emptySet(),
-            readerChapter = null,
-            readerPreviousChapter = null,
-            readerNextChapter = null,
-            readerPages = emptyList(),
-            isLoadingReader = false,
-            errorMessage = null,
-        )
+        updateState {
+            copy(
+                selectedDownloadedSeries = null,
+                selectedChapterPaths = emptySet(),
+                errorMessage = null,
+            ).clearedReaderState()
+        }
     }
 
     fun openReader(chapter: DownloadedChapter) {
@@ -371,17 +376,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeReader() {
         readerJob?.cancel()
-        _state.value = _state.value.copy(
-            readerChapter = null,
-            readerPreviousChapter = null,
-            readerNextChapter = null,
-            readerPages = emptyList(),
-            isLoadingReader = false,
-        )
+        updateState { clearedReaderState() }
     }
 
     fun dismissError() {
-        _state.value = _state.value.copy(errorMessage = null)
+        updateState { copy(errorMessage = null) }
     }
 
     fun toggleChapterSelection(chapter: DownloadedChapter) {
@@ -389,18 +388,24 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (!current.add(chapter.relativePath)) {
             current.remove(chapter.relativePath)
         }
-        _state.value = _state.value.copy(selectedChapterPaths = current)
+        updateState { copy(selectedChapterPaths = current) }
     }
 
     fun startChapterSelection(chapter: DownloadedChapter) {
         val current = _state.value.selectedChapterPaths
-        _state.value = _state.value.copy(
-            selectedChapterPaths = if (chapter.relativePath in current) current else current + chapter.relativePath,
-        )
+        updateState {
+            copy(
+                selectedChapterPaths = if (chapter.relativePath in current) {
+                    current
+                } else {
+                    current + chapter.relativePath
+                },
+            )
+        }
     }
 
     fun clearChapterSelection() {
-        _state.value = _state.value.copy(selectedChapterPaths = emptySet())
+        updateState { copy(selectedChapterPaths = emptySet()) }
     }
 
     fun deleteSelectedChapters() {
@@ -412,14 +417,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         libraryJob?.cancel()
-        _state.value = _state.value.copy(isLoadingLibrary = true, errorMessage = null)
+        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
                 val chaptersToDelete = series.chapters.filter { it.relativePath in selectedPaths }
                 withContext(Dispatchers.IO) {
                     libraryRepository.deleteChapters(series, chaptersToDelete)
                 }
-                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+                val snapshot = scanLibrarySnapshot()
                 _state.value = _state.value.copy(selectedChapterPaths = emptySet())
                     .withLibrarySnapshot(snapshot)
                     .copy(isLoadingLibrary = false)
@@ -439,21 +444,16 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
         libraryJob?.cancel()
         readerJob?.cancel()
-        _state.value = _state.value.copy(isLoadingLibrary = true, errorMessage = null)
+        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     libraryRepository.deleteSeries(targetSeries)
                 }
-                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
-                _state.value = _state.value.copy(
-                    selectedChapterPaths = emptySet(),
-                    readerChapter = null,
-                    readerPreviousChapter = null,
-                    readerNextChapter = null,
-                    readerPages = emptyList(),
-                    isLoadingReader = false,
-                ).withLibrarySnapshot(snapshot)
+                val snapshot = scanLibrarySnapshot()
+                _state.value = _state.value.copy(selectedChapterPaths = emptySet())
+                    .clearedReaderState()
+                    .withLibrarySnapshot(snapshot)
                     .copy(isLoadingLibrary = false)
             } catch (e: CancellationException) {
                 throw e
@@ -506,7 +506,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissAvailableUpdate() {
-        _state.value = _state.value.copy(availableUpdate = null)
+        updateState { copy(availableUpdate = null) }
     }
 
     fun installAvailableUpdate() {
@@ -544,7 +544,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun runSearch(q: String) {
         searchJob?.cancel()
-        _state.value = _state.value.copy(isSearching = true, errorMessage = null)
+        updateState { copy(isSearching = true, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
                 val results = withContext(Dispatchers.IO) { client.searchManga(q) }
@@ -668,8 +668,16 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         val current = _state.value.settings
         val updated = transform(current)
         if (updated == current) return
-        _state.value = _state.value.copy(settings = updated)
+        updateState { copy(settings = updated) }
         persistSettings(updated)
+    }
+
+    private inline fun updateState(transform: MangaUiState.() -> MangaUiState) {
+        _state.value = _state.value.transform()
+    }
+
+    private suspend fun scanLibrarySnapshot(): List<DownloadedSeries> {
+        return withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
     }
 
     private fun readSettings(): AppSettings {
@@ -690,6 +698,16 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
             .apply()
+    }
+
+    private fun MangaUiState.clearedReaderState(): MangaUiState {
+        return copy(
+            readerChapter = null,
+            readerPreviousChapter = null,
+            readerNextChapter = null,
+            readerPages = emptyList(),
+            isLoadingReader = false,
+        )
     }
 
     companion object {

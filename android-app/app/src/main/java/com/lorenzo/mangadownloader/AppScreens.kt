@@ -2,6 +2,8 @@ package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -53,17 +56,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
@@ -512,6 +521,9 @@ fun ReaderScreen(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
 ) {
+    val zoomedPages = remember(chapter?.relativePath) { mutableStateMapOf<String, Boolean>() }
+    val isReaderScrollEnabled = zoomedPages.values.none { it }
+
     when {
         isLoading -> {
             Box(
@@ -536,6 +548,7 @@ fun ReaderScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
+                userScrollEnabled = isReaderScrollEnabled,
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -548,11 +561,12 @@ fun ReaderScreen(
                     )
                 }
                 items(pages, key = { it.absolutePath }) { page ->
-                    AsyncImage(
-                        model = page,
+                    ZoomableReaderPage(
+                        page = page,
                         contentDescription = chapter.title,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentScale = ContentScale.FillWidth,
+                        onZoomStateChange = { isZoomed ->
+                            zoomedPages[page.absolutePath] = isZoomed
+                        },
                     )
                 }
                 item("reader-nav-bottom") {
@@ -565,6 +579,84 @@ fun ReaderScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ZoomableReaderPage(
+    page: File,
+    contentDescription: String,
+    onZoomStateChange: (Boolean) -> Unit,
+) {
+    val minScale = 1f
+    val maxScale = 4f
+    var scale by remember(page.absolutePath) { mutableStateOf(minScale) }
+    var offsetX by remember(page.absolutePath) { mutableStateOf(0f) }
+    var offsetY by remember(page.absolutePath) { mutableStateOf(0f) }
+    var containerSize by remember(page.absolutePath) { mutableStateOf(IntSize.Zero) }
+
+    fun clampOffsets(targetScale: Float, targetX: Float, targetY: Float): Pair<Float, Float> {
+        val maxX = ((containerSize.width * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
+        val maxY = ((containerSize.height * (targetScale - 1f)) / 2f).coerceAtLeast(0f)
+        return targetX.coerceIn(-maxX, maxX) to targetY.coerceIn(-maxY, maxY)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(if (scale > minScale) RoundedCornerShape(12.dp) else RoundedCornerShape(0.dp))
+            .background(if (scale > minScale) Color.Black else Color.Transparent)
+            .clipToBounds()
+            .pointerInput(page.absolutePath) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val nextScale = (scale * zoom).coerceIn(minScale, maxScale)
+                    val scaledPan = if (nextScale > minScale) pan * nextScale else pan
+                    val (clampedX, clampedY) = clampOffsets(
+                        targetScale = nextScale,
+                        targetX = offsetX + scaledPan.x,
+                        targetY = offsetY + scaledPan.y,
+                    )
+                    scale = nextScale
+                    offsetX = clampedX
+                    offsetY = clampedY
+                    onZoomStateChange(nextScale > minScale)
+                }
+            }
+            .pointerInput(page.absolutePath) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > minScale) {
+                            scale = minScale
+                            offsetX = 0f
+                            offsetY = 0f
+                            onZoomStateChange(false)
+                        } else {
+                            scale = 2f
+                            onZoomStateChange(true)
+                        }
+                    },
+                )
+            }
+            .onSizeChanged { size ->
+                containerSize = size
+                val (clampedX, clampedY) = clampOffsets(scale, offsetX, offsetY)
+                offsetX = clampedX
+                offsetY = clampedY
+            },
+    ) {
+        AsyncImage(
+            model = page,
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
+                    translationY = offsetY
+                },
+            contentScale = ContentScale.FillWidth,
+        )
     }
 }
 

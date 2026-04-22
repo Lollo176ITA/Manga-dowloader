@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -295,12 +296,13 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         )
     }
 
-    if (showDeleteSeriesDialog && state.selectedDownloadedSeries != null) {
+    val selectedSeriesForDelete = state.selectedDownloadedSeries
+    if (showDeleteSeriesDialog && selectedSeriesForDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteSeriesDialog = false },
             title = { Text("Elimina manga") },
             text = {
-                Text("Vuoi eliminare ${state.selectedDownloadedSeries.title} con tutti i capitoli scaricati?")
+                Text("Vuoi eliminare ${selectedSeriesForDelete.title} con tutti i capitoli scaricati?")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -1002,6 +1004,7 @@ private fun ChapterRow(chapter: ChapterEntry, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadedChapterRow(
     chapter: DownloadedChapter,

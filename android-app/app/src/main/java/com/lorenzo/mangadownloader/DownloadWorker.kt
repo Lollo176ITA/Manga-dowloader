@@ -1,11 +1,14 @@
 package com.lorenzo.mangadownloader
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -108,13 +111,26 @@ class DownloadWorker(
     }
 
     private suspend fun safeSetForeground(message: String) {
+        if (!canShowForegroundNotification()) {
+            return
+        }
+
         try {
             setForeground(makeForegroundInfo(message))
         } catch (_: Exception) {
-            // On Android 14+ `setForeground` can throw ForegroundServiceStartNotAllowedException
-            // when POST_NOTIFICATIONS isn't granted yet. Fall back silently: the worker still
-            // runs in background, just without the ongoing system notification.
+            // Some devices still reject the foreground promotion even after the permission check.
+            // Let the worker continue in background instead of killing the app process.
         }
+    }
+
+    private fun canShowForegroundNotification(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return true
+        }
+        return ContextCompat.checkSelfPermission(
+            applicationContext,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun makeForegroundInfo(message: String): ForegroundInfo {

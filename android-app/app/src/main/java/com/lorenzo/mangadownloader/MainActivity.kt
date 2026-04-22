@@ -70,6 +70,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import coil.compose.AsyncImage
+import java.math.BigDecimal
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -78,7 +79,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MaterialTheme {
+            MangaDownloaderTheme {
                 MangaDownloaderApp()
             }
         }
@@ -97,6 +98,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val appContext = remember(context) { context.applicationContext }
 
     LaunchedEffect(state.errorMessage) {
         val msg = state.errorMessage
@@ -124,14 +126,32 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     }
 
     val onStartDownload: (String, String) -> Unit = { mangaUrl, chapterLabel ->
-        try {
-            DownloadWorker.enqueue(context, mangaUrl, chapterLabel)
-            scope.launch {
-                snackbarHostState.showSnackbar("Download avviato dal capitolo $chapterLabel")
+        val cleanUrl = mangaUrl.trim()
+        val cleanChapter = chapterLabel.trim()
+        val chapterNumber = try {
+            BigDecimal(cleanChapter).stripTrailingZeros().toPlainString()
+        } catch (_: NumberFormatException) {
+            null
+        }
+
+        when {
+            cleanUrl.isBlank() -> scope.launch {
+                snackbarHostState.showSnackbar("URL manga non valido")
             }
-        } catch (exc: Exception) {
-            scope.launch {
-                snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
+            chapterNumber == null -> scope.launch {
+                snackbarHostState.showSnackbar("Numero capitolo non valido")
+            }
+            else -> {
+                try {
+                    DownloadWorker.enqueue(appContext, cleanUrl, chapterNumber)
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Download avviato dal capitolo $chapterNumber")
+                    }
+                } catch (exc: Exception) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
+                    }
+                }
             }
         }
     }
@@ -365,8 +385,8 @@ private fun DetailScreen(
             text = { Text("Scarica da questo capitolo in poi?") },
             confirmButton = {
                 TextButton(onClick = {
-                    onStart(details.mangaUrl, label)
                     pending = null
+                    onStart(details.mangaUrl, label)
                 }) { Text("Avvia") }
             },
             dismissButton = {

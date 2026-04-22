@@ -11,6 +11,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'android-app/version.properties'
   workflow_dispatch:
 
 jobs:

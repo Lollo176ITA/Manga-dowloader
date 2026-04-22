@@ -33,7 +33,10 @@ data class MangaUiState(
     val library: List<DownloadedSeries> = emptyList(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
+    val selectedChapterPaths: Set<String> = emptySet(),
     val readerChapter: DownloadedChapter? = null,
+    val readerPreviousChapter: DownloadedChapter? = null,
+    val readerNextChapter: DownloadedChapter? = null,
     val readerPages: List<File> = emptyList(),
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
@@ -169,6 +172,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun selectDownloadedSeries(series: DownloadedSeries) {
         _state.value = _state.value.copy(
             selectedDownloadedSeries = series,
+            selectedChapterPaths = emptySet(),
             currentTab = AppTab.DOWNLOADS,
             errorMessage = null,
         )
@@ -178,7 +182,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         readerJob?.cancel()
         _state.value = _state.value.copy(
             selectedDownloadedSeries = null,
+            selectedChapterPaths = emptySet(),
             readerChapter = null,
+            readerPreviousChapter = null,
+            readerNextChapter = null,
             readerPages = emptyList(),
             isLoadingReader = false,
             errorMessage = null,
@@ -190,10 +197,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         libraryRepository.markChapterRead(chapter)
         _state.value = _state.value.copy(
             readerChapter = chapter.copy(isRead = true),
+            readerPreviousChapter = null,
+            readerNextChapter = null,
             readerPages = emptyList(),
             isLoadingReader = true,
             errorMessage = null,
         ).withReadChapter(chapter.relativePath)
+            .withReaderAdjacency(chapter.relativePath)
 
         readerJob = viewModelScope.launch {
             try {
@@ -203,7 +213,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                     readerChapter = updated,
                     readerPages = pages,
                     isLoadingReader = false,
-                )
+                ).withReaderAdjacency(updated.relativePath)
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -219,6 +229,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         readerJob?.cancel()
         _state.value = _state.value.copy(
             readerChapter = null,
+            readerPreviousChapter = null,
+            readerNextChapter = null,
             readerPages = emptyList(),
             isLoadingReader = false,
         )
@@ -226,6 +238,107 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissError() {
         _state.value = _state.value.copy(errorMessage = null)
+    }
+
+    fun toggleChapterSelection(chapter: DownloadedChapter) {
+        val current = _state.value.selectedChapterPaths.toMutableSet()
+        if (!current.add(chapter.relativePath)) {
+            current.remove(chapter.relativePath)
+        }
+        _state.value = _state.value.copy(selectedChapterPaths = current)
+    }
+
+    fun startChapterSelection(chapter: DownloadedChapter) {
+        val current = _state.value.selectedChapterPaths
+        _state.value = _state.value.copy(
+            selectedChapterPaths = if (chapter.relativePath in current) current else current + chapter.relativePath,
+        )
+    }
+
+    fun clearChapterSelection() {
+        _state.value = _state.value.copy(selectedChapterPaths = emptySet())
+    }
+
+    fun setAllChaptersSelected(selected: Boolean) {
+        val series = _state.value.selectedDownloadedSeries ?: return
+        _state.value = _state.value.copy(
+            selectedChapterPaths = if (selected) {
+                series.chapters.mapTo(linkedSetOf()) { it.relativePath }
+            } else {
+                emptySet()
+            },
+        )
+    }
+
+    fun deleteSelectedChapters() {
+        val currentState = _state.value
+        val series = currentState.selectedDownloadedSeries ?: return
+        val selectedPaths = currentState.selectedChapterPaths
+        if (selectedPaths.isEmpty()) {
+            return
+        }
+
+        libraryJob?.cancel()
+        _state.value = _state.value.copy(isLoadingLibrary = true, errorMessage = null)
+        libraryJob = viewModelScope.launch {
+            try {
+                val chaptersToDelete = series.chapters.filter { it.relativePath in selectedPaths }
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteChapters(series, chaptersToDelete)
+                }
+                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+                _state.value = _state.value.copy(selectedChapterPaths = emptySet())
+                    .withLibrarySnapshot(snapshot)
+                    .copy(isLoadingLibrary = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isLoadingLibrary = false,
+                    errorMessage = exc.message ?: "Errore eliminazione capitoli",
+                )
+            }
+        }
+    }
+
+    fun deleteDownloadedSeries() {
+        val series = _state.value.selectedDownloadedSeries ?: return
+
+        libraryJob?.cancel()
+        readerJob?.cancel()
+        _state.value = _state.value.copy(isLoadingLibrary = true, errorMessage = null)
+        libraryJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteSeries(series)
+                }
+                val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+                _state.value = _state.value.copy(
+                    selectedChapterPaths = emptySet(),
+                    readerChapter = null,
+                    readerPreviousChapter = null,
+                    readerNextChapter = null,
+                    readerPages = emptyList(),
+                    isLoadingReader = false,
+                ).withLibrarySnapshot(snapshot)
+                    .copy(isLoadingLibrary = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isLoadingLibrary = false,
+                    errorMessage = exc.message ?: "Errore eliminazione manga",
+                )
+            }
+        }
+    }
+
+    fun openPreviousReaderChapter() {
+        _state.value.readerPreviousChapter?.let(::openReader)
+    }
+
+    fun openNextReaderChapter() {
+        _state.value.readerNextChapter?.let(::openReader)
     }
 
     fun checkForAppUpdate(force: Boolean = false) {
@@ -318,6 +431,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
         val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
         val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
+        val updatedSelectedPaths = selectedChapterPaths.filterTo(linkedSetOf()) { relativePath ->
+            updatedSelected?.chapters?.any { it.relativePath == relativePath } == true
+        }
         val readerPath = readerChapter?.relativePath
         val updatedReader = updatedSelected?.chapters?.firstOrNull { it.relativePath == readerPath }
             ?: snapshot.asSequence()
@@ -327,8 +443,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         return copy(
             library = snapshot,
             selectedDownloadedSeries = updatedSelected,
+            selectedChapterPaths = updatedSelectedPaths,
             readerChapter = updatedReader ?: readerChapter,
-        )
+        ).withReaderAdjacency((updatedReader ?: readerChapter)?.relativePath)
     }
 
     private fun MangaUiState.withReadChapter(relativePath: String): MangaUiState {
@@ -351,6 +468,25 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             library = updatedLibrary,
             selectedDownloadedSeries = updatedSelected,
             readerChapter = updatedReader,
+        ).withReaderAdjacency(updatedReader?.relativePath)
+    }
+
+    private fun MangaUiState.withReaderAdjacency(relativePath: String?): MangaUiState {
+        val chapters = selectedDownloadedSeries?.chapters.orEmpty()
+        val currentIndex = relativePath?.let { path ->
+            chapters.indexOfFirst { it.relativePath == path }
+        } ?: -1
+
+        if (currentIndex < 0) {
+            return copy(
+                readerPreviousChapter = null,
+                readerNextChapter = null,
+            )
+        }
+
+        return copy(
+            readerPreviousChapter = chapters.getOrNull(currentIndex - 1),
+            readerNextChapter = chapters.getOrNull(currentIndex + 1),
         )
     }
 

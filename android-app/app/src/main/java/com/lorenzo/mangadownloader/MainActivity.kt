@@ -5,12 +5,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,14 +33,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,6 +59,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -111,6 +117,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
+    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
+    var showDeleteSeriesDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(latestWork?.id, latestWork?.state, latestDone) {
         viewModel.refreshLibrary()
@@ -170,14 +178,31 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         latestWork?.state == WorkInfo.State.BLOCKED
 
     val showBottomBar = state.readerChapter == null
+    val canHandleBack = state.readerChapter != null ||
+        state.selectedChapterPaths.isNotEmpty() ||
+        (state.currentTab == AppTab.SEARCH && state.selected != null) ||
+        (state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null)
+
+    val handleBack: () -> Unit = {
+        when {
+            state.readerChapter != null -> viewModel.closeReader()
+            state.selectedChapterPaths.isNotEmpty() -> viewModel.clearChapterSelection()
+            state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null ->
+                viewModel.clearDownloadedSelection()
+            state.currentTab == AppTab.SEARCH && state.selected != null ->
+                viewModel.clearSelection()
+        }
+    }
+
+    BackHandler(enabled = canHandleBack, onBack = handleBack)
 
     Scaffold(
         topBar = {
             AppTopBar(
                 state = state,
-                onBackFromSearch = viewModel::clearSelection,
-                onBackFromDownloads = viewModel::clearDownloadedSelection,
-                onBackFromReader = viewModel::closeReader,
+                onBack = handleBack,
+                onDeleteSelected = { showDeleteSelectedDialog = true },
+                onDeleteSeries = { showDeleteSeriesDialog = true },
             )
         },
         bottomBar = {
@@ -194,9 +219,13 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             state.readerChapter != null -> {
                 ReaderScreen(
                     chapter = state.readerChapter,
+                    previousChapter = state.readerPreviousChapter,
+                    nextChapter = state.readerNextChapter,
                     pages = state.readerPages,
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
+                    onOpenPrevious = viewModel::openPreviousReaderChapter,
+                    onOpenNext = viewModel::openNextReaderChapter,
                 )
             }
             state.currentTab == AppTab.SEARCH -> {
@@ -207,9 +236,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         padding = innerPadding,
                         onQueryChange = viewModel::onQueryChange,
                         onSelect = viewModel::selectManga,
-                        status = latestWork,
-                        isDownloadActive = isDownloadActive,
-                        onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                     )
                 } else {
                     DetailScreen(
@@ -217,9 +243,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         isLoading = state.isLoadingDetails,
                         padding = innerPadding,
                         onStart = onStartDownload,
-                        status = latestWork,
-                        isDownloadActive = isDownloadActive,
-                        onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                     )
                 }
             }
@@ -237,12 +260,62 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 } else {
                     DownloadedSeriesScreen(
                         series = selectedSeries,
+                        selectedChapterPaths = state.selectedChapterPaths,
                         padding = innerPadding,
                         onOpenChapter = viewModel::openReader,
+                        onToggleChapterSelection = viewModel::toggleChapterSelection,
+                        onStartChapterSelection = viewModel::startChapterSelection,
+                        onSelectAllChanged = viewModel::setAllChaptersSelected,
                     )
                 }
             }
         }
+    }
+
+    if (showDeleteSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedDialog = false },
+            title = { Text("Elimina capitoli") },
+            text = {
+                Text("Vuoi eliminare ${state.selectedChapterPaths.size} capitoli selezionati?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteSelectedDialog = false
+                    viewModel.deleteSelectedChapters()
+                }) {
+                    Text("Elimina")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedDialog = false }) {
+                    Text("Annulla")
+                }
+            },
+        )
+    }
+
+    if (showDeleteSeriesDialog && state.selectedDownloadedSeries != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSeriesDialog = false },
+            title = { Text("Elimina manga") },
+            text = {
+                Text("Vuoi eliminare ${state.selectedDownloadedSeries.title} con tutti i capitoli scaricati?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteSeriesDialog = false
+                    viewModel.deleteDownloadedSeries()
+                }) {
+                    Text("Elimina")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSeriesDialog = false }) {
+                    Text("Annulla")
+                }
+            },
+        )
     }
 
     lastCrashReport?.let { report ->
@@ -316,11 +389,16 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
 @Composable
 private fun AppTopBar(
     state: MangaUiState,
-    onBackFromSearch: () -> Unit,
-    onBackFromDownloads: () -> Unit,
-    onBackFromReader: () -> Unit,
+    onBack: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onDeleteSeries: () -> Unit,
 ) {
+    val showBack = state.readerChapter != null ||
+        state.selectedChapterPaths.isNotEmpty() ||
+        (state.currentTab == AppTab.SEARCH && state.selected != null) ||
+        (state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null)
     val title = when {
+        state.selectedChapterPaths.isNotEmpty() -> "${state.selectedChapterPaths.size} selezionati"
         state.readerChapter != null -> state.readerChapter.title
         state.currentTab == AppTab.SEARCH && state.selected != null -> state.selected.title
         state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null ->
@@ -328,15 +406,12 @@ private fun AppTopBar(
         state.currentTab == AppTab.SEARCH -> "Manga Downloader"
         else -> "Download"
     }
-
-    val onBack = when {
-        state.readerChapter != null -> onBackFromReader
-        state.currentTab == AppTab.SEARCH && state.selected != null -> onBackFromSearch
-        state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null -> onBackFromDownloads
-        else -> null
-    }
+    val barColor = MaterialTheme.colorScheme.surface
 
     CenterAlignedTopAppBar(
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = barColor,
+        ),
         title = {
             Text(
                 text = title,
@@ -345,12 +420,34 @@ private fun AppTopBar(
             )
         },
         navigationIcon = {
-            if (onBack != null) {
+            if (showBack) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Indietro",
                     )
+                }
+            }
+        },
+        actions = {
+            if (state.currentTab == AppTab.DOWNLOADS &&
+                state.readerChapter == null &&
+                state.selectedDownloadedSeries != null
+            ) {
+                if (state.selectedChapterPaths.isNotEmpty()) {
+                    IconButton(onClick = onDeleteSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Elimina capitoli selezionati",
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onDeleteSeries) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Elimina manga",
+                        )
+                    }
                 }
             }
         },
@@ -362,7 +459,8 @@ private fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
 ) {
-    NavigationBar {
+    val barColor = MaterialTheme.colorScheme.surface
+    NavigationBar(containerColor = barColor) {
         NavigationBarItem(
             selected = currentTab == AppTab.SEARCH,
             onClick = { onSelect(AppTab.SEARCH) },
@@ -384,9 +482,6 @@ private fun SearchScreen(
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
-    status: WorkInfo?,
-    isDownloadActive: Boolean,
-    onStopDownload: () -> Unit,
 ) {
     val trimmed = state.query.trim()
     Column(
@@ -413,12 +508,6 @@ private fun SearchScreen(
                 }
             },
             shape = MaterialTheme.shapes.large,
-        )
-
-        DownloadStatusStrip(
-            status = status,
-            isActive = isDownloadActive,
-            onStop = onStopDownload,
         )
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -492,9 +581,6 @@ private fun DetailScreen(
     isLoading: Boolean,
     padding: PaddingValues,
     onStart: (ChapterEntry) -> Unit,
-    status: WorkInfo?,
-    isDownloadActive: Boolean,
-    onStopDownload: () -> Unit,
 ) {
     var pending by remember { mutableStateOf<ChapterEntry?>(null) }
 
@@ -507,12 +593,6 @@ private fun DetailScreen(
             coverModel = details.coverUrl,
             title = details.title,
             subtitle = "${details.chapters.size} capitoli disponibili",
-        )
-
-        DownloadStatusStrip(
-            status = status,
-            isActive = isDownloadActive,
-            onStop = onStopDownload,
         )
 
         if (isLoading && details.chapters.isEmpty()) {
@@ -602,6 +682,8 @@ private fun DownloadedSeriesCard(
     series: DownloadedSeries,
     onClick: () -> Unit,
 ) {
+    val isFullyRead = series.isFullyRead()
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -633,11 +715,18 @@ private fun DownloadedSeriesCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                val readCount = series.chapters.count { it.isRead }
                 Text(
-                    text = "$readCount letti",
+                    text = if (isFullyRead) "Letto" else "${series.chapters.count { it.isRead }} letti",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (isFullyRead) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Manga letto",
+                    tint = ReadGreen,
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
@@ -647,9 +736,18 @@ private fun DownloadedSeriesCard(
 @Composable
 private fun DownloadedSeriesScreen(
     series: DownloadedSeries,
+    selectedChapterPaths: Set<String>,
     padding: PaddingValues,
     onOpenChapter: (DownloadedChapter) -> Unit,
+    onToggleChapterSelection: (DownloadedChapter) -> Unit,
+    onStartChapterSelection: (DownloadedChapter) -> Unit,
+    onSelectAllChanged: (Boolean) -> Unit,
 ) {
+    val selectionMode = selectedChapterPaths.isNotEmpty()
+    val allSelected = series.chapters.isNotEmpty() &&
+        series.chapters.all { it.relativePath in selectedChapterPaths }
+    val isFullyRead = series.isFullyRead()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -659,13 +757,47 @@ private fun DownloadedSeriesScreen(
             coverModel = series.coverFile,
             title = series.title,
             subtitle = "${series.chapters.size} capitoli scaricati",
+            status = if (isFullyRead) "Letto" else null,
+            statusColor = ReadGreen,
         )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            tonalElevation = 1.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectAllChanged(!allSelected) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = allSelected,
+                    onCheckedChange = { checked -> onSelectAllChanged(checked) },
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = if (selectionMode) "Seleziona tutti" else "Tieni premuto per selezionare",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(series.chapters.reversed(), key = { it.relativePath }) { chapter ->
                 DownloadedChapterRow(
                     chapter = chapter,
-                    onClick = { onOpenChapter(chapter) },
+                    isSelected = chapter.relativePath in selectedChapterPaths,
+                    selectionMode = selectionMode,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleChapterSelection(chapter)
+                        } else {
+                            onOpenChapter(chapter)
+                        }
+                    },
+                    onLongClick = { onStartChapterSelection(chapter) },
                 )
             }
         }
@@ -675,9 +807,13 @@ private fun DownloadedSeriesScreen(
 @Composable
 private fun ReaderScreen(
     chapter: DownloadedChapter?,
+    previousChapter: DownloadedChapter?,
+    nextChapter: DownloadedChapter?,
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
+    onOpenPrevious: () -> Unit,
+    onOpenNext: () -> Unit,
 ) {
     when {
         isLoading -> {
@@ -706,6 +842,14 @@ private fun ReaderScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item("reader-nav-top") {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
                 items(pages, key = { it.absolutePath }) { page ->
                     AsyncImage(
                         model = page,
@@ -714,7 +858,54 @@ private fun ReaderScreen(
                         contentScale = ContentScale.FillWidth,
                     )
                 }
+                item("reader-nav-bottom") {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReaderChapterNavigationRow(
+    previousChapter: DownloadedChapter?,
+    nextChapter: DownloadedChapter?,
+    onOpenPrevious: () -> Unit,
+    onOpenNext: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(
+            onClick = onOpenPrevious,
+            enabled = previousChapter != null,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null,
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Precedente")
+        }
+        TextButton(
+            onClick = onOpenNext,
+            enabled = nextChapter != null,
+        ) {
+            Text("Successivo")
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+            )
         }
     }
 }
@@ -724,6 +915,8 @@ private fun SeriesHeader(
     coverModel: Any?,
     title: String,
     subtitle: String,
+    status: String? = null,
+    statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     Row(
         modifier = Modifier
@@ -753,6 +946,15 @@ private fun SeriesHeader(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (!status.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = statusColor,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
@@ -803,12 +1005,25 @@ private fun ChapterRow(chapter: ChapterEntry, onClick: () -> Unit) {
 @Composable
 private fun DownloadedChapterRow(
     chapter: DownloadedChapter,
+    isSelected: Boolean,
+    selectionMode: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.surfaceVariant
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
     Surface(
+        color = containerColor,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
@@ -823,10 +1038,15 @@ private fun DownloadedChapterRow(
                 Text(
                     text = if (chapter.isRead) "Letto" else "Non letto",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (chapter.isRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (chapter.isRead) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                )
+            } else if (chapter.isRead) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "Letto",
@@ -927,5 +1147,7 @@ private fun EmptyStateText(
         )
     }
 }
+
+private fun DownloadedSeries.isFullyRead(): Boolean = chapters.isNotEmpty() && chapters.all { it.isRead }
 
 private val ReadGreen = Color(0xFF2E7D32)

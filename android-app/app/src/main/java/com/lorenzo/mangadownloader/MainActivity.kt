@@ -50,16 +50,20 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -522,6 +526,26 @@ private fun SearchScreen(
             .fillMaxSize()
             .padding(padding),
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = if (trimmed.isEmpty()) "Scopri qualcosa di nuovo" else "Risultati ricerca",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = if (trimmed.isEmpty()) {
+                    "Cerca manga, salva i preferiti e riprendi i download da dove avevi lasciato."
+                } else {
+                    "Apri una scheda e scegli subito il range di capitoli da scaricare."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         OutlinedTextField(
             value = state.query,
             onValueChange = onQueryChange,
@@ -599,10 +623,13 @@ private fun SearchScreen(
 
 @Composable
 private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
     ) {
         Column {
             CoverImage(
@@ -610,12 +637,13 @@ private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
                 title = result.title,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
+                    .aspectRatio(2f / 3f)
+                    .clip(MaterialTheme.shapes.medium),
             )
             Text(
                 text = result.title,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -640,17 +668,26 @@ private fun FavoritesSection(
             key = "favorites-header",
             span = { GridItemSpan(maxLineSpan) },
         ) {
-            Text(
-                text = "Preferiti",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Preferiti",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = "Accesso rapido ai manga che segui di più.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         items(favorites, key = { it.mangaUrl }) { favorite ->
-            Card(
+            ElevatedCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelect(favorite) },
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
             ) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     CoverImage(
@@ -670,7 +707,7 @@ private fun FavoritesSection(
                         Text(
                             text = favorite.title,
                             modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelLarge,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -783,18 +820,15 @@ private fun DetailScreen(
                         OutlinedTextField(
                             value = "Capitolo ${dialogEnd.displayNumber()}",
                             onValueChange = {},
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { endMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
                             readOnly = true,
                             singleLine = true,
                             label = { Text("A") },
-                            trailingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.KeyboardDoubleArrowDown,
-                                    contentDescription = null,
-                                )
-                            },
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { endMenuExpanded = true },
                         )
                         DropdownMenu(
                             expanded = endMenuExpanded,
@@ -899,10 +933,13 @@ private fun DownloadedSeriesCard(
     var showInfoDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -1188,50 +1225,61 @@ private fun SeriesHeader(
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onDownloadAll: (() -> Unit)? = null,
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        shape = MaterialTheme.shapes.extraLarge,
+        tonalElevation = 3.dp,
     ) {
-        CoverImage(
-            model = coverModel,
-            title = title,
-            modifier = Modifier
-                .width(96.dp)
-                .height(144.dp)
-                .clip(MaterialTheme.shapes.medium),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CoverImage(
+                model = coverModel,
+                title = title,
+                modifier = Modifier
+                    .width(106.dp)
+                    .height(156.dp)
+                    .clip(MaterialTheme.shapes.large),
             )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!status.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = status,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = statusColor,
-                    fontWeight = FontWeight.SemiBold,
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!status.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Text(
+                            text = status,
+                            color = statusColor,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
             }
-        }
-        onDownloadAll?.let { downloadAll ->
-            IconButton(onClick = downloadAll) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = "Scarica tutto il manga",
-                )
+            onDownloadAll?.let { downloadAll ->
+                FilledTonalIconButton(onClick = downloadAll) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Scarica tutto il manga",
+                    )
+                }
             }
         }
     }
@@ -1283,18 +1331,20 @@ private fun CoverImage(
 
 @Composable
 private fun ChapterRow(chapter: ChapterEntry, onClick: () -> Unit) {
-    Surface(
+    ListItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-    ) {
-        Text(
-            text = "Capitolo ${chapter.displayNumber()}",
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-        )
-    }
+        headlineContent = {
+            Text("Capitolo ${chapter.displayNumber()}")
+        },
+        supportingContent = {
+            Text("Tocca per scegliere l'intervallo di download")
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1312,31 +1362,30 @@ private fun DownloadedChapterRow(
         MaterialTheme.colorScheme.surface
     }
 
-    Surface(
-        color = containerColor,
+    ListItem(
+        colors = ListItemDefaults.colors(
+            containerColor = containerColor,
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = chapter.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = if (chapter.isRead) "Letto" else "Non letto",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (chapter.isRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        headlineContent = {
+            Text(
+                text = chapter.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = if (chapter.isRead) "Letto" else "Non letto",
+                color = if (chapter.isRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
             if (selectionMode) {
                 Checkbox(
                     checked = isSelected,
@@ -1350,8 +1399,8 @@ private fun DownloadedChapterRow(
                     modifier = Modifier.size(22.dp),
                 )
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -1376,20 +1425,20 @@ private fun DownloadStatusStrip(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 4.dp,
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (isActive) {
-                    IconButton(onClick = onStop) {
+                    FilledTonalIconButton(onClick = onStop) {
                         Icon(
                             imageVector = Icons.Default.Stop,
                             contentDescription = "Ferma download",

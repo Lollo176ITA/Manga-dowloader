@@ -19,11 +19,13 @@ import okhttp3.Request
 data class AppUpdateInfo(
     val versionCode: Int,
     val versionName: String,
-    val releaseTag: String,
     val repoOwner: String,
     val repoName: String,
     val apkAssetName: String,
 ) {
+    val releaseTag: String
+        get() = buildReleaseTag(versionName)
+
     val apkUrl: String
         get() = "https://github.com/$repoOwner/$repoName/releases/download/$releaseTag/$apkAssetName"
 }
@@ -57,14 +59,12 @@ class AppUpdateRepository(
             versionCode = properties.getProperty("versionCode")?.toIntOrNull()
                 ?: throw IOException("versionCode remoto non valido"),
             versionName = properties.getProperty("versionName").orEmpty(),
-            releaseTag = properties.getProperty("releaseTag").orEmpty(),
             repoOwner = properties.getProperty("repoOwner").orEmpty(),
             repoName = properties.getProperty("repoName").orEmpty(),
             apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
         )
 
         if (info.versionName.isBlank() ||
-            info.releaseTag.isBlank() ||
             info.repoOwner.isBlank() ||
             info.repoName.isBlank() ||
             info.apkAssetName.isBlank()
@@ -109,6 +109,8 @@ class AppUpdateRepository(
         targetFile
     }
 }
+
+private fun buildReleaseTag(versionName: String): String = "android-v$versionName"
 
 object AppUpdateInstaller {
     fun canInstallPackages(context: Context): Boolean {

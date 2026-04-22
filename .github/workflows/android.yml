@@ -114,9 +114,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           VERSION_NAME="$(grep '^versionName=' version.properties | cut -d= -f2-)"
-          RELEASE_TAG="$(grep '^releaseTag=' version.properties | cut -d= -f2-)"
           test -n "$VERSION_NAME" || { echo "Missing versionName in version.properties"; exit 1; }
-          test -n "$RELEASE_TAG" || { echo "Missing releaseTag in version.properties"; exit 1; }
+          RELEASE_TAG="android-v$VERSION_NAME"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 

@@ -51,7 +51,8 @@ La versione Android ora vive in `android-app/version.properties`. Per pubblicare
 
 - `versionCode`
 - `versionName`
-- `releaseTag`
+
+Il workflow GitHub genera automaticamente il tag release come `android-v<versionName>`.
 
 Secrets richiesti nel repository GitHub:
 

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -616,12 +617,17 @@ private fun FavoritesSection(
     modifier: Modifier = Modifier,
     onSelect: (FavoriteManga) -> Unit,
 ) {
-    LazyColumn(
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item("favorites-header") {
+        item(
+            key = "favorites-header",
+            span = { GridItemSpan(maxLineSpan) },
+        ) {
             Text(
                 text = "Preferiti",
                 style = MaterialTheme.typography.titleMedium,
@@ -634,37 +640,40 @@ private fun FavoritesSection(
                     .fillMaxWidth()
                     .clickable { onSelect(favorite) },
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Column(modifier = Modifier.padding(8.dp)) {
                     CoverImage(
                         model = favorite.coverUrl,
                         title = favorite.title,
                         modifier = Modifier
-                            .width(64.dp)
-                            .height(92.dp)
+                            .fillMaxWidth()
+                            .aspectRatio(2f / 3f)
                             .clip(MaterialTheme.shapes.medium),
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
                             text = favorite.title,
-                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Apri manga",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = FavoriteYellow,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = null,
-                        tint = FavoriteYellow,
+                    Text(
+                        text = "Apri manga",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

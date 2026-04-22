@@ -340,7 +340,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteDownloadedSeries(series: DownloadedSeries = _state.value.selectedDownloadedSeries ?: return) {
+    fun deleteDownloadedSeries(series: DownloadedSeries? = _state.value.selectedDownloadedSeries) {
+        val targetSeries = series ?: return
 
         libraryJob?.cancel()
         readerJob?.cancel()
@@ -348,7 +349,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         libraryJob = viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    libraryRepository.deleteSeries(series)
+                    libraryRepository.deleteSeries(targetSeries)
                 }
                 val snapshot = withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
                 _state.value = _state.value.copy(

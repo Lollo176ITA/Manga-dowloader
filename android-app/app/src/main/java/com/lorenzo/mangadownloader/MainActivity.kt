@@ -783,18 +783,15 @@ private fun DetailScreen(
                         OutlinedTextField(
                             value = "Capitolo ${dialogEnd.displayNumber()}",
                             onValueChange = {},
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { endMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
                             readOnly = true,
                             singleLine = true,
                             label = { Text("A") },
-                            trailingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.KeyboardDoubleArrowDown,
-                                    contentDescription = null,
-                                )
-                            },
+                        )
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable { endMenuExpanded = true },
                         )
                         DropdownMenu(
                             expanded = endMenuExpanded,

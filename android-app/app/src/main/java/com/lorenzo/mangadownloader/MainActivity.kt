@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
@@ -116,11 +117,19 @@ class MainActivity : ComponentActivity() {
 private data class SeriesDownloadStatus(
     val seriesTitle: String?,
     val mangaUrl: String?,
+    val coverUrl: String?,
     val message: String?,
     val doneChapters: Int,
     val totalChapters: Int,
     val state: WorkInfo.State,
     val requestCount: Int,
+)
+
+private data class LibraryRowItem(
+    val key: String,
+    val title: String,
+    val series: DownloadedSeries?,
+    val downloadStatus: SeriesDownloadStatus?,
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -196,6 +205,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     lastUrl = lastUrl,
                     seriesTitle = details.title,
                     mangaUrl = details.mangaUrl,
+                    coverUrl = details.coverUrl,
                 )
                 scope.launch {
                     snackbarHostState.showSnackbar(
@@ -1046,10 +1056,13 @@ private fun LibraryScreen(
     onQueryChange: (String) -> Unit,
     onStopDownloads: () -> Unit,
 ) {
-    val filtered = remember(state.library, state.libraryQuery) {
+    val rows = remember(state.library, state.libraryQuery, downloadStatuses) {
         val trimmed = state.libraryQuery.trim()
-        if (trimmed.isBlank()) state.library
-        else state.library.filter { it.title.contains(trimmed, ignoreCase = true) }
+        buildLibraryRowItems(
+            library = state.library,
+            downloadStatuses = downloadStatuses,
+            query = trimmed,
+        )
     }
 
     Column(
@@ -1064,7 +1077,7 @@ private fun LibraryScreen(
         )
 
         when {
-            state.isLoadingLibrary && state.library.isEmpty() -> {
+            state.isLoadingLibrary && rows.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter,
@@ -1072,13 +1085,13 @@ private fun LibraryScreen(
                     CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
                 }
             }
-            state.library.isEmpty() -> {
+            rows.isEmpty() && state.library.isEmpty() && downloadStatuses.isEmpty() -> {
                 EmptyStateText(
                     text = "Nessun manga scaricato",
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            filtered.isEmpty() -> {
+            rows.isEmpty() -> {
                 EmptyStateText(
                     text = "Nessun manga corrisponde",
                     modifier = Modifier.fillMaxSize(),
@@ -1090,12 +1103,15 @@ private fun LibraryScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(filtered, key = { it.directory.absolutePath }) { series ->
-                        DownloadedSeriesCard(
-                            series = series,
-                            downloadStatus = downloadStatusForSeries(downloadStatuses, series),
-                            onClick = { onOpenSeries(series) },
-                            onDelete = { onDeleteSeries(series) },
+                    items(rows, key = { it.key }) { row ->
+                        LibrarySeriesCard(
+                            row = row,
+                            onClick = {
+                                row.series?.let(onOpenSeries)
+                            },
+                            onDelete = {
+                                row.series?.let(onDeleteSeries)
+                            },
                             onStopDownloads = onStopDownloads,
                         )
                     }
@@ -1183,30 +1199,48 @@ private fun NumberSettingField(
 }
 
 @Composable
-private fun DownloadedSeriesCard(
-    series: DownloadedSeries,
-    downloadStatus: SeriesDownloadStatus?,
+private fun LibrarySeriesCard(
+    row: LibraryRowItem,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onStopDownloads: () -> Unit,
 ) {
-    val isFullyRead = series.isFullyRead()
+    val series = row.series
+    val downloadStatus = row.downloadStatus
+    val isFullyRead = series?.isFullyRead() == true
     var menuExpanded by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val coverModel = series?.coverFile ?: downloadStatus?.coverUrl
+    val title = row.title
+    val subtitle = when {
+        series != null -> "${series.chapters.size} capitoli scaricati"
+        downloadStatus?.totalChapters?.let { it > 0 } == true -> "Download avviato"
+        else -> "In coda"
+    }
+    val secondaryStatus = when {
+        series == null -> null
+        isFullyRead -> "Letto"
+        else -> "${series.chapters.count { it.isRead }} letti"
+    }
+    val cardModifier = if (series != null) {
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = cardModifier,
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CoverImage(
-                model = series.coverFile,
-                title = series.title,
+                model = coverModel,
+                title = title,
                 modifier = Modifier
                     .width(78.dp)
                     .height(110.dp)
@@ -1215,22 +1249,24 @@ private fun DownloadedSeriesCard(
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = series.title,
+                    text = title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "${series.chapters.size} capitoli scaricati",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (isFullyRead) "Letto" else "${series.chapters.count { it.isRead }} letti",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                secondaryStatus?.let {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 downloadStatus?.let { status ->
                     Spacer(modifier = Modifier.height(10.dp))
                     SeriesDownloadSummary(
@@ -1239,43 +1275,45 @@ private fun DownloadedSeriesCard(
                     )
                 }
             }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Azioni manga",
-                    )
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Info") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Info, contentDescription = null)
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            showInfoDialog = true
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Elimina") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Delete, contentDescription = null)
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            showDeleteDialog = true
-                        },
-                    )
+            if (series != null) {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Azioni manga",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Info") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Info, contentDescription = null)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                showInfoDialog = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Elimina") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                showDeleteDialog = true
+                            },
+                        )
+                    }
                 }
             }
         }
     }
 
-    if (showInfoDialog) {
+    if (showInfoDialog && series != null) {
         AlertDialog(
             onDismissRequest = { showInfoDialog = false },
             title = { Text(series.title) },
@@ -1290,7 +1328,7 @@ private fun DownloadedSeriesCard(
         )
     }
 
-    if (showDeleteDialog) {
+    if (showDeleteDialog && series != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Elimina manga") },
@@ -1323,16 +1361,15 @@ private fun SeriesDownloadSummary(
         null
     }
     val title = when (status.state) {
-        WorkInfo.State.RUNNING -> status.message ?: "Download in corso"
+        WorkInfo.State.RUNNING -> "Download in corso"
         WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
             if (status.requestCount > 1) "In coda (${status.requestCount})" else "In coda"
-        else -> status.message ?: "Download"
+        else -> "Download"
     }
     val supporting = when {
-        status.state == WorkInfo.State.RUNNING && fraction != null ->
+        fraction != null ->
             "${status.doneChapters} / ${status.totalChapters} capitoli"
-        status.state == WorkInfo.State.RUNNING -> "Preparazione download"
-        !status.message.isNullOrBlank() -> status.message
+        status.totalChapters > 0 -> "0 / ${status.totalChapters} capitoli"
         else -> null
     }
 
@@ -1345,27 +1382,33 @@ private fun SeriesDownloadSummary(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                IconButton(
+                    onClick = onStopDownloads,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Stop,
+                        contentDescription = "Ferma download",
+                        modifier = Modifier.size(18.dp),
                     )
-                    supporting?.let { text ->
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
                 }
-                TextButton(onClick = onStopDownloads) {
-                    Text("Ferma coda")
-                }
+            }
+            supporting?.let { text ->
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (status.state == WorkInfo.State.RUNNING) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1754,6 +1797,7 @@ private fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, 
                 ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX),
             mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
                 ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
+            coverUrl = workInfo.tagValue(DownloadWorker.TAG_COVER_URL_PREFIX),
             message = workInfo.progress.getString(DownloadWorker.PROGRESS_MESSAGE),
             doneChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1),
             totalChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1),
@@ -1773,6 +1817,52 @@ private fun downloadStatusForSeries(
     }
     val fallbackKey = downloadSeriesKey(null, series.title) ?: return null
     return downloadStatuses[fallbackKey]
+}
+
+private fun buildLibraryRowItems(
+    library: List<DownloadedSeries>,
+    downloadStatuses: Map<String, SeriesDownloadStatus>,
+    query: String,
+): List<LibraryRowItem> {
+    val rows = mutableListOf<LibraryRowItem>()
+    val usedStatusKeys = linkedSetOf<String>()
+
+    library.forEach { series ->
+        val status = downloadStatusForSeries(downloadStatuses, series)
+        val key = downloadSeriesKey(series.mangaUrl, series.title)
+        if (status != null && key != null) {
+            usedStatusKeys += key
+        }
+        if (query.isBlank() || series.title.contains(query, ignoreCase = true)) {
+            rows += LibraryRowItem(
+                key = "series:${series.directory.absolutePath}",
+                title = series.title,
+                series = series,
+                downloadStatus = status,
+            )
+        }
+    }
+
+    downloadStatuses.forEach { (key, status) ->
+        if (key in usedStatusKeys) {
+            return@forEach
+        }
+        val title = status.seriesTitle?.takeIf { it.isNotBlank() } ?: return@forEach
+        if (query.isNotBlank() && !title.contains(query, ignoreCase = true)) {
+            return@forEach
+        }
+        rows += LibraryRowItem(
+            key = "pending:$key",
+            title = title,
+            series = null,
+            downloadStatus = status,
+        )
+    }
+
+    return rows.sortedWith(
+        compareByDescending<LibraryRowItem> { it.series == null && it.downloadStatus != null }
+            .thenBy { it.title.lowercase() },
+    )
 }
 
 private fun downloadSeriesKey(mangaUrl: String?, title: String?): String? {

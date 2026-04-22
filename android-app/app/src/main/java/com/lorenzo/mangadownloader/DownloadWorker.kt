@@ -35,18 +35,19 @@ class DownloadWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     private val client = MangapillClient(appContext)
+    private val workTags = workerParams.tags
 
     override suspend fun doWork(): Result {
         val firstUrl = inputData.getString(KEY_FIRST_URL)?.trim().orEmpty()
         val lastUrl = inputData.getString(KEY_LAST_URL)?.trim().orEmpty().ifBlank { null }
-        val inputSeriesTitle = inputData.getString(INPUT_SERIES_TITLE)?.trim().orEmpty().ifBlank { null }
-        val inputMangaUrl = inputData.getString(INPUT_MANGA_URL)?.trim().orEmpty().ifBlank { null }
+        val taggedSeriesTitle = workTags.tagValue(TAG_SERIES_TITLE_PREFIX)
+        val taggedMangaUrl = workTags.tagValue(TAG_MANGA_URL_PREFIX)
         if (firstUrl.isEmpty()) {
             return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL capitolo iniziale mancante"))
         }
 
         return try {
-            safeSetForeground(inputSeriesTitle ?: "Preparazione download")
+            safeSetForeground(taggedSeriesTitle ?: "Preparazione download")
             val plan = client.buildDownloadPlan(firstUrl, lastUrl)
             client.prepareSeriesStorage(plan)
             updateStatus(
@@ -138,16 +139,16 @@ class DownloadWorker(
             Result.success(
                 workDataOf(
                     PROGRESS_MESSAGE to "Fermato",
-                    PROGRESS_SERIES_TITLE to inputSeriesTitle,
-                    PROGRESS_MANGA_URL to inputMangaUrl,
+                    PROGRESS_SERIES_TITLE to taggedSeriesTitle,
+                    PROGRESS_MANGA_URL to taggedMangaUrl,
                 ),
             )
         } catch (exc: Exception) {
             Result.failure(
                 workDataOf(
                     PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto"),
-                    PROGRESS_SERIES_TITLE to inputSeriesTitle,
-                    PROGRESS_MANGA_URL to inputMangaUrl,
+                    PROGRESS_SERIES_TITLE to taggedSeriesTitle,
+                    PROGRESS_MANGA_URL to taggedMangaUrl,
                 ),
             )
         }
@@ -258,10 +259,9 @@ class DownloadWorker(
         const val PROGRESS_TOTAL_CHAPTERS = "progress_total_chapters"
         const val PROGRESS_SERIES_TITLE = "progress_series_title"
         const val PROGRESS_MANGA_URL = "progress_manga_url"
-        const val INPUT_SERIES_TITLE = "series_title"
-        const val INPUT_MANGA_URL = "manga_url"
         const val TAG_SERIES_TITLE_PREFIX = "series_title:"
         const val TAG_MANGA_URL_PREFIX = "manga_url:"
+        const val TAG_COVER_URL_PREFIX = "cover_url:"
 
         private const val KEY_FIRST_URL = "first_url"
         private const val KEY_LAST_URL = "last_url"
@@ -276,12 +276,11 @@ class DownloadWorker(
             lastUrl: String? = null,
             seriesTitle: String? = null,
             mangaUrl: String? = null,
+            coverUrl: String? = null,
         ) {
             val input = Data.Builder()
                 .putString(KEY_FIRST_URL, firstUrl.trim())
                 .putString(KEY_LAST_URL, lastUrl?.trim())
-                .putString(INPUT_SERIES_TITLE, seriesTitle?.trim())
-                .putString(INPUT_MANGA_URL, mangaUrl?.trim())
                 .build()
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
@@ -293,6 +292,9 @@ class DownloadWorker(
                     mangaUrl?.trim()
                         ?.takeIf { it.isNotBlank() }
                         ?.let { addTag("$TAG_MANGA_URL_PREFIX$it") }
+                    coverUrl?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { addTag("$TAG_COVER_URL_PREFIX$it") }
                 }
                 .setConstraints(
                     androidx.work.Constraints.Builder()
@@ -311,3 +313,7 @@ class DownloadWorker(
 }
 
 private class DownloadStoppedException : RuntimeException()
+
+private fun Set<String>.tagValue(prefix: String): String? {
+    return firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
+}

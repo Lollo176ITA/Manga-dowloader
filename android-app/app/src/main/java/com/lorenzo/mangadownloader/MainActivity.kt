@@ -317,7 +317,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = showPager,
-                    beyondViewportPageCount = 1,
+                    beyondBoundsPageCount = 1,
                 ) { page ->
                     when (AppTab.entries[page]) {
                         AppTab.SEARCH -> SearchScreen(

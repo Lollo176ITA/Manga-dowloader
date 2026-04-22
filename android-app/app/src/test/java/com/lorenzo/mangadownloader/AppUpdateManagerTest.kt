@@ -8,6 +8,39 @@ import org.junit.Test
 class AppUpdateManagerTest {
 
     @Test
+    fun parseUpdateConfigInfo_readsExplicitVersionCodeForLegacyClients() {
+        val info = parseUpdateConfigInfo(
+            """
+                versionCode=1008001
+                versionName=1.8.1
+                repoOwner=Lollo176ITA
+                repoName=Manga-dowloader
+                apkAssetName=app-release.apk
+                releaseNotes=Compatibility fix
+            """.trimIndent(),
+        )
+
+        assertEquals(1_008_001, info.versionCode)
+        assertEquals("1.8.1", info.versionName)
+        assertEquals("Compatibility fix", info.releaseNotes)
+    }
+
+    @Test
+    fun parseUpdateConfigInfo_fallsBackToDerivedVersionCode() {
+        val info = parseUpdateConfigInfo(
+            """
+                versionName=1.8.1
+                repoOwner=Lollo176ITA
+                repoName=Manga-dowloader
+                apkAssetName=app-release.apk
+            """.trimIndent(),
+        )
+
+        assertEquals(1_008_001, info.versionCode)
+        assertEquals("1.8.1", info.versionName)
+    }
+
+    @Test
     fun parseLatestReleaseInfo_readsVersionNotesAndAssetUrl() {
         val info = parseLatestReleaseInfo(
             raw = """

@@ -99,29 +99,7 @@ class AppUpdateRepository(
             response.body?.string() ?: throw IOException("Configurazione update vuota")
         }
 
-        val properties = Properties().apply { load(raw.byteInputStream()) }
-        val versionName = properties.getProperty("versionName").orEmpty()
-        return AppUpdateInfo(
-            versionCode = properties.getProperty("versionCode")?.toIntOrNull()
-                ?: versionCodeFromVersionName(versionName),
-            versionName = versionName,
-            repoOwner = properties.getProperty("repoOwner").orEmpty(),
-            repoName = properties.getProperty("repoName").orEmpty(),
-            apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
-            releaseNotes = properties.getProperty("releaseNotes")
-                ?.trim()
-                ?.takeIf(String::isNotBlank),
-        )
-            .also { info ->
-                if (
-                    info.versionName.isBlank() ||
-                    info.repoOwner.isBlank() ||
-                    info.repoName.isBlank() ||
-                    info.apkAssetName.isBlank()
-                ) {
-                    throw IOException("Configurazione update incompleta")
-                }
-            }
+        return parseUpdateConfigInfo(raw)
     }
 
     suspend fun downloadUpdateApk(info: AppUpdateInfo): File = withContext(Dispatchers.IO) {
@@ -160,6 +138,32 @@ class AppUpdateRepository(
 }
 
 private fun buildReleaseTag(versionName: String): String = "android-v$versionName"
+
+internal fun parseUpdateConfigInfo(raw: String): AppUpdateInfo {
+    val properties = Properties().apply { load(raw.byteInputStream()) }
+    val versionName = properties.getProperty("versionName").orEmpty()
+    return AppUpdateInfo(
+        versionCode = properties.getProperty("versionCode")?.toIntOrNull()
+            ?: versionCodeFromVersionName(versionName),
+        versionName = versionName,
+        repoOwner = properties.getProperty("repoOwner").orEmpty(),
+        repoName = properties.getProperty("repoName").orEmpty(),
+        apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
+        releaseNotes = properties.getProperty("releaseNotes")
+            ?.trim()
+            ?.takeIf(String::isNotBlank),
+    )
+        .also { info ->
+            if (
+                info.versionName.isBlank() ||
+                info.repoOwner.isBlank() ||
+                info.repoName.isBlank() ||
+                info.apkAssetName.isBlank()
+            ) {
+                throw IOException("Configurazione update incompleta")
+            }
+        }
+}
 
 internal fun parseLatestReleaseInfo(
     raw: String,

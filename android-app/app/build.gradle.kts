@@ -10,7 +10,16 @@ val versionProperties = Properties().apply {
     versionFile.inputStream().use(::load)
 }
 val appVersionName = versionProperties.getProperty("versionName")
-val appVersionCode = appVersionName.toAndroidVersionCode()
+val derivedAppVersionCode = appVersionName.toAndroidVersionCode()
+val appVersionCodeProperty = versionProperties.getProperty("versionCode")?.trim()
+require(!appVersionCodeProperty.isNullOrEmpty()) {
+    "versionCode mancante in version.properties: serve per compatibilita con gli update delle versioni precedenti"
+}
+val appVersionCode = appVersionCodeProperty!!.toIntOrNull()
+    ?: error("versionCode non valido in version.properties: $appVersionCodeProperty")
+require(appVersionCode == derivedAppVersionCode) {
+    "versionCode ($appVersionCode) non coerente con versionName ($appVersionName). Atteso: $derivedAppVersionCode"
+}
 val updateConfigUrl = versionProperties.getProperty("updateConfigUrl")
 val repoOwner = versionProperties.getProperty("repoOwner")
 val repoName = versionProperties.getProperty("repoName")

@@ -115,7 +115,6 @@ data class MangaUiState(
     val isInstallingUpdate: Boolean = false,
     val showSettings: Boolean = false,
     val settings: AppSettings = AppSettings(),
-    val showSearchSourceDialog: Boolean = false,
     val isBiometricAvailable: Boolean = false,
     val isParentalAuthInProgress: Boolean = false,
     val parentalPinSetupState: ParentalPinSetupState? = null,
@@ -235,21 +234,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         updateState { copy(showSettings = true) }
     }
 
-    fun openSearchSourceDialog() {
-        updateState { copy(showSearchSourceDialog = true) }
-    }
-
-    fun dismissSearchSourceDialog() {
-        updateState { copy(showSearchSourceDialog = false) }
-    }
-
     fun selectSearchSource(sourceId: String) {
         val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
         val query = _state.value.query.trim()
         updateSettings { it.copy(searchSourceId = resolvedSourceId) }
         updateState {
             copy(
-                showSearchSourceDialog = false,
                 errorMessage = null,
             )
         }

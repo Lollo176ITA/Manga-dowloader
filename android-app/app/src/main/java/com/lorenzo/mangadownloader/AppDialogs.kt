@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -17,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -246,44 +244,6 @@ fun ParentalPinEntryDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Annulla")
-            }
-        },
-    )
-}
-
-@Composable
-fun SearchSourceDialog(
-    selectedSourceId: String,
-    sources: List<MangaSourceDescriptor>,
-    onDismiss: () -> Unit,
-    onSelect: (String) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Server di ricerca") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                sources.forEach { source ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(source.id) }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = source.id == selectedSourceId,
-                            onClick = { onSelect(source.id) },
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(source.displayName)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
             }
         },
     )

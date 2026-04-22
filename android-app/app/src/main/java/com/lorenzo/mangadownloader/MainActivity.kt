@@ -243,14 +243,23 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
-                onOpenSearchSource = viewModel::openSearchSourceDialog,
             )
         },
         bottomBar = {
             if (showPager) {
                 AppBottomBar(
                     currentTab = visiblePagerTab,
-                    onSelect = viewModel::selectTab,
+                    onSelect = { tab ->
+                        viewModel.selectTab(tab)
+                        val requiresSearchUnlock = tab == AppTab.SEARCH &&
+                            state.settings.parentalControlEnabled &&
+                            state.currentTab != AppTab.SEARCH
+                        if (!requiresSearchUnlock) {
+                            scope.launch {
+                                pagerState.animateScrollToPage(tab.ordinal)
+                            }
+                        }
+                    },
                 )
             }
         },
@@ -316,14 +325,17 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             state = state,
                             padding = innerPadding,
                             onQueryChange = viewModel::onQueryChange,
+                            onSelectSource = viewModel::selectSearchSource,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
+                            selectedSourceId = state.settings.searchSourceId,
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,
+                            onSelectSource = viewModel::selectSearchSource,
                             onSelect = { favorite ->
                                 viewModel.selectManga(
                                     MangaSearchResult(
@@ -342,6 +354,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
                             onQueryChange = viewModel::onLibraryQueryChange,
+                            onSelectSource = viewModel::selectSearchSource,
                             onStopDownloads = {
                                 workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
                             },
@@ -379,15 +392,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             onPinChange = viewModel::onParentalPinEntryChange,
             onDismiss = viewModel::dismissParentalPinEntry,
             onConfirm = viewModel::confirmParentalPinEntry,
-        )
-    }
-
-    if (state.showSearchSourceDialog) {
-        SearchSourceDialog(
-            selectedSourceId = state.settings.searchSourceId,
-            sources = MangaSourceCatalog.descriptors,
-            onDismiss = viewModel::dismissSearchSourceDialog,
-            onSelect = viewModel::selectSearchSource,
         )
     }
 

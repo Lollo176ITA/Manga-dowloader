@@ -8,7 +8,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -36,7 +35,6 @@ fun AppTopBar(
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenSearchSource: () -> Unit,
 ) {
     val readerChapter = state.readerChapter
     val selectedManga = state.selected
@@ -112,18 +110,6 @@ fun AppTopBar(
                         expanded = overflowExpanded,
                         onDismissRequest = { overflowExpanded = false },
                     ) {
-                        if (visibleTab == AppTab.SEARCH) {
-                            DropdownMenuItem(
-                                text = { Text("Server") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Storage, contentDescription = null)
-                                },
-                                onClick = {
-                                    overflowExpanded = false
-                                    onOpenSearchSource()
-                                },
-                            )
-                        }
                         DropdownMenuItem(
                             text = { Text("Impostazioni") },
                             leadingIcon = {

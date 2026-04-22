@@ -19,3 +19,4 @@ android-app/release-keystore.jks
 *.jpeg
 *.png
 !docs/**/*.png
+.claude/

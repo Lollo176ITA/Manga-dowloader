@@ -30,7 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,10 +86,6 @@ fun AppTopBar(
         !state.showSettings &&
         !inDetail &&
         !inSeries
-
-    LaunchedEffect(showServerDialog) {
-        if (showServerDialog) serverSelectorExpanded = true
-    }
 
     CenterAlignedTopAppBar(
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -152,17 +147,6 @@ fun AppTopBar(
                         onDismissRequest = { overflowExpanded = false },
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Impostazioni") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Settings, contentDescription = null)
-                            },
-                            onClick = {
-                                overflowExpanded = false
-                                onOpenSettings()
-                            },
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
                             text = { Text("Server: $selectedSourceShortName") },
                             leadingIcon = {
                                 Icon(Icons.Default.Storage, contentDescription = null)
@@ -170,6 +154,17 @@ fun AppTopBar(
                             onClick = {
                                 overflowExpanded = false
                                 showServerDialog = true
+                            },
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Impostazioni") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Settings, contentDescription = null)
+                            },
+                            onClick = {
+                                overflowExpanded = false
+                                onOpenSettings()
                             },
                         )
                     }

@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -35,8 +34,6 @@ fun AppTopBar(
     visibleTab: AppTab,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onDeleteSelected: () -> Unit,
-    onDeleteSeries: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val readerChapter = state.readerChapter
@@ -45,11 +42,9 @@ fun AppTopBar(
     val showBack = readerChapter != null ||
         state.showSettings ||
         selectedManga != null ||
-        state.selectedChapterPaths.isNotEmpty() ||
         (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
         state.showSettings -> "Impostazioni"
-        state.selectedChapterPaths.isNotEmpty() -> "${state.selectedChapterPaths.size} selezionati"
         readerChapter != null -> readerChapter.title
         selectedManga != null -> selectedManga.title
         state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
@@ -64,7 +59,6 @@ fun AppTopBar(
     val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
     val showOverflow = state.readerChapter == null &&
         !state.showSettings &&
-        state.selectedChapterPaths.isEmpty() &&
         !inDetail &&
         !inSeries
 
@@ -98,22 +92,6 @@ fun AppTopBar(
                         contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
                         tint = if (isFavorite) FavoriteYellow else MaterialTheme.colorScheme.onSurface,
                     )
-                }
-            } else if (inSeries && readerChapter == null) {
-                if (state.selectedChapterPaths.isNotEmpty()) {
-                    IconButton(onClick = onDeleteSelected) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Elimina capitoli selezionati",
-                        )
-                    }
-                } else {
-                    IconButton(onClick = onDeleteSeries) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Elimina manga",
-                        )
-                    }
                 }
             }
 

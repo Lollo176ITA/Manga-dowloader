@@ -1,9 +1,7 @@
 package com.lorenzo.mangadownloader
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,7 +37,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -443,16 +440,14 @@ fun SettingsScreen(
 @Composable
 fun DownloadedSeriesScreen(
     series: DownloadedSeries,
-    selectedChapterPaths: Set<String>,
     padding: PaddingValues,
     onOpenChapter: (DownloadedChapter) -> Unit,
-    onToggleChapterSelection: (DownloadedChapter) -> Unit,
-    onStartChapterSelection: (DownloadedChapter) -> Unit,
+    onDeleteChapter: (DownloadedChapter) -> Unit,
 ) {
-    val selectionMode = selectedChapterPaths.isNotEmpty()
     val isFullyRead = series.isFullyRead()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var chapterPendingDelete by remember { mutableStateOf<DownloadedChapter?>(null) }
 
     Column(
         modifier = Modifier
@@ -475,16 +470,8 @@ fun DownloadedSeriesScreen(
                 items(series.chapters, key = { it.relativePath }) { chapter ->
                     DownloadedChapterRow(
                         chapter = chapter,
-                        isSelected = chapter.relativePath in selectedChapterPaths,
-                        selectionMode = selectionMode,
-                        onClick = {
-                            if (selectionMode) {
-                                onToggleChapterSelection(chapter)
-                            } else {
-                                onOpenChapter(chapter)
-                            }
-                        },
-                        onLongClick = { onStartChapterSelection(chapter) },
+                        onOpen = { onOpenChapter(chapter) },
+                        onDelete = { chapterPendingDelete = chapter },
                     )
                 }
             }
@@ -500,6 +487,17 @@ fun DownloadedSeriesScreen(
                 }
             }
         }
+    }
+
+    chapterPendingDelete?.let { chapter ->
+        DeleteChapterDialog(
+            chapterTitle = chapter.title,
+            onDismiss = { chapterPendingDelete = null },
+            onConfirm = {
+                chapterPendingDelete = null
+                onDeleteChapter(chapter)
+            },
+        )
     }
 }
 
@@ -682,10 +680,11 @@ private fun FavoriteCard(
                     .aspectRatio(2f / 3f)
                     .clip(MaterialTheme.shapes.medium),
             )
+            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp),
+                    .height(40.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -863,20 +862,25 @@ private fun LibrarySeriesCard(
                     )
                 }
             }
-            if (series != null) {
-                SeriesActionsMenu(
-                    expanded = menuExpanded,
-                    onExpand = { menuExpanded = true },
-                    onDismiss = { menuExpanded = false },
-                    onShowInfo = {
-                        menuExpanded = false
-                        showInfoDialog = true
-                    },
-                    onDelete = {
-                        menuExpanded = false
-                        showDeleteDialog = true
-                    },
-                )
+            Box(
+                modifier = Modifier.width(48.dp),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                if (series != null) {
+                    SeriesActionsMenu(
+                        expanded = menuExpanded,
+                        onExpand = { menuExpanded = true },
+                        onDismiss = { menuExpanded = false },
+                        onShowInfo = {
+                            menuExpanded = false
+                            showInfoDialog = true
+                        },
+                        onDelete = {
+                            menuExpanded = false
+                            showDeleteDialog = true
+                        },
+                    )
+                }
             }
         }
     }
@@ -1183,29 +1187,16 @@ private fun ChapterRow(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadedChapterRow(
     chapter: DownloadedChapter,
-    isSelected: Boolean,
-    selectionMode: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    val containerColor = if (isSelected) {
-        MaterialTheme.colorScheme.surfaceVariant
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
-
     Surface(
-        color = containerColor,
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            ),
+            .clickable(onClick = onOpen),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
@@ -1223,17 +1214,21 @@ private fun DownloadedChapterRow(
                     color = if (chapter.isRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (selectionMode) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onClick() },
-                )
-            } else if (chapter.isRead) {
+            if (chapter.isRead) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "Letto",
                     tint = ReadGreen,
                     modifier = Modifier.size(22.dp),
+                )
+            } else {
+                Spacer(modifier = Modifier.width(22.dp))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Elimina capitolo",
                 )
             }
         }
@@ -1327,8 +1322,7 @@ private fun buildLibraryRowItems(
     }
 
     return rows.sortedWith(
-        compareByDescending<LibraryRowItem> { it.series == null && it.downloadStatus != null }
-            .thenBy { it.title.lowercase() },
+        compareBy<LibraryRowItem> { it.title.lowercase() },
     )
 }
 

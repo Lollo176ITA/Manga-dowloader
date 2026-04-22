@@ -69,8 +69,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
-    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
-    var showDeleteSeriesDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(
         runningOrQueuedWork?.id,
@@ -181,8 +179,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 visibleTab = visiblePagerTab,
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
-                onDeleteSelected = { showDeleteSelectedDialog = true },
-                onDeleteSeries = { showDeleteSeriesDialog = true },
                 onOpenSettings = viewModel::openSettings,
             )
         },
@@ -232,11 +228,9 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             state.currentTab == AppTab.LIBRARY && selectedSeries != null -> {
                 DownloadedSeriesScreen(
                     series = selectedSeries,
-                    selectedChapterPaths = state.selectedChapterPaths,
                     padding = innerPadding,
                     onOpenChapter = viewModel::openReader,
-                    onToggleChapterSelection = viewModel::toggleChapterSelection,
-                    onStartChapterSelection = viewModel::startChapterSelection,
+                    onDeleteChapter = viewModel::deleteDownloadedChapter,
                 )
             }
             else -> {
@@ -286,28 +280,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         }
     }
 
-    if (showDeleteSelectedDialog) {
-        DeleteSelectedChaptersDialog(
-            selectedCount = state.selectedChapterPaths.size,
-            onDismiss = { showDeleteSelectedDialog = false },
-            onConfirm = {
-                showDeleteSelectedDialog = false
-                viewModel.deleteSelectedChapters()
-            },
-        )
-    }
-
-    state.selectedDownloadedSeries?.takeIf { showDeleteSeriesDialog }?.let { series ->
-        DeleteSeriesDialog(
-            title = series.title,
-            onDismiss = { showDeleteSeriesDialog = false },
-            onConfirm = {
-                showDeleteSeriesDialog = false
-                viewModel.deleteDownloadedSeries()
-            },
-        )
-    }
-
     lastCrashReport?.let { report ->
         CrashReportDialog(
             report = report,
@@ -339,7 +311,6 @@ private fun MangaUiState.canHandleBack(): Boolean {
     return readerChapter != null ||
         showSettings ||
         selected != null ||
-        selectedChapterPaths.isNotEmpty() ||
         (currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null)
 }
 
@@ -348,7 +319,6 @@ private fun MangaUiState.handleBack(viewModel: MangaViewModel) {
         readerChapter != null -> viewModel.closeReader()
         showSettings -> viewModel.closeSettings()
         selected != null -> viewModel.clearSelection()
-        selectedChapterPaths.isNotEmpty() -> viewModel.clearChapterSelection()
         currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null ->
             viewModel.clearDownloadedSelection()
     }

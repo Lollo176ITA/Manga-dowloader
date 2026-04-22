@@ -16,29 +16,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun DeleteSelectedChaptersDialog(
-    selectedCount: Int,
+fun DeleteChapterDialog(
+    chapterTitle: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     ConfirmationDialog(
-        title = "Elimina capitoli",
-        text = "Vuoi eliminare $selectedCount capitoli selezionati?",
-        confirmLabel = "Elimina",
-        onDismiss = onDismiss,
-        onConfirm = onConfirm,
-    )
-}
-
-@Composable
-fun DeleteSeriesDialog(
-    title: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    ConfirmationDialog(
-        title = "Elimina manga",
-        text = "Vuoi eliminare $title con tutti i capitoli scaricati?",
+        title = "Elimina capitolo",
+        text = "Vuoi eliminare $chapterTitle?",
         confirmLabel = "Elimina",
         onDismiss = onDismiss,
         onConfirm = onConfirm,

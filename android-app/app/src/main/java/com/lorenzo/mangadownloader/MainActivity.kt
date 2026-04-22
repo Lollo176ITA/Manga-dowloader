@@ -38,13 +38,13 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
-import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -180,7 +180,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         } else {
             try {
                 DownloadWorker.enqueue(appContext, firstUrl, lastUrl)
-                viewModel.selectTab(AppTab.LIBRARY)
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         if (startChapter.url == endChapter.url) {
@@ -198,33 +197,39 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         }
     }
 
+    val pagerState = rememberPagerState(
+        initialPage = state.currentTab.ordinal,
+        pageCount = { AppTab.entries.size },
+    )
     val isDownloadActive = activeWorkInfos.isNotEmpty()
-
-    val showBottomBar = state.readerChapter == null && !state.showSettings
+    val showPager = state.readerChapter == null &&
+        !state.showSettings &&
+        state.selected == null &&
+        state.selectedDownloadedSeries == null
+    val visiblePagerTab = when {
+        !showPager -> state.currentTab
+        pagerState.isScrollInProgress -> AppTab.entries[pagerState.targetPage]
+        else -> AppTab.entries[pagerState.currentPage]
+    }
+    val showBottomBar = showPager
     val canHandleBack = state.readerChapter != null ||
         state.showSettings ||
+        state.selected != null ||
         state.selectedChapterPaths.isNotEmpty() ||
-        (state.currentTab == AppTab.SEARCH && state.selected != null) ||
         (state.currentTab == AppTab.LIBRARY && state.selectedDownloadedSeries != null)
 
     val handleBack: () -> Unit = {
         when {
             state.readerChapter != null -> viewModel.closeReader()
             state.showSettings -> viewModel.closeSettings()
+            state.selected != null -> viewModel.clearSelection()
             state.selectedChapterPaths.isNotEmpty() -> viewModel.clearChapterSelection()
             state.currentTab == AppTab.LIBRARY && state.selectedDownloadedSeries != null ->
                 viewModel.clearDownloadedSelection()
-            state.currentTab == AppTab.SEARCH && state.selected != null ->
-                viewModel.clearSelection()
         }
     }
 
     BackHandler(enabled = canHandleBack, onBack = handleBack)
-
-    val pagerState = rememberPagerState(
-        initialPage = state.currentTab.ordinal,
-        pageCount = { AppTab.entries.size },
-    )
     LaunchedEffect(state.currentTab) {
         if (pagerState.currentPage != state.currentTab.ordinal) {
             pagerState.animateScrollToPage(state.currentTab.ordinal)
@@ -238,15 +243,12 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             }
         }
     }
-    val showPager = state.readerChapter == null &&
-        !state.showSettings &&
-        state.selected == null &&
-        state.selectedDownloadedSeries == null
 
     Scaffold(
         topBar = {
             AppTopBar(
                 state = state,
+                visibleTab = visiblePagerTab,
                 onBack = handleBack,
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onDeleteSelected = { showDeleteSelectedDialog = true },
@@ -257,7 +259,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         bottomBar = {
             if (showBottomBar) {
                 AppBottomBar(
-                    currentTab = state.currentTab,
+                    currentTab = visiblePagerTab,
                     onSelect = viewModel::selectTab,
                 )
             }
@@ -289,12 +291,15 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
                 )
             }
-            state.currentTab == AppTab.SEARCH && activeDetail != null -> {
+            activeDetail != null -> {
                 DetailScreen(
                     details = activeDetail,
                     isLoading = state.isLoadingDetails,
+                    downloadStatus = statusWork,
+                    isDownloadActive = isDownloadActive,
                     padding = innerPadding,
                     onStart = onStartDownload,
+                    onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                 )
             }
             state.currentTab == AppTab.LIBRARY && activeSeries != null -> {
@@ -312,6 +317,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = showPager,
+                    beyondViewportPageCount = 1,
                 ) { page ->
                     when (AppTab.entries[page]) {
                         AppTab.SEARCH -> SearchScreen(
@@ -339,9 +345,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,
                             padding = innerPadding,
-                            status = statusWork,
-                            isDownloadActive = isDownloadActive,
-                            onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
                             onQueryChange = viewModel::onLibraryQueryChange,
@@ -470,6 +473,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
 @Composable
 private fun AppTopBar(
     state: MangaUiState,
+    visibleTab: AppTab,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onDeleteSelected: () -> Unit,
@@ -481,28 +485,29 @@ private fun AppTopBar(
     val selectedSeries = state.selectedDownloadedSeries
     val showBack = readerChapter != null ||
         state.showSettings ||
+        selectedManga != null ||
         state.selectedChapterPaths.isNotEmpty() ||
-        (state.currentTab == AppTab.SEARCH && selectedManga != null) ||
         (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
         state.showSettings -> "Impostazioni"
         state.selectedChapterPaths.isNotEmpty() -> "${state.selectedChapterPaths.size} selezionati"
         readerChapter != null -> readerChapter.title
-        state.currentTab == AppTab.SEARCH && selectedManga != null -> selectedManga.title
+        selectedManga != null -> selectedManga.title
         state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
-        state.currentTab == AppTab.SEARCH -> "Cerca"
-        state.currentTab == AppTab.FAVORITES -> "Preferiti"
-        state.currentTab == AppTab.LIBRARY -> "Libreria"
+        visibleTab == AppTab.SEARCH -> "Cerca"
+        visibleTab == AppTab.FAVORITES -> "Preferiti"
+        visibleTab == AppTab.LIBRARY -> "Libreria"
         else -> "Manga Downloader"
     }
     val barColor = MaterialTheme.colorScheme.surface
     var overflowExpanded by remember { mutableStateOf(false) }
 
-    val inDetail = state.currentTab == AppTab.SEARCH && selectedManga != null
+    val inDetail = selectedManga != null
     val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
     val showOverflow = state.readerChapter == null &&
         !state.showSettings &&
         state.selectedChapterPaths.isEmpty() &&
+        !inDetail &&
         !inSeries
 
     CenterAlignedTopAppBar(
@@ -605,7 +610,7 @@ private fun AppBottomBar(
         NavigationBarItem(
             selected = currentTab == AppTab.LIBRARY,
             onClick = { onSelect(AppTab.LIBRARY) },
-            icon = { Icon(Icons.Default.LibraryBooks, contentDescription = null) },
+            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
             label = { Text("Libreria") },
         )
     }
@@ -877,8 +882,11 @@ private fun FavoriteCard(favorite: FavoriteManga, onClick: () -> Unit) {
 private fun DetailScreen(
     details: MangaDetails,
     isLoading: Boolean,
+    downloadStatus: WorkInfo?,
+    isDownloadActive: Boolean,
     padding: PaddingValues,
     onStart: (ChapterEntry, ChapterEntry) -> Unit,
+    onStopDownload: () -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
@@ -900,6 +908,12 @@ private fun DetailScreen(
             } else {
                 null
             },
+        )
+
+        DownloadStatusStrip(
+            status = downloadStatus,
+            isActive = isDownloadActive,
+            onStop = onStopDownload,
         )
 
         if (isLoading && details.chapters.isEmpty()) {
@@ -1018,9 +1032,6 @@ private fun DetailScreen(
 private fun LibraryScreen(
     state: MangaUiState,
     padding: PaddingValues,
-    status: WorkInfo?,
-    isDownloadActive: Boolean,
-    onStopDownload: () -> Unit,
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
     onQueryChange: (String) -> Unit,
@@ -1036,12 +1047,6 @@ private fun LibraryScreen(
             .fillMaxSize()
             .padding(padding),
     ) {
-        DownloadStatusStrip(
-            status = status,
-            isActive = isDownloadActive,
-            onStop = onStopDownload,
-        )
-
         SearchField(
             value = state.libraryQuery,
             placeholder = "Cerca nella libreria",

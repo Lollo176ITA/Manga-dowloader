@@ -39,13 +39,19 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -202,6 +208,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             AppTopBar(
                 state = state,
                 onBack = handleBack,
+                onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onDeleteSelected = { showDeleteSelectedDialog = true },
                 onDeleteSeries = { showDeleteSeriesDialog = true },
             )
@@ -257,6 +264,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         isDownloadActive = isDownloadActive,
                         onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                         onOpenSeries = viewModel::selectDownloadedSeries,
+                        onDeleteSeries = viewModel::deleteDownloadedSeries,
                     )
                 } else {
                     DownloadedSeriesScreen(
@@ -266,7 +274,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                         onOpenChapter = viewModel::openReader,
                         onToggleChapterSelection = viewModel::toggleChapterSelection,
                         onStartChapterSelection = viewModel::startChapterSelection,
-                        onSelectAllChanged = viewModel::setAllChaptersSelected,
                     )
                 }
             }
@@ -392,6 +399,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
 private fun AppTopBar(
     state: MangaUiState,
     onBack: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onDeleteSelected: () -> Unit,
     onDeleteSeries: () -> Unit,
 ) {
@@ -432,7 +440,17 @@ private fun AppTopBar(
             }
         },
         actions = {
-            if (state.currentTab == AppTab.DOWNLOADS &&
+            val selectedManga = state.selected
+            if (state.currentTab == AppTab.SEARCH && selectedManga != null) {
+                val isFavorite = selectedManga.mangaUrl in state.favoriteMangaUrls
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+                        contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
+                        tint = if (isFavorite) FavoriteYellow else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            } else if (state.currentTab == AppTab.DOWNLOADS &&
                 state.readerChapter == null &&
                 state.selectedDownloadedSeries != null
             ) {
@@ -534,6 +552,21 @@ private fun SearchScreen(
                         }
                     }
                 }
+                trimmed.isEmpty() && state.favorites.isNotEmpty() -> {
+                    FavoritesSection(
+                        favorites = state.favorites,
+                        modifier = Modifier.fillMaxSize(),
+                        onSelect = { favorite ->
+                            onSelect(
+                                MangaSearchResult(
+                                    title = favorite.title,
+                                    mangaUrl = favorite.mangaUrl,
+                                    coverUrl = favorite.coverUrl,
+                                ),
+                            )
+                        },
+                    )
+                }
                 trimmed.isNotEmpty() && trimmed.length < 3 -> {
                     EmptyStateText(
                         text = "Digita almeno 3 caratteri",
@@ -573,6 +606,68 @@ private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+@Composable
+private fun FavoritesSection(
+    favorites: List<FavoriteManga>,
+    modifier: Modifier = Modifier,
+    onSelect: (FavoriteManga) -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item("favorites-header") {
+            Text(
+                text = "Preferiti",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        items(favorites, key = { it.mangaUrl }) { favorite ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(favorite) },
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CoverImage(
+                        model = favorite.coverUrl,
+                        title = favorite.title,
+                        modifier = Modifier
+                            .width(64.dp)
+                            .height(92.dp)
+                            .clip(MaterialTheme.shapes.medium),
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = favorite.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Apri manga",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = null,
+                        tint = FavoriteYellow,
+                    )
+                }
+            }
         }
     }
 }
@@ -637,6 +732,7 @@ private fun DownloadsScreen(
     isDownloadActive: Boolean,
     onStopDownload: () -> Unit,
     onOpenSeries: (DownloadedSeries) -> Unit,
+    onDeleteSeries: (DownloadedSeries) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -671,7 +767,11 @@ private fun DownloadsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(state.library, key = { it.directory.absolutePath }) { series ->
-                        DownloadedSeriesCard(series = series, onClick = { onOpenSeries(series) })
+                        DownloadedSeriesCard(
+                            series = series,
+                            onClick = { onOpenSeries(series) },
+                            onDelete = { onDeleteSeries(series) },
+                        )
                     }
                 }
             }
@@ -683,8 +783,12 @@ private fun DownloadsScreen(
 private fun DownloadedSeriesCard(
     series: DownloadedSeries,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val isFullyRead = series.isFullyRead()
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -723,15 +827,76 @@ private fun DownloadedSeriesCard(
                     color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (isFullyRead) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Manga letto",
-                    tint = ReadGreen,
-                    modifier = Modifier.size(22.dp),
-                )
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Azioni manga",
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Info") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Info, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            showInfoDialog = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Elimina") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            showDeleteDialog = true
+                        },
+                    )
+                }
             }
         }
+    }
+
+    if (showInfoDialog) {
+        AlertDialog(
+            onDismissRequest = { showInfoDialog = false },
+            title = { Text(series.title) },
+            text = {
+                Text(buildSeriesInfoText(series))
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfoDialog = false }) {
+                    Text("Chiudi")
+                }
+            },
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Elimina manga") },
+            text = { Text("Vuoi eliminare ${series.title} dalla memoria del telefono?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    onDelete()
+                }) {
+                    Text("Elimina")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Annulla")
+                }
+            },
+        )
     }
 }
 
@@ -743,11 +908,8 @@ private fun DownloadedSeriesScreen(
     onOpenChapter: (DownloadedChapter) -> Unit,
     onToggleChapterSelection: (DownloadedChapter) -> Unit,
     onStartChapterSelection: (DownloadedChapter) -> Unit,
-    onSelectAllChanged: (Boolean) -> Unit,
 ) {
     val selectionMode = selectedChapterPaths.isNotEmpty()
-    val allSelected = series.chapters.isNotEmpty() &&
-        series.chapters.all { it.relativePath in selectedChapterPaths }
     val isFullyRead = series.isFullyRead()
 
     Column(
@@ -762,29 +924,6 @@ private fun DownloadedSeriesScreen(
             status = if (isFullyRead) "Letto" else null,
             statusColor = ReadGreen,
         )
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            tonalElevation = 1.dp,
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelectAllChanged(!allSelected) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    checked = allSelected,
-                    onCheckedChange = { checked -> onSelectAllChanged(checked) },
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = if (selectionMode) "Seleziona tutti" else "Tieni premuto per selezionare",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(series.chapters.reversed(), key = { it.relativePath }) { chapter ->
@@ -1068,27 +1207,16 @@ private fun DownloadStatusStrip(
     onStop: () -> Unit,
 ) {
     val progressMessage = status?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
-    val resultMessage = status?.outputData?.getString(DownloadWorker.PROGRESS_MESSAGE)
-    val visibleMessage = progressMessage ?: resultMessage
+    val visibleMessage = progressMessage
     val done = status?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
     val total = status?.progress?.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1) ?: -1
-    val showRecent = status?.state == WorkInfo.State.SUCCEEDED ||
-        status?.state == WorkInfo.State.FAILED ||
-        status?.state == WorkInfo.State.CANCELLED
 
-    if (!isActive && !showRecent) {
+    if (!isActive) {
         return
     }
 
     val fraction = if (done >= 0 && total > 0) done.toFloat() / total.toFloat() else null
-    val title = when (status?.state) {
-        WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
-            visibleMessage ?: "Download in corso"
-        WorkInfo.State.SUCCEEDED -> "Completato"
-        WorkInfo.State.FAILED -> visibleMessage ?: "Errore"
-        WorkInfo.State.CANCELLED -> "Fermato"
-        else -> visibleMessage ?: ""
-    }
+    val title = visibleMessage ?: "Download in corso"
 
     Surface(
         modifier = Modifier
@@ -1153,4 +1281,33 @@ private fun EmptyStateText(
 
 private fun DownloadedSeries.isFullyRead(): Boolean = chapters.isNotEmpty() && chapters.all { it.isRead }
 
+private fun buildSeriesInfoText(series: DownloadedSeries): String {
+    val totalSizeBytes = series.directory.walkTopDown()
+        .filter { it.isFile }
+        .sumOf { it.length() }
+    val readCount = series.chapters.count { it.isRead }
+    return buildString {
+        appendLine("Capitoli: ${series.chapters.size}")
+        appendLine("Letti: $readCount")
+        appendLine("Dimensione: ${formatBytes(totalSizeBytes)}")
+        appendLine("Percorso: ${series.directory.absolutePath}")
+        series.mangaUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            appendLine("Sorgente: $url")
+        }
+    }.trim()
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val units = listOf("KB", "MB", "GB", "TB")
+    var value = bytes.toDouble()
+    var unitIndex = -1
+    while (value >= 1024 && unitIndex < units.lastIndex) {
+        value /= 1024.0
+        unitIndex += 1
+    }
+    return String.format("%.1f %s", value, units[unitIndex])
+}
+
 private val ReadGreen = Color(0xFF2E7D32)
+private val FavoriteYellow = Color(0xFFF4B400)

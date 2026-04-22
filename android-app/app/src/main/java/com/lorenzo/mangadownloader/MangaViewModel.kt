@@ -17,16 +17,34 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 enum class AppTab {
     SEARCH,
     DOWNLOADS,
 }
 
+data class FavoriteManga(
+    val title: String,
+    val mangaUrl: String,
+    val coverUrl: String?,
+)
+
 data class MangaUiState(
     val currentTab: AppTab = AppTab.SEARCH,
     val query: String = "",
     val results: List<MangaSearchResult> = emptyList(),
+    val favorites: List<FavoriteManga> = emptyList(),
+    val favoriteMangaUrls: Set<String> = emptySet(),
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val isLoadingDetails: Boolean = false,
@@ -51,9 +69,15 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryRepository = LibraryRepository(application)
     private val appUpdateRepository = AppUpdateRepository(application)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
+    private val initialFavorites = readFavorites()
 
     private val _state = MutableStateFlow(
-        MangaUiState(query = prefs.getString(KEY_LAST_QUERY, "").orEmpty()),
+        MangaUiState(
+            query = prefs.getString(KEY_LAST_QUERY, "").orEmpty(),
+            favorites = initialFavorites,
+            favoriteMangaUrls = initialFavorites.mapTo(linkedSetOf()) { it.mangaUrl },
+        ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
 
@@ -149,6 +173,32 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSelection() {
         detailJob?.cancel()
         _state.value = _state.value.copy(selected = null, isLoadingDetails = false, errorMessage = null)
+    }
+
+    fun toggleFavorite(manga: FavoriteManga) {
+        val current = _state.value.favorites.toMutableList()
+        val existingIndex = current.indexOfFirst { it.mangaUrl == manga.mangaUrl }
+        if (existingIndex >= 0) {
+            current.removeAt(existingIndex)
+        } else {
+            current.add(0, manga)
+        }
+        persistFavorites(current)
+        _state.value = _state.value.copy(
+            favorites = current,
+            favoriteMangaUrls = current.mapTo(linkedSetOf()) { it.mangaUrl },
+        )
+    }
+
+    fun toggleFavoriteSelectedManga() {
+        val selected = _state.value.selected ?: return
+        toggleFavorite(
+            FavoriteManga(
+                title = selected.title,
+                mangaUrl = selected.mangaUrl,
+                coverUrl = selected.coverUrl,
+            ),
+        )
     }
 
     fun refreshLibrary() {
@@ -259,17 +309,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(selectedChapterPaths = emptySet())
     }
 
-    fun setAllChaptersSelected(selected: Boolean) {
-        val series = _state.value.selectedDownloadedSeries ?: return
-        _state.value = _state.value.copy(
-            selectedChapterPaths = if (selected) {
-                series.chapters.mapTo(linkedSetOf()) { it.relativePath }
-            } else {
-                emptySet()
-            },
-        )
-    }
-
     fun deleteSelectedChapters() {
         val currentState = _state.value
         val series = currentState.selectedDownloadedSeries ?: return
@@ -301,8 +340,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteDownloadedSeries() {
-        val series = _state.value.selectedDownloadedSeries ?: return
+    fun deleteDownloadedSeries(series: DownloadedSeries = _state.value.selectedDownloadedSeries ?: return) {
 
         libraryJob?.cancel()
         readerJob?.cancel()
@@ -490,9 +528,52 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun readFavorites(): List<FavoriteManga> {
+        val raw = prefs.getString(KEY_FAVORITES_JSON, null).orEmpty()
+        if (raw.isBlank()) {
+            return emptyList()
+        }
+        return try {
+            json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
+                val item = element.jsonObject
+                val title = item["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val mangaUrl = item["mangaUrl"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (title.isBlank() || mangaUrl.isBlank()) {
+                    null
+                } else {
+                    FavoriteManga(
+                        title = title,
+                        mangaUrl = mangaUrl,
+                        coverUrl = item["coverUrl"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun persistFavorites(favorites: List<FavoriteManga>) {
+        val payload = buildJsonArray {
+            favorites.forEach { manga ->
+                add(
+                    buildJsonObject {
+                        put("title", JsonPrimitive(manga.title))
+                        put("mangaUrl", JsonPrimitive(manga.mangaUrl))
+                        manga.coverUrl?.let { put("coverUrl", JsonPrimitive(it)) }
+                    },
+                )
+            }
+        }
+        prefs.edit()
+            .putString(KEY_FAVORITES_JSON, json.encodeToString(JsonArray.serializer(), payload))
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
         private const val KEY_LAST_QUERY = "last_query"
+        private const val KEY_FAVORITES_JSON = "favorites_json"
         private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L
     }

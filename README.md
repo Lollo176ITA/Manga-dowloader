@@ -54,6 +54,18 @@ Secrets richiesti nel repository GitHub:
 - `ANDROID_KEY_ALIAS`: alias della chiave di release
 - `ANDROID_KEY_PASSWORD`: password della chiave di release
 
+Genera `ANDROID_KEYSTORE_BASE64` senza newline extra. Esempi:
+
+```bash
+# macOS
+base64 -i android-app/release-keystore.jks | tr -d '\n'
+
+# Linux
+base64 -w 0 android-app/release-keystore.jks
+```
+
+Se il secret contiene un valore troncato o codificato male, il workflow fallisce in fase di firma con errori come `KeytoolException` o `EOFException`.
+
 Per scaricarlo:
 
 1. apri la tab **Actions** del repo su GitHub

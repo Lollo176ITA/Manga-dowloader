@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -39,8 +40,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -680,11 +683,6 @@ private fun FavoritesSection(
                             modifier = Modifier.size(16.dp),
                         )
                     }
-                    Text(
-                        text = "Apri manga",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
@@ -700,6 +698,8 @@ private fun DetailScreen(
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -710,6 +710,20 @@ private fun DetailScreen(
             coverModel = details.coverUrl,
             title = details.title,
             subtitle = "${details.chapters.size} capitoli disponibili",
+            onDownloadAll = if (details.chapters.isNotEmpty()) {
+                { onStart(details.chapters.first(), details.chapters.last()) }
+            } else {
+                null
+            },
+            onScrollToBottom = if (details.chapters.isNotEmpty()) {
+                {
+                    scope.launch {
+                        listState.animateScrollToItem(details.chapters.lastIndex)
+                    }
+                }
+            } else {
+                null
+            },
         )
 
         if (isLoading && details.chapters.isEmpty()) {
@@ -717,8 +731,11 @@ private fun DetailScreen(
                 CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(details.chapters.reversed(), key = { it.url }) { chapter ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+            ) {
+                items(details.chapters, key = { it.url }) { chapter ->
                     ChapterRow(
                         chapter = chapter,
                         onClick = {
@@ -975,6 +992,8 @@ private fun DownloadedSeriesScreen(
 ) {
     val selectionMode = selectedChapterPaths.isNotEmpty()
     val isFullyRead = series.isFullyRead()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -987,10 +1006,22 @@ private fun DownloadedSeriesScreen(
             subtitle = "${series.chapters.size} capitoli scaricati",
             status = if (isFullyRead) "Letto" else null,
             statusColor = ReadGreen,
+            onScrollToBottom = if (series.chapters.isNotEmpty()) {
+                {
+                    scope.launch {
+                        listState.animateScrollToItem(series.chapters.lastIndex)
+                    }
+                }
+            } else {
+                null
+            },
         )
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(series.chapters.reversed(), key = { it.relativePath }) { chapter ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+        ) {
+            items(series.chapters, key = { it.relativePath }) { chapter ->
                 DownloadedChapterRow(
                     chapter = chapter,
                     isSelected = chapter.relativePath in selectedChapterPaths,
@@ -1122,44 +1153,91 @@ private fun SeriesHeader(
     subtitle: String,
     status: String? = null,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onDownloadAll: (() -> Unit)? = null,
+    onScrollToBottom: (() -> Unit)? = null,
 ) {
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        CoverImage(
-            model = coverModel,
-            title = title,
+        Row(
             modifier = Modifier
-                .width(96.dp)
-                .height(144.dp)
-                .clip(MaterialTheme.shapes.medium),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+                .fillMaxWidth()
+                .padding(end = 56.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CoverImage(
+                model = coverModel,
+                title = title,
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(144.dp)
+                    .clip(MaterialTheme.shapes.medium),
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (!status.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = status,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = statusColor,
-                    fontWeight = FontWeight.SemiBold,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (!status.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = statusColor,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
+        }
+        onDownloadAll?.let { downloadAll ->
+            HeaderActionButton(
+                modifier = Modifier.align(Alignment.TopEnd),
+                imageVector = Icons.Default.Download,
+                contentDescription = "Scarica tutto il manga",
+                onClick = downloadAll,
+            )
+        }
+        onScrollToBottom?.let { scrollToBottom ->
+            HeaderActionButton(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                imageVector = Icons.Default.KeyboardDoubleArrowDown,
+                contentDescription = "Vai in fondo",
+                onClick = scrollToBottom,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeaderActionButton(
+    modifier: Modifier = Modifier,
+    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = modifier.size(40.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primary,
+        shadowElevation = 2.dp,
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                tint = Color.White,
+            )
         }
     }
 }

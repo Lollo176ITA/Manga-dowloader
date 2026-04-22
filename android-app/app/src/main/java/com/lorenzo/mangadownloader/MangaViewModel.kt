@@ -596,12 +596,38 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             return if (this.relativePath == relativePath) copy(isRead = true) else this
         }
 
+        val readChapterId = selectedDownloadedSeries
+            ?.chapters
+            ?.firstOrNull { it.relativePath == relativePath }
+            ?.chapterId
+            ?: library
+                .asSequence()
+                .flatMap { it.chapters.asSequence() }
+                .firstOrNull { it.relativePath == relativePath }
+                ?.chapterId
+
         val updatedLibrary = library.map { series ->
-            series.copy(chapters = series.chapters.map { chapter -> chapter.markIfSame() })
+            val updatedChapters = series.chapters.map { chapter -> chapter.markIfSame() }
+            val includesReadChapter = updatedChapters.any { it.relativePath == relativePath }
+            series.copy(
+                chapters = updatedChapters,
+                readChapterIds = if (includesReadChapter && readChapterId != null) {
+                    series.readChapterIds + readChapterId
+                } else {
+                    series.readChapterIds
+                },
+            )
         }
-        val updatedSelected = selectedDownloadedSeries?.copy(
-            chapters = selectedDownloadedSeries.chapters.map { chapter -> chapter.markIfSame() },
-        )
+        val updatedSelected = selectedDownloadedSeries?.let { series ->
+            series.copy(
+                chapters = series.chapters.map { chapter -> chapter.markIfSame() },
+                readChapterIds = if (readChapterId != null && series.chapters.any { it.relativePath == relativePath }) {
+                    series.readChapterIds + readChapterId
+                } else {
+                    series.readChapterIds
+                },
+            )
+        }
         val updatedReader = if (readerChapter?.relativePath == relativePath) {
             readerChapter.copy(isRead = true)
         } else {

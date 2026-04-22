@@ -73,7 +73,7 @@ fun AvailableUpdateDialog(
         title = { Text("Aggiornamento disponibile") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("È disponibile la versione ${update.versionName}.")
+                Text("È disponibile la versione ${update.versionName}")
                 if (isInstalling) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(

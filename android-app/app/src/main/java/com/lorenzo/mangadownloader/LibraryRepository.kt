@@ -27,6 +27,7 @@ data class DownloadedChapter(
     val numberValue: BigDecimal?,
     val file: File,
     val relativePath: String,
+    val chapterId: String,
     val isRead: Boolean,
 )
 
@@ -36,12 +37,16 @@ data class DownloadedSeries(
     val coverFile: File?,
     val directory: File,
     val chapters: List<DownloadedChapter>,
+    val totalChapterCount: Int,
+    val readChapterIds: Set<String>,
 )
 
 data class SeriesMetadata(
     val title: String,
     val mangaUrl: String?,
     val coverFileName: String?,
+    val totalChapters: Int?,
+    val readChapterIds: Set<String>,
     val chapters: List<SeriesMetadataChapter>,
 )
 
@@ -50,6 +55,7 @@ data class SeriesMetadataChapter(
     val url: String?,
     val slug: String?,
     val fileName: String,
+    val id: String?,
 )
 
 object DownloadStorage {
@@ -88,6 +94,22 @@ object DownloadStorage {
         return numericRegex.find(raw)?.value?.toBigDecimalOrNull()
     }
 
+    fun stableChapterId(
+        numberText: String,
+        url: String?,
+        slug: String?,
+    ): String {
+        val normalizedUrl = url?.trim()?.takeIf(String::isNotBlank)
+        if (normalizedUrl != null) {
+            return "url:$normalizedUrl"
+        }
+        val normalizedSlug = slug?.trim()?.takeIf(String::isNotBlank)
+        if (normalizedSlug != null) {
+            return "slug:$normalizedSlug"
+        }
+        return "number:${normalizedChapterLabel(numberText)}"
+    }
+
     fun relativePath(root: File, file: File): String {
         return file.relativeTo(root).invariantSeparatorsPath
     }
@@ -118,6 +140,15 @@ object SeriesMetadataJson {
             put("title", JsonPrimitive(metadata.title))
             metadata.mangaUrl?.let { put("mangaUrl", JsonPrimitive(it)) }
             metadata.coverFileName?.let { put("coverFileName", JsonPrimitive(it)) }
+            metadata.totalChapters?.let { put("totalChapters", JsonPrimitive(it)) }
+            put(
+                "readChapterIds",
+                buildJsonArray {
+                    metadata.readChapterIds
+                        .sorted()
+                        .forEach { id -> add(JsonPrimitive(id)) }
+                },
+            )
             put(
                 "chapters",
                 buildJsonArray {
@@ -128,6 +159,7 @@ object SeriesMetadataJson {
                                 chapter.url?.let { put("url", JsonPrimitive(it)) }
                                 chapter.slug?.let { put("slug", JsonPrimitive(it)) }
                                 put("fileName", JsonPrimitive(chapter.fileName))
+                                chapter.id?.let { put("id", JsonPrimitive(it)) }
                             },
                         )
                     }
@@ -161,6 +193,12 @@ object SeriesMetadataJson {
                 title = title,
                 mangaUrl = root["mangaUrl"]?.jsonPrimitive?.contentOrNull,
                 coverFileName = root["coverFileName"]?.jsonPrimitive?.contentOrNull,
+                totalChapters = root["totalChapters"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                readChapterIds = root["readChapterIds"]
+                    ?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                    ?.toSet()
+                    .orEmpty(),
                 chapters = chapters,
             )
         } catch (_: Exception) {
@@ -179,6 +217,7 @@ object SeriesMetadataJson {
             url = jsonObject["url"]?.jsonPrimitive?.contentOrNull,
             slug = jsonObject["slug"]?.jsonPrimitive?.contentOrNull,
             fileName = fileName,
+            id = jsonObject["id"]?.jsonPrimitive?.contentOrNull,
         )
     }
 }
@@ -203,6 +242,7 @@ object LibraryScanner {
 
         val metadata = SeriesMetadataJson.read(File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME))
         val metadataByFileName = metadata?.chapters?.associateBy { it.fileName }.orEmpty()
+        val persistedReadIds = metadata?.readChapterIds.orEmpty()
         val coverFile = resolveCoverFile(directory, metadata)
 
         val chapters = directory.listFiles()
@@ -215,13 +255,21 @@ object LibraryScanner {
                     ?: return@mapNotNull null
                 val normalized = DownloadStorage.normalizedChapterLabel(numberText)
                 val relativePath = DownloadStorage.relativePath(root, file)
+                val chapterId = chapterMeta?.id
+                    ?: DownloadStorage.stableChapterId(
+                        numberText = normalized,
+                        url = chapterMeta?.url,
+                        slug = chapterMeta?.slug,
+                    )
+                val chapterIsRead = isRead(relativePath) || chapterId in persistedReadIds
                 DownloadedChapter(
                     title = "Capitolo $normalized",
                     numberText = normalized,
                     numberValue = DownloadStorage.parseChapterValueOrNull(normalized),
                     file = file,
                     relativePath = relativePath,
-                    isRead = isRead(relativePath),
+                    chapterId = chapterId,
+                    isRead = chapterIsRead,
                 )
             }
             .sortedWith(DownloadStorage.chapterComparator())
@@ -230,6 +278,14 @@ object LibraryScanner {
             return null
         }
 
+        val readChapterIds = buildSet {
+            addAll(persistedReadIds)
+            chapters.filter { it.isRead }.mapTo(this) { it.chapterId }
+        }
+        val totalChapterCount = (metadata?.totalChapters ?: chapters.size)
+            .coerceAtLeast(chapters.size)
+            .coerceAtLeast(readChapterIds.size)
+
         return DownloadedSeries(
             title = metadata?.title?.takeIf { it.isNotBlank() }
                 ?: directory.name.replace('_', ' ').trim(),
@@ -237,6 +293,8 @@ object LibraryScanner {
             coverFile = coverFile,
             directory = directory,
             chapters = chapters,
+            totalChapterCount = totalChapterCount,
+            readChapterIds = readChapterIds,
         )
     }
 
@@ -278,6 +336,14 @@ class LibraryRepository(
         prefs.edit()
             .putBoolean(readPrefKey(chapter.relativePath), true)
             .apply()
+        updateSeriesMetadata(chapter.file.parentFile) { metadata ->
+            val updatedReadIds = metadata.readChapterIds + chapter.chapterId
+            metadata.copy(
+                totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
+                    .coerceAtLeast(updatedReadIds.size),
+                readChapterIds = updatedReadIds,
+            )
+        }
     }
 
     suspend fun deleteChapters(
@@ -288,11 +354,27 @@ class LibraryRepository(
             return@withContext
         }
 
+        val deletedReadIds = chapters
+            .asSequence()
+            .filter { it.isRead }
+            .map { it.chapterId }
+            .toSet()
+        if (deletedReadIds.isNotEmpty()) {
+            updateSeriesMetadata(series.directory) { metadata ->
+                val updatedReadIds = metadata.readChapterIds + deletedReadIds
+                metadata.copy(
+                    totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
+                        .coerceAtLeast(updatedReadIds.size),
+                    readChapterIds = updatedReadIds,
+                )
+            }
+        }
+
         chapters.forEach { chapter ->
             if (chapter.file.exists()) {
                 chapter.file.delete()
             }
-            clearChapterState(chapter.relativePath)
+            clearChapterState(chapter.relativePath, clearReadState = false)
         }
 
         val remainingChapterFiles = series.directory.listFiles()
@@ -314,7 +396,7 @@ class LibraryRepository(
 
     suspend fun deleteSeries(series: DownloadedSeries) = withContext(Dispatchers.IO) {
         series.chapters.forEach { chapter ->
-            clearChapterState(chapter.relativePath)
+            clearChapterState(chapter.relativePath, clearReadState = true)
         }
         if (series.directory.exists()) {
             series.directory.deleteRecursively()
@@ -380,12 +462,15 @@ class LibraryRepository(
             title = series.title,
             mangaUrl = series.mangaUrl,
             coverFileName = series.coverFile?.name,
+            totalChapters = series.totalChapterCount,
+            readChapterIds = series.readChapterIds,
             chapters = series.chapters.map { chapter ->
                 SeriesMetadataChapter(
                     numberText = chapter.numberText,
                     url = null,
                     slug = null,
                     fileName = chapter.file.name,
+                    id = chapter.chapterId,
                 )
             },
         )
@@ -410,6 +495,8 @@ class LibraryRepository(
             title = existingMetadata?.title?.takeIf { it.isNotBlank() } ?: fallbackTitle,
             mangaUrl = existingMetadata?.mangaUrl ?: fallbackMangaUrl,
             coverFileName = existingMetadata?.coverFileName ?: fallbackCoverFileName,
+            totalChapters = existingMetadata?.totalChapters,
+            readChapterIds = existingMetadata?.readChapterIds.orEmpty(),
             chapters = chapterFiles.mapNotNull { file ->
                 val preserved = existingByFileName[file.name]
                 val numberText = preserved?.numberText
@@ -420,16 +507,32 @@ class LibraryRepository(
                     url = preserved?.url,
                     slug = preserved?.slug,
                     fileName = file.name,
+                    id = preserved?.id ?: DownloadStorage.stableChapterId(
+                        numberText = numberText,
+                        url = preserved?.url,
+                        slug = preserved?.slug,
+                    ),
                 )
             },
         )
         SeriesMetadataJson.write(metadataFile, updated)
     }
 
-    private fun clearChapterState(relativePath: String) {
-        prefs.edit()
-            .remove(readPrefKey(relativePath))
-            .apply()
+    private fun updateSeriesMetadata(
+        directory: File,
+        transform: (SeriesMetadata) -> SeriesMetadata,
+    ) {
+        val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+        val existing = SeriesMetadataJson.read(metadataFile) ?: return
+        SeriesMetadataJson.write(metadataFile, transform(existing))
+    }
+
+    private fun clearChapterState(relativePath: String, clearReadState: Boolean) {
+        if (clearReadState) {
+            prefs.edit()
+                .remove(readPrefKey(relativePath))
+                .apply()
+        }
         val cacheDir = File(
             File(context.cacheDir, "reader-pages"),
             DownloadStorage.readerCacheDirectoryName(relativePath),

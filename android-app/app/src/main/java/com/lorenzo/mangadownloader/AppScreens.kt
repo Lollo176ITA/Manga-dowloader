@@ -523,8 +523,8 @@ fun DownloadedSeriesScreen(
         }
 
         DownloadedSeriesActionBar(
-            readCount = series.chapters.count { it.isRead },
-            totalCount = series.chapters.size,
+            readCount = series.readChapterCount(),
+            totalCount = series.totalChapterCount,
             firstChapter = firstChapter,
             resumeChapter = resumeChapter,
             latestChapter = latestChapter,
@@ -1018,7 +1018,7 @@ private fun LibrarySeriesCard(
                 series?.let {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (isFullyRead) "Letto" else "${it.chapters.count { chapter -> chapter.isRead }} letti",
+                        text = it.readProgressLabel(),
                         style = MaterialTheme.typography.bodySmall,
                         color = if (isFullyRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1371,18 +1371,12 @@ private fun DownloadedChapterRow(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = chapter.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = if (chapter.isRead) "Letto" else "Non letto",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (chapter.isRead) ReadGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = chapter.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
             if (chapter.isRead) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
@@ -1547,21 +1541,39 @@ private fun EmptyStateText(
 }
 
 private fun DownloadedSeries.isFullyRead(): Boolean {
-    return chapters.isNotEmpty() && chapters.all { it.isRead }
+    return totalChapterCount > 0 && readChapterCount() >= totalChapterCount
 }
 
 private fun DownloadedSeries.resumeChapter(): DownloadedChapter? {
     return chapters.firstOrNull { !it.isRead } ?: chapters.lastOrNull()
 }
 
+private fun DownloadedSeries.readChapterCount(): Int {
+    return readChapterIds.size.coerceAtMost(totalChapterCount.coerceAtLeast(0))
+}
+
+private fun DownloadedSeries.readProgressPercent(): Int {
+    if (totalChapterCount <= 0) return 0
+    return ((readChapterCount() * 100f) / totalChapterCount.toFloat()).toInt()
+}
+
+private fun DownloadedSeries.readProgressLabel(): String {
+    val readCount = readChapterCount()
+    return when {
+        totalChapterCount <= 0 -> "$readCount letti"
+        readCount >= totalChapterCount -> "100% letto · $readCount / $totalChapterCount"
+        else -> "${readProgressPercent()}% letto · $readCount / $totalChapterCount"
+    }
+}
+
 private fun buildSeriesInfoText(series: DownloadedSeries): String {
     val totalSizeBytes = series.directory.walkTopDown()
         .filter(File::isFile)
         .sumOf(File::length)
-    val readCount = series.chapters.count { it.isRead }
     return buildString {
-        appendLine("Capitoli: ${series.chapters.size}")
-        appendLine("Letti: $readCount")
+        appendLine("Capitoli scaricati: ${series.chapters.size}")
+        appendLine("Capitoli totali: ${series.totalChapterCount}")
+        appendLine("Progresso: ${series.readProgressLabel()}")
         appendLine("Dimensione: ${formatBytes(totalSizeBytes)}")
         appendLine("Percorso: ${series.directory.absolutePath}")
         series.mangaUrl?.takeIf(String::isNotBlank)?.let { url ->

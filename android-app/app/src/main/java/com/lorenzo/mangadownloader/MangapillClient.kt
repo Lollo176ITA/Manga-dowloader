@@ -39,6 +39,7 @@ data class DownloadPlan(
     val coverUrl: String?,
     val outputDir: File,
     val chapters: List<ChapterEntry>,
+    val totalChapterCount: Int,
     val startChapterLabel: String,
     val endChapterLabel: String,
 )
@@ -178,6 +179,7 @@ class MangapillClient(
             coverUrl = coverUrl,
             outputDir = outputDir,
             chapters = selected,
+            totalChapterCount = allChapters.size,
             startChapterLabel = selected.first().displayNumber(),
             endChapterLabel = selected.last().displayNumber(),
         )
@@ -185,23 +187,35 @@ class MangapillClient(
 
     fun prepareSeriesStorage(plan: DownloadPlan) {
         val coverFileName = ensureCoverFile(plan.coverUrl, plan.outputDir)
+        val metadataFile = File(plan.outputDir, DownloadStorage.SERIES_METADATA_FILE_NAME)
+        val existingMetadata = SeriesMetadataJson.read(metadataFile)
+        val mergedChapters = linkedMapOf<String, SeriesMetadataChapter>()
+        existingMetadata?.chapters.orEmpty().forEach { chapter ->
+            mergedChapters[chapter.fileName] = chapter
+        }
+        plan.chapters.forEach { chapter ->
+            val fileName = DownloadStorage.buildChapterFileName(chapter)
+            mergedChapters[fileName] = SeriesMetadataChapter(
+                numberText = chapter.displayNumber(),
+                url = chapter.url,
+                slug = chapter.slug,
+                fileName = fileName,
+                id = DownloadStorage.stableChapterId(
+                    numberText = chapter.displayNumber(),
+                    url = chapter.url,
+                    slug = chapter.slug,
+                ),
+            )
+        }
         val metadata = SeriesMetadata(
             title = plan.seriesTitle,
             mangaUrl = plan.mangaUrl,
             coverFileName = coverFileName,
-            chapters = plan.chapters.map { chapter ->
-                SeriesMetadataChapter(
-                    numberText = chapter.displayNumber(),
-                    url = chapter.url,
-                    slug = chapter.slug,
-                    fileName = DownloadStorage.buildChapterFileName(chapter),
-                )
-            },
+            totalChapters = maxOf(existingMetadata?.totalChapters ?: 0, plan.totalChapterCount),
+            readChapterIds = existingMetadata?.readChapterIds.orEmpty(),
+            chapters = mergedChapters.values.toList(),
         )
-        SeriesMetadataJson.write(
-            File(plan.outputDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
-            metadata,
-        )
+        SeriesMetadataJson.write(metadataFile, metadata)
     }
 
     suspend fun downloadChapterAsCbz(

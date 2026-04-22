@@ -396,12 +396,17 @@ fun LibraryScreen(
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    isBiometricAvailable: Boolean,
+    isParentalAuthInProgress: Boolean,
     padding: PaddingValues,
     onToggleAutoDownload: (Boolean) -> Unit,
     onTriggerChange: (Int) -> Unit,
     onBatchChange: (Int) -> Unit,
     onToggleSmartCleanup: (Boolean) -> Unit,
     onSmartCleanupKeepChange: (Int) -> Unit,
+    onToggleParentalControl: (Boolean) -> Unit,
+    onRequestChangeParentalPin: () -> Unit,
+    onToggleParentalBiometric: (Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -479,6 +484,87 @@ fun SettingsScreen(
             enabled = settings.smartCleanupEnabled,
             onValueChange = onSmartCleanupKeepChange,
         )
+
+        Text(
+            text = "Parental control",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Proteggi la ricerca con PIN",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = if (settings.parentalControlEnabled) {
+                        if (settings.parentalPinConfigured) {
+                            "PIN configurato. Cerca richiede autenticazione a ogni accesso."
+                        } else {
+                            "Attivo ma da configurare dal menu in alto a destra."
+                        }
+                    } else {
+                        "Disattivato di default. Preferiti e Libreria restano sempre liberi."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.parentalControlEnabled,
+                enabled = !isParentalAuthInProgress,
+                onCheckedChange = onToggleParentalControl,
+            )
+        }
+
+        if (settings.parentalControlEnabled && settings.parentalPinConfigured && isBiometricAvailable) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Usa anche la biometria",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = "Puoi usare impronta o volto, con PIN sempre disponibile come fallback.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = settings.parentalBiometricEnabled,
+                    enabled = !isParentalAuthInProgress,
+                    onCheckedChange = onToggleParentalBiometric,
+                )
+            }
+        }
+
+        if (settings.parentalControlEnabled && settings.parentalPinConfigured) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !isParentalAuthInProgress,
+                    onClick = onRequestChangeParentalPin,
+                ) {
+                    Text("Cambia PIN")
+                }
+                FilledTonalButton(
+                    modifier = Modifier.weight(1f),
+                    enabled = !isParentalAuthInProgress,
+                    onClick = { onToggleParentalControl(false) },
+                ) {
+                    Text("Disattiva")
+                }
+            }
+        }
     }
 }
 

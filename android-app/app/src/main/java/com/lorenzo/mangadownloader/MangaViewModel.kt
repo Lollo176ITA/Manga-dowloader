@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import android.app.Application
 import android.content.Context
+import androidx.biometric.BiometricManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
@@ -46,6 +47,46 @@ data class AppSettings(
     val autoDownloadBatchSize: Int = 3,
     val smartCleanupEnabled: Boolean = false,
     val smartCleanupKeepPreviousChapters: Int = 3,
+    val parentalControlEnabled: Boolean = false,
+    val parentalPinConfigured: Boolean = false,
+    val parentalBiometricEnabled: Boolean = false,
+    val parentalPinSalt: String? = null,
+    val parentalPinHash: String? = null,
+)
+
+enum class ParentalAction {
+    OPEN_SEARCH,
+    OPEN_MANAGEMENT,
+    CHANGE_PIN,
+    DISABLE_PARENTAL_CONTROL,
+    ENABLE_BIOMETRIC,
+    DISABLE_BIOMETRIC,
+}
+
+enum class ParentalPinSetupMode {
+    CREATE,
+    CHANGE,
+}
+
+data class ParentalPinSetupState(
+    val mode: ParentalPinSetupMode,
+    val pin: String = "",
+    val confirmPin: String = "",
+    val errorMessage: String? = null,
+    val completionAction: ParentalAction? = null,
+)
+
+data class ParentalPinEntryState(
+    val action: ParentalAction,
+    val pin: String = "",
+    val errorMessage: String? = null,
+)
+
+data class ParentalBiometricPromptRequest(
+    val requestId: Long,
+    val action: ParentalAction,
+    val title: String,
+    val subtitle: String,
 )
 
 data class MangaUiState(
@@ -72,6 +113,12 @@ data class MangaUiState(
     val isInstallingUpdate: Boolean = false,
     val showSettings: Boolean = false,
     val settings: AppSettings = AppSettings(),
+    val isBiometricAvailable: Boolean = false,
+    val isParentalAuthInProgress: Boolean = false,
+    val parentalPinSetupState: ParentalPinSetupState? = null,
+    val parentalPinEntryState: ParentalPinEntryState? = null,
+    val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
+    val showParentalManagementDialog: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -87,9 +134,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(
         MangaUiState(
+            currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
             favorites = initialFavorites,
             favoriteMangaUrls = initialFavorites.mapTo(linkedSetOf()) { it.mangaUrl },
             settings = initialSettings,
+            isBiometricAvailable = isBiometricAvailable(application),
         ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
@@ -101,6 +150,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private var updateJob: Job? = null
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
+    private var nextBiometricRequestId = 1L
 
     init {
         observeQueryChanges()
@@ -153,6 +203,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectTab(tab: AppTab) {
+        if (tab == AppTab.SEARCH && _state.value.settings.parentalControlEnabled) {
+            requestSearchAccess()
+            return
+        }
         updateState { copy(currentTab = tab) }
         if (tab == AppTab.LIBRARY) {
             refreshLibrary()
@@ -173,6 +227,252 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeSettings() {
         updateState { copy(showSettings = false) }
+    }
+
+    fun setParentalControlEnabled(enabled: Boolean) {
+        val currentSettings = _state.value.settings
+        if (enabled) {
+            updateSettings {
+                it.copy(parentalControlEnabled = true)
+            }
+            updateState {
+                if (currentTab == AppTab.SEARCH) {
+                    copy(currentTab = AppTab.LIBRARY)
+                } else {
+                    this
+                }
+            }
+            return
+        }
+
+        if (!currentSettings.parentalControlEnabled) return
+        if (!currentSettings.parentalPinConfigured) {
+            disableParentalControl(clearCredentials = true)
+        } else {
+            requestParentalAuthentication(ParentalAction.DISABLE_PARENTAL_CONTROL)
+        }
+    }
+
+    fun openParentalControlMenu() {
+        val settings = _state.value.settings
+        if (!settings.parentalControlEnabled) return
+        if (!settings.parentalPinConfigured) {
+            startParentalPinSetup(
+                mode = ParentalPinSetupMode.CREATE,
+                completionAction = ParentalAction.OPEN_MANAGEMENT,
+            )
+        } else {
+            requestParentalAuthentication(ParentalAction.OPEN_MANAGEMENT)
+        }
+    }
+
+    fun requestChangeParentalPin() {
+        val settings = _state.value.settings
+        if (!settings.parentalControlEnabled) return
+        if (!settings.parentalPinConfigured) {
+            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE)
+        } else {
+            requestParentalAuthentication(ParentalAction.CHANGE_PIN)
+        }
+    }
+
+    fun setParentalBiometricEnabled(enabled: Boolean) {
+        val settings = _state.value.settings
+        if (!settings.parentalControlEnabled || !settings.parentalPinConfigured) return
+        val action = if (enabled) {
+            ParentalAction.ENABLE_BIOMETRIC
+        } else {
+            ParentalAction.DISABLE_BIOMETRIC
+        }
+        requestParentalAuthentication(action)
+    }
+
+    fun dismissParentalManagementDialog() {
+        updateState { copy(showParentalManagementDialog = false) }
+    }
+
+    fun changeParentalPinFromManagement() {
+        updateState { copy(showParentalManagementDialog = false) }
+        startParentalPinSetup(mode = ParentalPinSetupMode.CHANGE)
+    }
+
+    fun disableParentalControlFromManagement() {
+        disableParentalControl(clearCredentials = true)
+    }
+
+    fun onParentalPinSetupChange(pin: String? = null, confirmPin: String? = null) {
+        val setupState = _state.value.parentalPinSetupState ?: return
+        updateState {
+            copy(
+                parentalPinSetupState = setupState.copy(
+                    pin = pin?.let(::sanitizeParentalPin) ?: setupState.pin,
+                    confirmPin = confirmPin?.let(::sanitizeParentalPin) ?: setupState.confirmPin,
+                    errorMessage = null,
+                ),
+            )
+        }
+    }
+
+    fun dismissParentalPinSetup() {
+        updateState {
+            copy(
+                parentalPinSetupState = null,
+                isParentalAuthInProgress = false,
+            )
+        }
+    }
+
+    fun confirmParentalPinSetup() {
+        val setupState = _state.value.parentalPinSetupState ?: return
+        when {
+            setupState.pin.length != PARENTAL_PIN_LENGTH -> {
+                updateState {
+                    copy(
+                        parentalPinSetupState = setupState.copy(
+                            errorMessage = "Il PIN deve avere 6 cifre",
+                        ),
+                    )
+                }
+            }
+            setupState.confirmPin.length != PARENTAL_PIN_LENGTH -> {
+                updateState {
+                    copy(
+                        parentalPinSetupState = setupState.copy(
+                            errorMessage = "Conferma il PIN di 6 cifre",
+                        ),
+                    )
+                }
+            }
+            setupState.pin != setupState.confirmPin -> {
+                updateState {
+                    copy(
+                        parentalPinSetupState = setupState.copy(
+                            errorMessage = "I due PIN non coincidono",
+                        ),
+                    )
+                }
+            }
+            else -> {
+                val salt = generateParentalPinSalt()
+                val hash = hashParentalPin(setupState.pin, salt)
+                updateSettings {
+                    it.copy(
+                        parentalControlEnabled = true,
+                        parentalPinConfigured = true,
+                        parentalPinSalt = salt,
+                        parentalPinHash = hash,
+                    )
+                }
+                updateState {
+                    copy(
+                        parentalPinSetupState = null,
+                        isParentalAuthInProgress = false,
+                    )
+                }
+                setupState.completionAction?.let(::completeParentalAction)
+            }
+        }
+    }
+
+    fun onParentalPinEntryChange(pin: String) {
+        val pinEntryState = _state.value.parentalPinEntryState ?: return
+        updateState {
+            copy(
+                parentalPinEntryState = pinEntryState.copy(
+                    pin = sanitizeParentalPin(pin),
+                    errorMessage = null,
+                ),
+            )
+        }
+    }
+
+    fun dismissParentalPinEntry() {
+        updateState {
+            copy(
+                parentalPinEntryState = null,
+                isParentalAuthInProgress = false,
+            )
+        }
+    }
+
+    fun confirmParentalPinEntry() {
+        val pinEntryState = _state.value.parentalPinEntryState ?: return
+        val settings = _state.value.settings
+        if (pinEntryState.pin.length != PARENTAL_PIN_LENGTH) {
+            updateState {
+                copy(
+                    parentalPinEntryState = pinEntryState.copy(
+                        errorMessage = "Inserisci un PIN di 6 cifre",
+                    ),
+                )
+            }
+            return
+        }
+
+        val salt = settings.parentalPinSalt
+        val expectedHash = settings.parentalPinHash
+        if (salt.isNullOrBlank() || expectedHash.isNullOrBlank()) {
+            updateState {
+                copy(
+                    parentalPinEntryState = null,
+                    isParentalAuthInProgress = false,
+                    errorMessage = "Configura di nuovo il parental control",
+                )
+            }
+            disableParentalControl(clearCredentials = true)
+            return
+        }
+
+        val providedHash = hashParentalPin(pinEntryState.pin, salt)
+        if (providedHash != expectedHash) {
+            updateState {
+                copy(
+                    parentalPinEntryState = pinEntryState.copy(
+                        pin = "",
+                        errorMessage = "PIN non corretto",
+                    ),
+                )
+            }
+            return
+        }
+
+        updateState {
+            copy(
+                parentalPinEntryState = null,
+                isParentalAuthInProgress = false,
+            )
+        }
+        completeParentalAction(pinEntryState.action)
+    }
+
+    fun onBiometricAuthenticationSucceeded(requestId: Long) {
+        val request = _state.value.biometricPromptRequest ?: return
+        if (request.requestId != requestId) return
+        updateState {
+            copy(
+                biometricPromptRequest = null,
+                isParentalAuthInProgress = false,
+            )
+        }
+        completeParentalAction(request.action)
+    }
+
+    fun usePinInsteadOfBiometric(requestId: Long) {
+        val request = _state.value.biometricPromptRequest ?: return
+        if (request.requestId != requestId) return
+        showPinEntryForAction(request.action)
+    }
+
+    fun cancelBiometricAuthentication(requestId: Long, message: String? = null) {
+        val request = _state.value.biometricPromptRequest ?: return
+        if (request.requestId != requestId) return
+        updateState {
+            copy(
+                biometricPromptRequest = null,
+                isParentalAuthInProgress = false,
+                errorMessage = message ?: errorMessage,
+            )
+        }
     }
 
     fun setAutoDownloadEnabled(enabled: Boolean) {
@@ -579,6 +879,127 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun requestSearchAccess() {
+        val settings = _state.value.settings
+        if (!settings.parentalControlEnabled) {
+            updateState { copy(currentTab = AppTab.SEARCH) }
+            return
+        }
+        if (!settings.parentalPinConfigured) {
+            startParentalPinSetup(
+                mode = ParentalPinSetupMode.CREATE,
+                completionAction = ParentalAction.OPEN_SEARCH,
+            )
+            return
+        }
+        requestParentalAuthentication(ParentalAction.OPEN_SEARCH)
+    }
+
+    private fun requestParentalAuthentication(action: ParentalAction) {
+        if (_state.value.isParentalAuthInProgress) return
+        val settings = _state.value.settings
+        if (!settings.parentalPinConfigured) {
+            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE, completionAction = action)
+            return
+        }
+        if (settings.parentalBiometricEnabled && _state.value.isBiometricAvailable) {
+            val requestId = nextBiometricRequestId++
+            updateState {
+                copy(
+                    isParentalAuthInProgress = true,
+                    parentalPinEntryState = null,
+                    biometricPromptRequest = ParentalBiometricPromptRequest(
+                        requestId = requestId,
+                        action = action,
+                        title = "Parental control",
+                        subtitle = when (action) {
+                            ParentalAction.OPEN_SEARCH -> "Autenticati per aprire Cerca"
+                            ParentalAction.OPEN_MANAGEMENT -> "Autenticati per gestire il parental control"
+                            ParentalAction.CHANGE_PIN -> "Autenticati per cambiare il PIN"
+                            ParentalAction.DISABLE_PARENTAL_CONTROL ->
+                                "Autenticati per disattivare il parental control"
+                            ParentalAction.ENABLE_BIOMETRIC,
+                            ParentalAction.DISABLE_BIOMETRIC ->
+                                "Autenticati per aggiornare la biometria"
+                        },
+                    ),
+                )
+            }
+        } else {
+            showPinEntryForAction(action)
+        }
+    }
+
+    private fun startParentalPinSetup(
+        mode: ParentalPinSetupMode,
+        completionAction: ParentalAction? = null,
+    ) {
+        updateState {
+            copy(
+                isParentalAuthInProgress = true,
+                parentalPinEntryState = null,
+                biometricPromptRequest = null,
+                showParentalManagementDialog = false,
+                parentalPinSetupState = ParentalPinSetupState(
+                    mode = mode,
+                    completionAction = completionAction,
+                ),
+            )
+        }
+    }
+
+    private fun showPinEntryForAction(action: ParentalAction) {
+        updateState {
+            copy(
+                biometricPromptRequest = null,
+                isParentalAuthInProgress = true,
+                parentalPinEntryState = ParentalPinEntryState(action = action),
+            )
+        }
+    }
+
+    private fun completeParentalAction(action: ParentalAction) {
+        when (action) {
+            ParentalAction.OPEN_SEARCH -> updateState { copy(currentTab = AppTab.SEARCH) }
+            ParentalAction.OPEN_MANAGEMENT -> updateState { copy(showParentalManagementDialog = true) }
+            ParentalAction.CHANGE_PIN -> startParentalPinSetup(mode = ParentalPinSetupMode.CHANGE)
+            ParentalAction.DISABLE_PARENTAL_CONTROL -> disableParentalControl(clearCredentials = true)
+            ParentalAction.ENABLE_BIOMETRIC -> updateSettings { it.copy(parentalBiometricEnabled = true) }
+            ParentalAction.DISABLE_BIOMETRIC -> updateSettings { it.copy(parentalBiometricEnabled = false) }
+        }
+    }
+
+    private fun disableParentalControl(clearCredentials: Boolean) {
+        updateSettings {
+            if (clearCredentials) {
+                it.copy(
+                    parentalControlEnabled = false,
+                    parentalPinConfigured = false,
+                    parentalBiometricEnabled = false,
+                    parentalPinSalt = null,
+                    parentalPinHash = null,
+                )
+            } else {
+                it.copy(parentalControlEnabled = false, parentalBiometricEnabled = false)
+            }
+        }
+        updateState {
+            copy(
+                currentTab = if (currentTab == AppTab.SEARCH) AppTab.LIBRARY else currentTab,
+                showParentalManagementDialog = false,
+                parentalPinSetupState = null,
+                parentalPinEntryState = null,
+                biometricPromptRequest = null,
+                isParentalAuthInProgress = false,
+            )
+        }
+    }
+
+    private fun isBiometricAvailable(context: Context): Boolean {
+        return BiometricManager.from(context)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
         val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
         val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
@@ -734,6 +1155,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             smartCleanupKeepPreviousChapters = prefs
                 .getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3)
                 .coerceAtLeast(0),
+            parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
+            parentalPinConfigured = prefs.getBoolean(KEY_PARENTAL_PIN_CONFIGURED, false),
+            parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
+            parentalPinSalt = prefs.getString(KEY_PARENTAL_PIN_SALT, null),
+            parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
         )
     }
 
@@ -744,6 +1170,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
             .putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
             .putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
+            .putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
+            .putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
+            .putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
+            .putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
+            .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             .apply()
     }
 
@@ -765,6 +1196,12 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
         private const val KEY_SMART_CLEANUP_ENABLED = "smart_cleanup_enabled"
         private const val KEY_SMART_CLEANUP_KEEP_PREVIOUS = "smart_cleanup_keep_previous"
+        private const val KEY_PARENTAL_CONTROL_ENABLED = "parental_control_enabled"
+        private const val KEY_PARENTAL_PIN_CONFIGURED = "parental_pin_configured"
+        private const val KEY_PARENTAL_BIOMETRIC_ENABLED = "parental_biometric_enabled"
+        private const val KEY_PARENTAL_PIN_SALT = "parental_pin_salt"
+        private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
+        private const val PARENTAL_PIN_LENGTH = 6
         private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L
     }

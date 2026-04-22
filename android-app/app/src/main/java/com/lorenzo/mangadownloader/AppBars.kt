@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -35,6 +36,7 @@ fun AppTopBar(
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenParentalControl: () -> Unit,
 ) {
     val readerChapter = state.readerChapter
     val selectedManga = state.selected
@@ -117,6 +119,18 @@ fun AppTopBar(
                                 onOpenSettings()
                             },
                         )
+                        if (state.settings.parentalControlEnabled) {
+                            DropdownMenuItem(
+                                text = { Text("Parental control") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Lock, contentDescription = null)
+                                },
+                                onClick = {
+                                    overflowExpanded = false
+                                    onOpenParentalControl()
+                                },
+                            )
+                        }
                     }
                 }
             }

@@ -49,8 +49,10 @@ Il repo include `.github/workflows/android.yml`: ad ogni push su `main` o sui br
 
 La versione Android ora vive in `android-app/version.properties`. Per pubblicare una nuova release e renderla visibile all'auto-update dell'app, aggiorna almeno:
 
-- `versionCode`
 - `versionName`
+- `releaseNotes` se vuoi mostrare le novità nel popup di aggiornamento dell'app
+
+Il `versionCode` viene calcolato automaticamente da `versionName` con schema `major * 1_000_000 + minor * 1_000 + patch`, quindi per `1.7.1` diventa `1007001`.
 
 Il workflow GitHub genera automaticamente il tag release come `android-v<versionName>`.
 

@@ -9,9 +9,29 @@ val versionProperties = Properties().apply {
     val versionFile = rootProject.file("version.properties")
     versionFile.inputStream().use(::load)
 }
-val appVersionCode = versionProperties.getProperty("versionCode").toInt()
 val appVersionName = versionProperties.getProperty("versionName")
+val appVersionCode = appVersionName.toAndroidVersionCode()
 val updateConfigUrl = versionProperties.getProperty("updateConfigUrl")
+
+fun String?.toAndroidVersionCode(): Int {
+    val raw = this?.trim().orEmpty()
+    require(raw.isNotBlank()) { "versionName mancante in version.properties" }
+
+    val parts = raw.split('.')
+    require(parts.size in 1..3) {
+        "versionName deve avere formato semver semplice tipo 1.7.1"
+    }
+
+    val major = parts.getOrNull(0)?.toIntOrNull()
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+
+    require(major != null) { "Major non valido in versionName: $raw" }
+    require(minor in 0..999) { "Minor fuori range in versionName: $raw" }
+    require(patch in 0..999) { "Patch fuori range in versionName: $raw" }
+
+    return (major * 1_000_000) + (minor * 1_000) + patch
+}
 
 val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
@@ -103,6 +123,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.1")
     implementation("io.coil-kt:coil-compose:2.6.0")

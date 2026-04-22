@@ -22,6 +22,7 @@ data class AppUpdateInfo(
     val repoOwner: String,
     val repoName: String,
     val apkAssetName: String,
+    val releaseNotes: String? = null,
 ) {
     val releaseTag: String
         get() = buildReleaseTag(versionName)
@@ -55,13 +56,17 @@ class AppUpdateRepository(
         val properties = Properties().apply {
             load(raw.byteInputStream())
         }
+        val versionName = properties.getProperty("versionName").orEmpty()
         val info = AppUpdateInfo(
             versionCode = properties.getProperty("versionCode")?.toIntOrNull()
-                ?: throw IOException("versionCode remoto non valido"),
-            versionName = properties.getProperty("versionName").orEmpty(),
+                ?: versionCodeFromVersionName(versionName),
+            versionName = versionName,
             repoOwner = properties.getProperty("repoOwner").orEmpty(),
             repoName = properties.getProperty("repoName").orEmpty(),
             apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
+            releaseNotes = properties.getProperty("releaseNotes")
+                ?.trim()
+                ?.takeIf(String::isNotBlank),
         )
 
         if (info.versionName.isBlank() ||
@@ -111,6 +116,29 @@ class AppUpdateRepository(
 }
 
 private fun buildReleaseTag(versionName: String): String = "android-v$versionName"
+
+private fun versionCodeFromVersionName(versionName: String): Int {
+    val raw = versionName.trim()
+    if (raw.isBlank()) {
+        throw IOException("versionName remoto mancante")
+    }
+
+    val parts = raw.split('.')
+    if (parts.size !in 1..3) {
+        throw IOException("versionName remoto non valido: $raw")
+    }
+
+    val major = parts.getOrNull(0)?.toIntOrNull()
+        ?: throw IOException("Major remoto non valido: $raw")
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+
+    if (minor !in 0..999 || patch !in 0..999) {
+        throw IOException("versionName remoto fuori range: $raw")
+    }
+
+    return (major * 1_000_000) + (minor * 1_000) + patch
+}
 
 object AppUpdateInstaller {
     fun canInstallPackages(context: Context): Boolean {

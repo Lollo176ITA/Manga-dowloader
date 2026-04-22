@@ -44,18 +44,22 @@ class LibraryScannerTest {
                 title = "Berserk",
                 mangaUrl = "https://mangapill.com/manga/1/berserk",
                 coverFileName = "cover.jpg",
+                totalChapters = 2,
+                readChapterIds = emptySet(),
                 chapters = listOf(
                     SeriesMetadataChapter(
                         numberText = "10",
                         url = "https://mangapill.com/chapters/1/berserk-chapter-10",
                         slug = "berserk-chapter-10",
                         fileName = "chapter_010.cbz",
+                        id = null,
                     ),
                     SeriesMetadataChapter(
                         numberText = "11",
                         url = "https://mangapill.com/chapters/1/berserk-chapter-11",
                         slug = "berserk-chapter-11",
                         fileName = "chapter_011.cbz",
+                        id = null,
                     ),
                 ),
             ),

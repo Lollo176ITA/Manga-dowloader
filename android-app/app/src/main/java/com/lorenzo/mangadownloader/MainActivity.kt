@@ -4,12 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -30,12 +30,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val activity = context as? FragmentActivity
     val appContext = remember(context) { context.applicationContext }
     val workManager = remember { WorkManager.getInstance(context) }
     val workInfos by workManager.getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE_WORK_NAME)
@@ -102,6 +104,55 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         viewModel.checkForAppUpdate()
+    }
+
+    LaunchedEffect(state.biometricPromptRequest?.requestId) {
+        val request = state.biometricPromptRequest ?: return@LaunchedEffect
+        val hostActivity = activity
+        if (hostActivity == null) {
+            viewModel.cancelBiometricAuthentication(
+                request.requestId,
+                "Biometria non disponibile su questo dispositivo",
+            )
+            return@LaunchedEffect
+        }
+
+        val prompt = BiometricPrompt(
+            hostActivity,
+            ContextCompat.getMainExecutor(hostActivity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    viewModel.onBiometricAuthenticationSucceeded(request.requestId)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    when (errorCode) {
+                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
+                            viewModel.usePinInsteadOfBiometric(request.requestId)
+                        }
+                        BiometricPrompt.ERROR_USER_CANCELED,
+                        BiometricPrompt.ERROR_CANCELED -> {
+                            viewModel.cancelBiometricAuthentication(request.requestId)
+                        }
+                        else -> {
+                            viewModel.cancelBiometricAuthentication(
+                                request.requestId,
+                                errString.toString(),
+                            )
+                        }
+                    }
+                }
+            },
+        )
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(request.title)
+            .setSubtitle(request.subtitle)
+            .setAllowedAuthenticators(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            .setNegativeButtonText("Usa PIN")
+            .build()
+
+        prompt.authenticate(promptInfo)
     }
 
     val onStartDownload: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit = { details, startChapter, endChapter ->
@@ -180,6 +231,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
+                onOpenParentalControl = viewModel::openParentalControlMenu,
             )
         },
         bottomBar = {
@@ -211,12 +263,17 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
             state.showSettings -> {
                 SettingsScreen(
                     settings = state.settings,
+                    isBiometricAvailable = state.isBiometricAvailable,
+                    isParentalAuthInProgress = state.isParentalAuthInProgress,
                     padding = innerPadding,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
                     onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
+                    onToggleParentalControl = viewModel::setParentalControlEnabled,
+                    onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
+                    onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
                 )
             }
             selectedManga != null -> {
@@ -239,7 +296,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = showPager,
+                    userScrollEnabled = showPager && !state.settings.parentalControlEnabled,
                     beyondBoundsPageCount = 1,
                 ) { page ->
                     when (AppTab.entries[page]) {
@@ -290,6 +347,34 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 CrashReporter.clearLastCrash(appContext)
                 lastCrashReport = null
             },
+        )
+    }
+
+    state.parentalPinSetupState?.let { setupState ->
+        ParentalPinSetupDialog(
+            state = setupState,
+            onPinChange = { viewModel.onParentalPinSetupChange(pin = it) },
+            onConfirmPinChange = { viewModel.onParentalPinSetupChange(confirmPin = it) },
+            onDismiss = viewModel::dismissParentalPinSetup,
+            onConfirm = viewModel::confirmParentalPinSetup,
+        )
+    }
+
+    state.parentalPinEntryState?.let { pinEntryState ->
+        ParentalPinEntryDialog(
+            state = pinEntryState,
+            onPinChange = viewModel::onParentalPinEntryChange,
+            onDismiss = viewModel::dismissParentalPinEntry,
+            onConfirm = viewModel::confirmParentalPinEntry,
+        )
+    }
+
+    if (state.showParentalManagementDialog) {
+        ParentalManagementDialog(
+            settings = state.settings,
+            onDismiss = viewModel::dismissParentalManagementDialog,
+            onChangePin = viewModel::changeParentalPinFromManagement,
+            onDisable = viewModel::disableParentalControlFromManagement,
         )
     }
 

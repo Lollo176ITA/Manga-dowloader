@@ -56,10 +56,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,7 +71,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.menuAnchor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -783,24 +779,24 @@ private fun DetailScreen(
                         readOnly = true,
                         singleLine = true,
                     )
-                    ExposedDropdownMenuBox(
-                        expanded = endMenuExpanded,
-                        onExpandedChange = { endMenuExpanded = !endMenuExpanded },
-                    ) {
+                    Box {
                         OutlinedTextField(
                             value = "Capitolo ${dialogEnd.displayNumber()}",
                             onValueChange = {},
                             modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
+                                .fillMaxWidth()
+                                .clickable { endMenuExpanded = true },
                             readOnly = true,
                             singleLine = true,
                             label = { Text("A") },
                             trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = endMenuExpanded)
+                                Icon(
+                                    imageVector = Icons.Filled.KeyboardDoubleArrowDown,
+                                    contentDescription = null,
+                                )
                             },
                         )
-                        ExposedDropdownMenu(
+                        DropdownMenu(
                             expanded = endMenuExpanded,
                             onDismissRequest = { endMenuExpanded = false },
                         ) {

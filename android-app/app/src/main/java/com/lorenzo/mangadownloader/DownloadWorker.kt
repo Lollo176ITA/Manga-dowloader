@@ -12,7 +12,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -40,7 +39,7 @@ class DownloadWorker(
         }
 
         return try {
-            setForeground(makeForegroundInfo("Preparazione download"))
+            safeSetForeground("Preparazione download")
             val plan = client.buildDownloadPlan(mangaUrl, startNumber)
             updateStatus(
                 message = "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} in poi",
@@ -105,7 +104,17 @@ class DownloadWorker(
                 PROGRESS_TOTAL_CHAPTERS to totalChapters,
             ),
         )
-        setForeground(makeForegroundInfo(message))
+        safeSetForeground(message)
+    }
+
+    private suspend fun safeSetForeground(message: String) {
+        try {
+            setForeground(makeForegroundInfo(message))
+        } catch (_: Exception) {
+            // On Android 14+ `setForeground` can throw ForegroundServiceStartNotAllowedException
+            // when POST_NOTIFICATIONS isn't granted yet. Fall back silently: the worker still
+            // runs in background, just without the ongoing system notification.
+        }
     }
 
     private fun makeForegroundInfo(message: String): ForegroundInfo {
@@ -164,7 +173,6 @@ class DownloadWorker(
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setInputData(input)
-                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setConstraints(
                     androidx.work.Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)

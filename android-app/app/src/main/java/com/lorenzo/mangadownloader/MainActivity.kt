@@ -27,8 +27,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -114,7 +112,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         contract = ActivityResultContracts.RequestPermission(),
     ) { _ -> }
 
-    val onStartDownload: (String, String) -> Unit = { mangaUrl, chapterLabel ->
+    LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
                 context,
@@ -123,7 +121,19 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        DownloadWorker.enqueue(context, mangaUrl, chapterLabel)
+    }
+
+    val onStartDownload: (String, String) -> Unit = { mangaUrl, chapterLabel ->
+        try {
+            DownloadWorker.enqueue(context, mangaUrl, chapterLabel)
+            scope.launch {
+                snackbarHostState.showSnackbar("Download avviato dal capitolo $chapterLabel")
+            }
+        } catch (exc: Exception) {
+            scope.launch {
+                snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
+            }
+        }
     }
 
     val isDownloadActive = latestWork?.state == WorkInfo.State.RUNNING ||
@@ -154,7 +164,6 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 state = state,
                 padding = innerPadding,
                 onQueryChange = viewModel::onQueryChange,
-                onSubmit = viewModel::submitSearch,
                 onSelect = viewModel::selectManga,
                 status = latestWork,
                 isDownloadActive = isDownloadActive,
@@ -180,12 +189,12 @@ private fun SearchScreen(
     state: MangaUiState,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
-    onSubmit: () -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
     status: WorkInfo?,
     isDownloadActive: Boolean,
     onStopDownload: () -> Unit,
 ) {
+    val trimmed = state.query.trim()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -209,8 +218,6 @@ private fun SearchScreen(
                     }
                 }
             },
-            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
             shape = MaterialTheme.shapes.large,
         )
 
@@ -241,6 +248,24 @@ private fun SearchScreen(
                             ResultCard(result = result, onClick = { onSelect(result) })
                         }
                     }
+                }
+                trimmed.isNotEmpty() && trimmed.length < 3 -> {
+                    Text(
+                        text = "Digita almeno 3 caratteri",
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                trimmed.length >= 3 && !state.isSearching -> {
+                    Text(
+                        text = "Nessun risultato",
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }

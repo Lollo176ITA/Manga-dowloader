@@ -74,37 +74,42 @@ class MangapillClient(
             .toString()
 
         val document = fetchDocument(url)
-        val seen = linkedMapOf<String, MangaSearchResult>()
+        val accumulated = linkedMapOf<String, Pair<String?, String?>>()
 
         for (anchor in document.select("""a[href^="/manga/"]""")) {
             val href = anchor.attr("href").trim()
             val mangaUrl = canonicalMangaUrl(absolutize(url, href)) ?: continue
-            if (seen.containsKey(mangaUrl)) {
-                continue
-            }
-            val image = anchor.selectFirst("img")
-            val coverRaw = image?.let { it.attr("data-src").ifBlank { it.attr("src") } }?.trim()
-            val cover = coverRaw?.takeIf { it.isNotBlank() }?.let { absolutize(url, it) }
 
-            val title = firstNonBlank(
+            val image = anchor.selectFirst("img")
+            val coverRaw = image?.let { img ->
+                sequenceOf(img.attr("data-src"), img.attr("src"))
+                    .map { it.trim() }
+                    .firstOrNull { it.isNotBlank() && !it.startsWith("data:") }
+            }
+            val cover = coverRaw?.let { absolutize(url, it) }
+
+            val anchorText = anchor.text().trim()
+            val titleCandidate = firstNonBlank(
                 image?.attr("alt"),
                 anchor.attr("title"),
-                anchor.selectFirst("div")?.text(),
-                anchor.text(),
-                mangaUrl.substringAfterLast('/').replace('-', ' '),
-            ).orEmpty().trim()
+                anchorText.takeIf { it.isNotBlank() },
+            )
 
-            if (title.isBlank()) {
-                continue
-            }
-            seen[mangaUrl] = MangaSearchResult(
-                title = title,
-                mangaUrl = mangaUrl,
-                coverUrl = cover,
+            val prior = accumulated[mangaUrl]
+            accumulated[mangaUrl] = Pair(
+                prior?.first ?: titleCandidate,
+                prior?.second ?: cover,
             )
         }
 
-        return seen.values.toList()
+        return accumulated.entries.mapNotNull { (mangaUrl, pair) ->
+            val (titleRaw, cover) = pair
+            val title = titleRaw?.trim().orEmpty().ifBlank {
+                mangaUrl.substringAfterLast('/').replace('-', ' ').trim()
+            }
+            if (title.isBlank()) null
+            else MangaSearchResult(title = title, mangaUrl = mangaUrl, coverUrl = cover)
+        }
     }
 
     fun fetchMangaDetails(mangaUrl: String): MangaDetails {

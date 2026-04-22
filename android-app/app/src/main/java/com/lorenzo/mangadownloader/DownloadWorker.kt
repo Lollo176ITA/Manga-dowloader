@@ -38,16 +38,21 @@ class DownloadWorker(
 
     override suspend fun doWork(): Result {
         val firstUrl = inputData.getString(KEY_FIRST_URL)?.trim().orEmpty()
+        val lastUrl = inputData.getString(KEY_LAST_URL)?.trim().orEmpty().ifBlank { null }
         if (firstUrl.isEmpty()) {
             return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL capitolo iniziale mancante"))
         }
 
         return try {
             safeSetForeground("Preparazione download")
-            val plan = client.buildDownloadPlan(firstUrl)
+            val plan = client.buildDownloadPlan(firstUrl, lastUrl)
             client.prepareSeriesStorage(plan)
             updateStatus(
-                message = "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} in poi",
+                message = if (plan.startChapterLabel == plan.endChapterLabel) {
+                    "Trovato 1 capitolo: ${plan.startChapterLabel}"
+                } else {
+                    "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} a ${plan.endChapterLabel}"
+                },
                 doneChapters = 0,
                 totalChapters = plan.chapters.size,
             )
@@ -221,14 +226,16 @@ class DownloadWorker(
         const val PROGRESS_TOTAL_CHAPTERS = "progress_total_chapters"
 
         private const val KEY_FIRST_URL = "first_url"
+        private const val KEY_LAST_URL = "last_url"
         private const val NOTIFICATION_CHANNEL_ID = "manga_downloads"
         private const val NOTIFICATION_ID = 1001
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
 
-        fun enqueue(context: Context, firstUrl: String) {
+        fun enqueue(context: Context, firstUrl: String, lastUrl: String? = null) {
             val input = Data.Builder()
                 .putString(KEY_FIRST_URL, firstUrl.trim())
+                .putString(KEY_LAST_URL, lastUrl?.trim())
                 .build()
 
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
@@ -242,7 +249,7 @@ class DownloadWorker(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request,
             )
         }

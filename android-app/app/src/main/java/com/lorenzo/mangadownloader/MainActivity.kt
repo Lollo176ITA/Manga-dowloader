@@ -61,6 +61,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -116,8 +117,14 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val workManager = remember { WorkManager.getInstance(context) }
     val workInfos by workManager.getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE_WORK_NAME)
         .observeAsState(emptyList())
-    val latestWork = workInfos.maxByOrNull { it.id.toString() }
-    val latestDone = latestWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
+    val activeWorkInfos = workInfos.filter { workInfo ->
+        workInfo.state == WorkInfo.State.RUNNING ||
+            workInfo.state == WorkInfo.State.ENQUEUED ||
+            workInfo.state == WorkInfo.State.BLOCKED
+    }
+    val statusWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
+        ?: activeWorkInfos.firstOrNull()
+    val latestDone = statusWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -128,7 +135,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showDeleteSeriesDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(latestWork?.id, latestWork?.state, latestDone) {
+    LaunchedEffect(statusWork?.id, statusWork?.state, latestDone, activeWorkInfos.size) {
         viewModel.refreshLibrary()
     }
 
@@ -158,19 +165,24 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         viewModel.checkForAppUpdate()
     }
 
-    val onStartDownload: (ChapterEntry) -> Unit = { chapter ->
-        val firstUrl = chapter.url.trim()
+    val onStartDownload: (ChapterEntry, ChapterEntry) -> Unit = { startChapter, endChapter ->
+        val firstUrl = startChapter.url.trim()
+        val lastUrl = endChapter.url.trim()
         if (firstUrl.isBlank()) {
             scope.launch {
                 snackbarHostState.showSnackbar("URL capitolo non valido")
             }
         } else {
             try {
-                DownloadWorker.enqueue(appContext, firstUrl)
+                DownloadWorker.enqueue(appContext, firstUrl, lastUrl)
                 viewModel.selectTab(AppTab.DOWNLOADS)
                 scope.launch {
                     snackbarHostState.showSnackbar(
-                        "Download avviato dal capitolo ${chapter.displayNumber()}",
+                        if (startChapter.url == endChapter.url) {
+                            "Download aggiunto in coda: capitolo ${startChapter.displayNumber()}"
+                        } else {
+                            "Download aggiunto in coda: ${startChapter.displayNumber()}-${endChapter.displayNumber()}"
+                        },
                     )
                 }
             } catch (exc: Exception) {
@@ -181,9 +193,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         }
     }
 
-    val isDownloadActive = latestWork?.state == WorkInfo.State.RUNNING ||
-        latestWork?.state == WorkInfo.State.ENQUEUED ||
-        latestWork?.state == WorkInfo.State.BLOCKED
+    val isDownloadActive = activeWorkInfos.isNotEmpty()
 
     val showBottomBar = state.readerChapter == null
     val canHandleBack = state.readerChapter != null ||
@@ -261,7 +271,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     DownloadsScreen(
                         state = state,
                         padding = innerPadding,
-                        status = latestWork,
+                        status = statusWork,
                         isDownloadActive = isDownloadActive,
                         onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
                         onOpenSeries = viewModel::selectDownloadedSeries,
@@ -686,9 +696,10 @@ private fun DetailScreen(
     details: MangaDetails,
     isLoading: Boolean,
     padding: PaddingValues,
-    onStart: (ChapterEntry) -> Unit,
+    onStart: (ChapterEntry, ChapterEntry) -> Unit,
 ) {
-    var pending by remember { mutableStateOf<ChapterEntry?>(null) }
+    var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
+    var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
 
     Column(
         modifier = Modifier
@@ -708,26 +719,70 @@ private fun DetailScreen(
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(details.chapters.reversed(), key = { it.url }) { chapter ->
-                    ChapterRow(chapter = chapter, onClick = { pending = chapter })
+                    ChapterRow(
+                        chapter = chapter,
+                        onClick = {
+                            pendingStart = chapter
+                            pendingEnd = chapter
+                        },
+                    )
                 }
             }
         }
     }
 
-    pending?.let { chapter ->
-        val label = chapter.displayNumber()
+    val dialogStart = pendingStart
+    if (dialogStart != null) {
+        val endOptions = remember(details.chapters, dialogStart.url) {
+            val startIndex = details.chapters.indexOfFirst { it.url == dialogStart.url }
+            if (startIndex >= 0) details.chapters.subList(startIndex, details.chapters.size) else listOf(dialogStart)
+        }
+        val dialogEnd = pendingEnd ?: dialogStart
         AlertDialog(
-            onDismissRequest = { pending = null },
-            title = { Text("Capitolo $label") },
-            text = { Text("Scarica da questo capitolo in poi?") },
+            onDismissRequest = {
+                pendingStart = null
+                pendingEnd = null
+            },
+            title = { Text("Seleziona intervallo download") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Da capitolo ${dialogStart.displayNumber()} a:")
+                    LazyColumn(
+                        modifier = Modifier.height(220.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        items(endOptions, key = { it.url }) { candidate ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { pendingEnd = candidate }
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = candidate.url == dialogEnd.url,
+                                    onClick = { pendingEnd = candidate },
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Capitolo ${candidate.displayNumber()}")
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    pending = null
-                    onStart(chapter)
+                    val finalEnd = pendingEnd ?: dialogStart
+                    pendingStart = null
+                    pendingEnd = null
+                    onStart(dialogStart, finalEnd)
                 }) { Text("Avvia") }
             },
             dismissButton = {
-                TextButton(onClick = { pending = null }) { Text("Annulla") }
+                TextButton(onClick = {
+                    pendingStart = null
+                    pendingEnd = null
+                }) { Text("Annulla") }
             },
         )
     }

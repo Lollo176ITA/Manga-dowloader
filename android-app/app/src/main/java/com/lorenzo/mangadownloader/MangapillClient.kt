@@ -40,6 +40,7 @@ data class DownloadPlan(
     val outputDir: File,
     val chapters: List<ChapterEntry>,
     val startChapterLabel: String,
+    val endChapterLabel: String,
 )
 
 data class MangaSearchResult(
@@ -134,15 +135,9 @@ class MangapillClient(
         )
     }
 
-    fun buildDownloadPlan(firstChapterUrl: String): DownloadPlan {
+    fun buildDownloadPlan(firstChapterUrl: String, lastChapterUrl: String? = null): DownloadPlan {
         val normalizedFirstUrl = firstChapterUrl.trim()
-        val startChapter = parseChapterNumber(
-            Regex("""chapter-(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-                .find(normalizedFirstUrl)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?: throw IllegalArgumentException("URL capitolo non valido"),
-        )
+        val normalizedLastUrl = lastChapterUrl?.trim().orEmpty().ifBlank { null }
 
         val canonical = canonicalMangaUrl(normalizedFirstUrl)
             ?: throw IllegalArgumentException("Per ora l'app supporta solo URL capitolo di Mangapill")
@@ -150,12 +145,23 @@ class MangapillClient(
         val seriesTitle = document.selectFirst("h1")?.text()?.trim().orEmpty().ifBlank { "manga" }
         val coverUrl = findCoverImage(document)?.let { absolutize(canonical, it) }
         val allChapters = fetchChapterEntries(document, canonical)
-        val selected = allChapters.filter { it.numberValue >= startChapter }
+        val startIndex = allChapters.indexOfFirst { it.url == normalizedFirstUrl }
+        if (startIndex < 0) {
+            throw IllegalStateException("Capitolo iniziale non trovato nella pagina manga")
+        }
+        val endIndex = normalizedLastUrl?.let { targetUrl ->
+            allChapters.indexOfFirst { it.url == targetUrl }
+        } ?: allChapters.lastIndex
+        if (endIndex < 0) {
+            throw IllegalStateException("Capitolo finale non trovato nella pagina manga")
+        }
+        if (endIndex < startIndex) {
+            throw IllegalStateException("Il capitolo finale deve essere successivo o uguale a quello iniziale")
+        }
+        val selected = allChapters.subList(startIndex, endIndex + 1)
 
         if (selected.isEmpty()) {
-            throw IllegalStateException(
-                "Nessun capitolo trovato da ${startChapter.stripTrailingZeros().toPlainString()} in poi",
-            )
+            throw IllegalStateException("Nessun capitolo trovato nell'intervallo selezionato")
         }
 
         val outputDir = File(
@@ -172,7 +178,8 @@ class MangapillClient(
             coverUrl = coverUrl,
             outputDir = outputDir,
             chapters = selected,
-            startChapterLabel = startChapter.stripTrailingZeros().toPlainString(),
+            startChapterLabel = selected.first().displayNumber(),
+            endChapterLabel = selected.last().displayNumber(),
         )
     }
 

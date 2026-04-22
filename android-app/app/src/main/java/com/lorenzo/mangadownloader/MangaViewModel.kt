@@ -74,7 +74,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(
         MangaUiState(
-            query = prefs.getString(KEY_LAST_QUERY, "").orEmpty(),
             favorites = initialFavorites,
             favoriteMangaUrls = initialFavorites.mapTo(linkedSetOf()) { it.mangaUrl },
         ),
@@ -90,9 +89,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     init {
         observeQueryChanges()
         refreshLibrary()
-        if (_state.value.query.trim().length >= MIN_QUERY_LENGTH) {
-            runSearch(_state.value.query.trim())
-        }
     }
 
     @OptIn(FlowPreview::class)
@@ -449,7 +445,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun runSearch(q: String) {
-        prefs.edit().putString(KEY_LAST_QUERY, q).apply()
         searchJob?.cancel()
         _state.value = _state.value.copy(isSearching = true, errorMessage = null)
         searchJob = viewModelScope.launch {
@@ -573,7 +568,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
-        private const val KEY_LAST_QUERY = "last_query"
         private const val KEY_FAVORITES_JSON = "favorites_json"
         private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L

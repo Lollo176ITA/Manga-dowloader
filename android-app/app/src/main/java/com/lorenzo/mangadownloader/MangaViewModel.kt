@@ -355,6 +355,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (autoDownloadJob?.isActive == true) return
 
         val downloadedNumbers = chapters.mapNotNull { it.numberValue }.toSet()
+        val highestDownloaded = downloadedNumbers.maxOrNull() ?: return
         val batchSize = settings.autoDownloadBatchSize
 
         autoDownloadJob = viewModelScope.launch {
@@ -362,7 +363,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 val details = withContext(Dispatchers.IO) { client.fetchMangaDetails(mangaUrl) }
                 val missing = details.chapters
                     .asSequence()
-                    .filter { remote -> remote.numberValue !in downloadedNumbers }
+                    .filter { remote ->
+                        remote.numberValue > highestDownloaded &&
+                            remote.numberValue !in downloadedNumbers
+                    }
                     .sortedBy { it.numberValue }
                     .take(batchSize)
                     .toList()

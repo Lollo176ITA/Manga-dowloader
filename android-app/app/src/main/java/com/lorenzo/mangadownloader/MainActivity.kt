@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()

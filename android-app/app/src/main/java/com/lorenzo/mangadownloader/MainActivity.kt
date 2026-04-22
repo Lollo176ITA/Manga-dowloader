@@ -30,10 +30,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -41,14 +42,16 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -177,7 +180,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         } else {
             try {
                 DownloadWorker.enqueue(appContext, firstUrl, lastUrl)
-                viewModel.selectTab(AppTab.DOWNLOADS)
+                viewModel.selectTab(AppTab.LIBRARY)
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         if (startChapter.url == endChapter.url) {
@@ -197,17 +200,19 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
 
     val isDownloadActive = activeWorkInfos.isNotEmpty()
 
-    val showBottomBar = state.readerChapter == null
+    val showBottomBar = state.readerChapter == null && !state.showSettings
     val canHandleBack = state.readerChapter != null ||
+        state.showSettings ||
         state.selectedChapterPaths.isNotEmpty() ||
         (state.currentTab == AppTab.SEARCH && state.selected != null) ||
-        (state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null)
+        (state.currentTab == AppTab.LIBRARY && state.selectedDownloadedSeries != null)
 
     val handleBack: () -> Unit = {
         when {
             state.readerChapter != null -> viewModel.closeReader()
+            state.showSettings -> viewModel.closeSettings()
             state.selectedChapterPaths.isNotEmpty() -> viewModel.clearChapterSelection()
-            state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null ->
+            state.currentTab == AppTab.LIBRARY && state.selectedDownloadedSeries != null ->
                 viewModel.clearDownloadedSelection()
             state.currentTab == AppTab.SEARCH && state.selected != null ->
                 viewModel.clearSelection()
@@ -215,6 +220,28 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     }
 
     BackHandler(enabled = canHandleBack, onBack = handleBack)
+
+    val pagerState = rememberPagerState(
+        initialPage = state.currentTab.ordinal,
+        pageCount = { AppTab.entries.size },
+    )
+    LaunchedEffect(state.currentTab) {
+        if (pagerState.currentPage != state.currentTab.ordinal) {
+            pagerState.animateScrollToPage(state.currentTab.ordinal)
+        }
+    }
+    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
+        if (!pagerState.isScrollInProgress) {
+            val newTab = AppTab.entries[pagerState.currentPage]
+            if (state.currentTab != newTab) {
+                viewModel.selectTab(newTab)
+            }
+        }
+    }
+    val showPager = state.readerChapter == null &&
+        !state.showSettings &&
+        state.selected == null &&
+        state.selectedDownloadedSeries == null
 
     Scaffold(
         topBar = {
@@ -224,6 +251,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onDeleteSelected = { showDeleteSelectedDialog = true },
                 onDeleteSeries = { showDeleteSeriesDialog = true },
+                onOpenSettings = viewModel::openSettings,
             )
         },
         bottomBar = {
@@ -236,10 +264,13 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
+        val activeReaderChapter = state.readerChapter
+        val activeDetail = state.selected
+        val activeSeries = state.selectedDownloadedSeries
         when {
-            state.readerChapter != null -> {
+            activeReaderChapter != null -> {
                 ReaderScreen(
-                    chapter = state.readerChapter,
+                    chapter = activeReaderChapter,
                     previousChapter = state.readerPreviousChapter,
                     nextChapter = state.readerNextChapter,
                     pages = state.readerPages,
@@ -249,45 +280,73 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     onOpenNext = viewModel::openNextReaderChapter,
                 )
             }
-            state.currentTab == AppTab.SEARCH -> {
-                val selected = state.selected
-                if (selected == null) {
-                    SearchScreen(
-                        state = state,
-                        padding = innerPadding,
-                        onQueryChange = viewModel::onQueryChange,
-                        onSelect = viewModel::selectManga,
-                    )
-                } else {
-                    DetailScreen(
-                        details = selected,
-                        isLoading = state.isLoadingDetails,
-                        padding = innerPadding,
-                        onStart = onStartDownload,
-                    )
-                }
+            state.showSettings -> {
+                SettingsScreen(
+                    settings = state.settings,
+                    padding = innerPadding,
+                    onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
+                    onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
+                    onBatchChange = viewModel::setAutoDownloadBatchSize,
+                )
+            }
+            state.currentTab == AppTab.SEARCH && activeDetail != null -> {
+                DetailScreen(
+                    details = activeDetail,
+                    isLoading = state.isLoadingDetails,
+                    padding = innerPadding,
+                    onStart = onStartDownload,
+                )
+            }
+            state.currentTab == AppTab.LIBRARY && activeSeries != null -> {
+                DownloadedSeriesScreen(
+                    series = activeSeries,
+                    selectedChapterPaths = state.selectedChapterPaths,
+                    padding = innerPadding,
+                    onOpenChapter = viewModel::openReader,
+                    onToggleChapterSelection = viewModel::toggleChapterSelection,
+                    onStartChapterSelection = viewModel::startChapterSelection,
+                )
             }
             else -> {
-                val selectedSeries = state.selectedDownloadedSeries
-                if (selectedSeries == null) {
-                    DownloadsScreen(
-                        state = state,
-                        padding = innerPadding,
-                        status = statusWork,
-                        isDownloadActive = isDownloadActive,
-                        onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
-                        onOpenSeries = viewModel::selectDownloadedSeries,
-                        onDeleteSeries = viewModel::deleteDownloadedSeries,
-                    )
-                } else {
-                    DownloadedSeriesScreen(
-                        series = selectedSeries,
-                        selectedChapterPaths = state.selectedChapterPaths,
-                        padding = innerPadding,
-                        onOpenChapter = viewModel::openReader,
-                        onToggleChapterSelection = viewModel::toggleChapterSelection,
-                        onStartChapterSelection = viewModel::startChapterSelection,
-                    )
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = showPager,
+                ) { page ->
+                    when (AppTab.entries[page]) {
+                        AppTab.SEARCH -> SearchScreen(
+                            state = state,
+                            padding = innerPadding,
+                            onQueryChange = viewModel::onQueryChange,
+                            onSelect = viewModel::selectManga,
+                            onToggleFavorite = viewModel::toggleFavoriteFromResult,
+                        )
+                        AppTab.FAVORITES -> FavoritesScreen(
+                            favorites = state.favorites,
+                            query = state.favoritesQuery,
+                            padding = innerPadding,
+                            onQueryChange = viewModel::onFavoritesQueryChange,
+                            onSelect = { favorite ->
+                                viewModel.selectManga(
+                                    MangaSearchResult(
+                                        title = favorite.title,
+                                        mangaUrl = favorite.mangaUrl,
+                                        coverUrl = favorite.coverUrl,
+                                    ),
+                                )
+                            },
+                        )
+                        AppTab.LIBRARY -> LibraryScreen(
+                            state = state,
+                            padding = innerPadding,
+                            status = statusWork,
+                            isDownloadActive = isDownloadActive,
+                            onStopDownload = { workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME) },
+                            onOpenSeries = viewModel::selectDownloadedSeries,
+                            onDeleteSeries = viewModel::deleteDownloadedSeries,
+                            onQueryChange = viewModel::onLibraryQueryChange,
+                        )
+                    }
                 }
             }
         }
@@ -415,21 +474,36 @@ private fun AppTopBar(
     onToggleFavorite: () -> Unit,
     onDeleteSelected: () -> Unit,
     onDeleteSeries: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    val showBack = state.readerChapter != null ||
+    val readerChapter = state.readerChapter
+    val selectedManga = state.selected
+    val selectedSeries = state.selectedDownloadedSeries
+    val showBack = readerChapter != null ||
+        state.showSettings ||
         state.selectedChapterPaths.isNotEmpty() ||
-        (state.currentTab == AppTab.SEARCH && state.selected != null) ||
-        (state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null)
+        (state.currentTab == AppTab.SEARCH && selectedManga != null) ||
+        (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
+        state.showSettings -> "Impostazioni"
         state.selectedChapterPaths.isNotEmpty() -> "${state.selectedChapterPaths.size} selezionati"
-        state.readerChapter != null -> state.readerChapter.title
-        state.currentTab == AppTab.SEARCH && state.selected != null -> state.selected.title
-        state.currentTab == AppTab.DOWNLOADS && state.selectedDownloadedSeries != null ->
-            state.selectedDownloadedSeries.title
-        state.currentTab == AppTab.SEARCH -> "Manga Downloader"
-        else -> "Download"
+        readerChapter != null -> readerChapter.title
+        state.currentTab == AppTab.SEARCH && selectedManga != null -> selectedManga.title
+        state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
+        state.currentTab == AppTab.SEARCH -> "Cerca"
+        state.currentTab == AppTab.FAVORITES -> "Preferiti"
+        state.currentTab == AppTab.LIBRARY -> "Libreria"
+        else -> "Manga Downloader"
     }
     val barColor = MaterialTheme.colorScheme.surface
+    var overflowExpanded by remember { mutableStateOf(false) }
+
+    val inDetail = state.currentTab == AppTab.SEARCH && selectedManga != null
+    val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
+    val showOverflow = state.readerChapter == null &&
+        !state.showSettings &&
+        state.selectedChapterPaths.isEmpty() &&
+        !inSeries
 
     CenterAlignedTopAppBar(
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -453,8 +527,7 @@ private fun AppTopBar(
             }
         },
         actions = {
-            val selectedManga = state.selected
-            if (state.currentTab == AppTab.SEARCH && selectedManga != null) {
+            if (inDetail && selectedManga != null) {
                 val isFavorite = selectedManga.mangaUrl in state.favoriteMangaUrls
                 IconButton(onClick = onToggleFavorite) {
                     Icon(
@@ -463,10 +536,7 @@ private fun AppTopBar(
                         tint = if (isFavorite) FavoriteYellow else MaterialTheme.colorScheme.onSurface,
                     )
                 }
-            } else if (state.currentTab == AppTab.DOWNLOADS &&
-                state.readerChapter == null &&
-                state.selectedDownloadedSeries != null
-            ) {
+            } else if (inSeries && readerChapter == null) {
                 if (state.selectedChapterPaths.isNotEmpty()) {
                     IconButton(onClick = onDeleteSelected) {
                         Icon(
@@ -479,6 +549,32 @@ private fun AppTopBar(
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Elimina manga",
+                        )
+                    }
+                }
+            }
+
+            if (showOverflow) {
+                Box {
+                    IconButton(onClick = { overflowExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Altre azioni",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = overflowExpanded,
+                        onDismissRequest = { overflowExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Impostazioni") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Settings, contentDescription = null)
+                            },
+                            onClick = {
+                                overflowExpanded = false
+                                onOpenSettings()
+                            },
                         )
                     }
                 }
@@ -501,10 +597,16 @@ private fun AppBottomBar(
             label = { Text("Cerca") },
         )
         NavigationBarItem(
-            selected = currentTab == AppTab.DOWNLOADS,
-            onClick = { onSelect(AppTab.DOWNLOADS) },
-            icon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
-            label = { Text("Download") },
+            selected = currentTab == AppTab.FAVORITES,
+            onClick = { onSelect(AppTab.FAVORITES) },
+            icon = { Icon(Icons.Default.Star, contentDescription = null) },
+            label = { Text("Preferiti") },
+        )
+        NavigationBarItem(
+            selected = currentTab == AppTab.LIBRARY,
+            onClick = { onSelect(AppTab.LIBRARY) },
+            icon = { Icon(Icons.Default.LibraryBooks, contentDescription = null) },
+            label = { Text("Libreria") },
         )
     }
 }
@@ -515,6 +617,7 @@ private fun SearchScreen(
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
+    onToggleFavorite: (MangaSearchResult) -> Unit,
 ) {
     val trimmed = state.query.trim()
     Column(
@@ -522,25 +625,10 @@ private fun SearchScreen(
             .fillMaxSize()
             .padding(padding),
     ) {
-        OutlinedTextField(
+        SearchField(
             value = state.query,
+            placeholder = "Cerca manga",
             onValueChange = onQueryChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            placeholder = { Text("Cerca manga") },
-            singleLine = true,
-            leadingIcon = {
-                Icon(imageVector = Icons.Default.Search, contentDescription = null)
-            },
-            trailingIcon = {
-                if (state.query.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Pulisci")
-                    }
-                }
-            },
-            shape = MaterialTheme.shapes.large,
         )
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -561,23 +649,19 @@ private fun SearchScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(state.results, key = { it.mangaUrl }) { result ->
-                            ResultCard(result = result, onClick = { onSelect(result) })
+                            ResultCard(
+                                result = result,
+                                isFavorite = result.mangaUrl in state.favoriteMangaUrls,
+                                onClick = { onSelect(result) },
+                                onToggleFavorite = { onToggleFavorite(result) },
+                            )
                         }
                     }
                 }
-                trimmed.isEmpty() && state.favorites.isNotEmpty() -> {
-                    FavoritesSection(
-                        favorites = state.favorites,
-                        modifier = Modifier.fillMaxSize(),
-                        onSelect = { favorite ->
-                            onSelect(
-                                MangaSearchResult(
-                                    title = favorite.title,
-                                    mangaUrl = favorite.mangaUrl,
-                                    coverUrl = favorite.coverUrl,
-                                ),
-                            )
-                        },
+                trimmed.isEmpty() -> {
+                    EmptyStateText(
+                        text = "Digita per cercare",
+                        modifier = Modifier.align(Alignment.TopCenter),
                     )
                 }
                 trimmed.isNotEmpty() && trimmed.length < 3 -> {
@@ -598,20 +682,63 @@ private fun SearchScreen(
 }
 
 @Composable
-private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
+private fun SearchField(
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        placeholder = { Text(placeholder) },
+        singleLine = true,
+        leadingIcon = {
+            Icon(imageVector = Icons.Default.Search, contentDescription = null)
+        },
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Pulisci")
+                }
+            }
+        },
+        shape = MaterialTheme.shapes.large,
+    )
+}
+
+@Composable
+private fun ResultCard(
+    result: MangaSearchResult,
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
         Column {
-            CoverImage(
-                model = result.coverUrl,
-                title = result.title,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
-            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                CoverImage(
+                    model = result.coverUrl,
+                    title = result.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2f / 3f),
+                )
+                FavoriteToggleBadge(
+                    isFavorite = isFavorite,
+                    onClick = onToggleFavorite,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp),
+                )
+            }
             Text(
                 text = result.title,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -624,65 +751,122 @@ private fun ResultCard(result: MangaSearchResult, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FavoritesSection(
-    favorites: List<FavoriteManga>,
+private fun FavoriteToggleBadge(
+    isFavorite: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onSelect: (FavoriteManga) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = Color.Black.copy(alpha = 0.45f),
+        modifier = modifier
+            .size(32.dp)
+            .clickable(onClick = onClick),
     ) {
-        item(
-            key = "favorites-header",
-            span = { GridItemSpan(maxLineSpan) },
-        ) {
-            Text(
-                text = "Preferiti",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+                contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
+                tint = if (isFavorite) FavoriteYellow else Color.White,
+                modifier = Modifier.size(20.dp),
             )
         }
-        items(favorites, key = { it.mangaUrl }) { favorite ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(favorite) },
-            ) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    CoverImage(
-                        model = favorite.coverUrl,
-                        title = favorite.title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(2f / 3f)
-                            .clip(MaterialTheme.shapes.medium),
+    }
+}
+
+@Composable
+private fun FavoritesScreen(
+    favorites: List<FavoriteManga>,
+    query: String,
+    padding: PaddingValues,
+    onQueryChange: (String) -> Unit,
+    onSelect: (FavoriteManga) -> Unit,
+) {
+    val filtered = remember(favorites, query) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) favorites
+        else favorites.filter { it.title.contains(trimmed, ignoreCase = true) }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    ) {
+        SearchField(
+            value = query,
+            placeholder = "Cerca nei preferiti",
+            onValueChange = onQueryChange,
+        )
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                favorites.isEmpty() -> {
+                    EmptyStateText(
+                        text = "Nessun preferito",
+                        modifier = Modifier.align(Alignment.TopCenter),
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                }
+                filtered.isEmpty() -> {
+                    EmptyStateText(
+                        text = "Nessun preferito corrisponde",
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(
-                            text = favorite.title,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = FavoriteYellow,
-                            modifier = Modifier.size(16.dp),
-                        )
+                        items(filtered, key = { it.mangaUrl }) { favorite ->
+                            FavoriteCard(favorite = favorite, onClick = { onSelect(favorite) })
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoriteCard(favorite: FavoriteManga, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            CoverImage(
+                model = favorite.coverUrl,
+                title = favorite.title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(MaterialTheme.shapes.medium),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = favorite.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = FavoriteYellow,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }
@@ -831,7 +1015,7 @@ private fun DetailScreen(
 }
 
 @Composable
-private fun DownloadsScreen(
+private fun LibraryScreen(
     state: MangaUiState,
     padding: PaddingValues,
     status: WorkInfo?,
@@ -839,7 +1023,14 @@ private fun DownloadsScreen(
     onStopDownload: () -> Unit,
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
+    onQueryChange: (String) -> Unit,
 ) {
+    val filtered = remember(state.library, state.libraryQuery) {
+        val trimmed = state.libraryQuery.trim()
+        if (trimmed.isBlank()) state.library
+        else state.library.filter { it.title.contains(trimmed, ignoreCase = true) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -849,6 +1040,12 @@ private fun DownloadsScreen(
             status = status,
             isActive = isDownloadActive,
             onStop = onStopDownload,
+        )
+
+        SearchField(
+            value = state.libraryQuery,
+            placeholder = "Cerca nella libreria",
+            onValueChange = onQueryChange,
         )
 
         when {
@@ -866,13 +1063,19 @@ private fun DownloadsScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            filtered.isEmpty() -> {
+                EmptyStateText(
+                    text = "Nessun manga corrisponde",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(state.library, key = { it.directory.absolutePath }) { series ->
+                    items(filtered, key = { it.directory.absolutePath }) { series ->
                         DownloadedSeriesCard(
                             series = series,
                             onClick = { onOpenSeries(series) },
@@ -883,6 +1086,83 @@ private fun DownloadsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SettingsScreen(
+    settings: AppSettings,
+    padding: PaddingValues,
+    onToggleAutoDownload: (Boolean) -> Unit,
+    onTriggerChange: (Int) -> Unit,
+    onBatchChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "Download automatico",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Scarica capitoli successivi automaticamente",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = "Quando leggi gli ultimi capitoli scaricati, scarica automaticamente i successivi",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.autoDownloadEnabled,
+                onCheckedChange = onToggleAutoDownload,
+            )
+        }
+        NumberSettingField(
+            label = "Capitoli rimanenti per attivare il download",
+            value = settings.autoDownloadTriggerChapters,
+            enabled = settings.autoDownloadEnabled,
+            onValueChange = onTriggerChange,
+        )
+        NumberSettingField(
+            label = "Capitoli da scaricare ogni volta",
+            value = settings.autoDownloadBatchSize,
+            enabled = settings.autoDownloadEnabled,
+            onValueChange = onBatchChange,
+        )
+    }
+}
+
+@Composable
+private fun NumberSettingField(
+    label: String,
+    value: Int,
+    enabled: Boolean,
+    onValueChange: (Int) -> Unit,
+) {
+    var text by remember(value) { mutableStateOf(value.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            val digits = newText.filter { it.isDigit() }.take(3)
+            text = digits
+            digits.toIntOrNull()?.let { onValueChange(it) }
+        },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+        enabled = enabled,
+    )
 }
 
 @Composable

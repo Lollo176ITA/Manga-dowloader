@@ -30,7 +30,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 enum class AppTab {
     SEARCH,
-    DOWNLOADS,
+    FAVORITES,
+    LIBRARY,
 }
 
 data class FavoriteManga(
@@ -39,9 +40,17 @@ data class FavoriteManga(
     val coverUrl: String?,
 )
 
+data class AppSettings(
+    val autoDownloadEnabled: Boolean = false,
+    val autoDownloadTriggerChapters: Int = 3,
+    val autoDownloadBatchSize: Int = 3,
+)
+
 data class MangaUiState(
     val currentTab: AppTab = AppTab.SEARCH,
     val query: String = "",
+    val favoritesQuery: String = "",
+    val libraryQuery: String = "",
     val results: List<MangaSearchResult> = emptyList(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaUrls: Set<String> = emptySet(),
@@ -60,6 +69,8 @@ data class MangaUiState(
     val availableUpdate: AppUpdateInfo? = null,
     val isCheckingUpdate: Boolean = false,
     val isInstallingUpdate: Boolean = false,
+    val showSettings: Boolean = false,
+    val settings: AppSettings = AppSettings(),
     val errorMessage: String? = null,
 )
 
@@ -71,11 +82,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val initialFavorites = readFavorites()
+    private val initialSettings = readSettings()
 
     private val _state = MutableStateFlow(
         MangaUiState(
             favorites = initialFavorites,
             favoriteMangaUrls = initialFavorites.mapTo(linkedSetOf()) { it.mangaUrl },
+            settings = initialSettings,
         ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
@@ -85,6 +98,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
     private var updateJob: Job? = null
+    private var autoDownloadJob: Job? = null
 
     init {
         observeQueryChanges()
@@ -134,9 +148,47 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(tab: AppTab) {
         _state.value = _state.value.copy(currentTab = tab)
-        if (tab == AppTab.DOWNLOADS) {
+        if (tab == AppTab.LIBRARY) {
             refreshLibrary()
         }
+    }
+
+    fun onFavoritesQueryChange(text: String) {
+        _state.value = _state.value.copy(favoritesQuery = text)
+    }
+
+    fun onLibraryQueryChange(text: String) {
+        _state.value = _state.value.copy(libraryQuery = text)
+    }
+
+    fun openSettings() {
+        _state.value = _state.value.copy(showSettings = true)
+    }
+
+    fun closeSettings() {
+        _state.value = _state.value.copy(showSettings = false)
+    }
+
+    fun setAutoDownloadEnabled(enabled: Boolean) {
+        updateSettings { it.copy(autoDownloadEnabled = enabled) }
+    }
+
+    fun setAutoDownloadTriggerChapters(value: Int) {
+        updateSettings { it.copy(autoDownloadTriggerChapters = value.coerceAtLeast(1)) }
+    }
+
+    fun setAutoDownloadBatchSize(value: Int) {
+        updateSettings { it.copy(autoDownloadBatchSize = value.coerceAtLeast(1)) }
+    }
+
+    fun toggleFavoriteFromResult(result: MangaSearchResult) {
+        toggleFavorite(
+            FavoriteManga(
+                title = result.title,
+                mangaUrl = result.mangaUrl,
+                coverUrl = result.coverUrl,
+            ),
+        )
     }
 
     fun selectManga(result: MangaSearchResult) {
@@ -219,7 +271,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(
             selectedDownloadedSeries = series,
             selectedChapterPaths = emptySet(),
-            currentTab = AppTab.DOWNLOADS,
+            currentTab = AppTab.LIBRARY,
             errorMessage = null,
         )
     }
@@ -267,6 +319,50 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                     isLoadingReader = false,
                     errorMessage = exc.message ?: "Impossibile aprire il reader",
                 )
+            }
+        }
+
+        maybeTriggerAutoDownload(chapter)
+    }
+
+    private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
+        val settings = _state.value.settings
+        if (!settings.autoDownloadEnabled) return
+        val series = _state.value.selectedDownloadedSeries ?: return
+        val mangaUrl = series.mangaUrl?.takeIf { it.isNotBlank() } ?: return
+
+        val chapters = series.chapters
+        val currentIndex = chapters.indexOfFirst { it.relativePath == chapter.relativePath }
+        if (currentIndex < 0) return
+        val chaptersAfter = chapters.size - 1 - currentIndex
+        if (chaptersAfter > settings.autoDownloadTriggerChapters) return
+
+        if (autoDownloadJob?.isActive == true) return
+
+        val downloadedNumbers = chapters.mapNotNull { it.numberValue }.toSet()
+        val batchSize = settings.autoDownloadBatchSize
+
+        autoDownloadJob = viewModelScope.launch {
+            try {
+                val details = withContext(Dispatchers.IO) { client.fetchMangaDetails(mangaUrl) }
+                val missing = details.chapters
+                    .asSequence()
+                    .filter { remote -> remote.numberValue !in downloadedNumbers }
+                    .sortedBy { it.numberValue }
+                    .take(batchSize)
+                    .toList()
+                if (missing.isEmpty()) return@launch
+                withContext(Dispatchers.IO) {
+                    DownloadWorker.enqueue(
+                        getApplication<Application>(),
+                        missing.first().url,
+                        missing.last().url,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Silent: auto-download is best-effort
             }
         }
     }
@@ -566,9 +662,40 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .apply()
     }
 
+    private fun updateSettings(transform: (AppSettings) -> AppSettings) {
+        val current = _state.value.settings
+        val updated = transform(current)
+        if (updated == current) return
+        _state.value = _state.value.copy(settings = updated)
+        persistSettings(updated)
+    }
+
+    private fun readSettings(): AppSettings {
+        return AppSettings(
+            autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
+            autoDownloadTriggerChapters = prefs
+                .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
+                .coerceAtLeast(1),
+            autoDownloadBatchSize = prefs
+                .getInt(KEY_AUTO_DOWNLOAD_BATCH, 3)
+                .coerceAtLeast(1),
+        )
+    }
+
+    private fun persistSettings(settings: AppSettings) {
+        prefs.edit()
+            .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
+            .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
+            .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
         private const val KEY_FAVORITES_JSON = "favorites_json"
+        private const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
+        private const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
+        private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
         private const val MIN_QUERY_LENGTH = 3
         private const val DEBOUNCE_MS = 350L
     }

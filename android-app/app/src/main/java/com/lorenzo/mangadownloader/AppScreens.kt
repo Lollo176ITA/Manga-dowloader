@@ -2,14 +2,11 @@ package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +24,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -72,11 +67,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
@@ -494,7 +492,6 @@ fun DownloadedSeriesScreen(
     val isFullyRead = series.isFullyRead()
     var chapterPendingDelete by remember { mutableStateOf<DownloadedChapter?>(null) }
     val firstChapter = remember(series) { series.chapters.firstOrNull() }
-    val latestChapter = remember(series) { series.chapters.lastOrNull() }
     val resumeChapter = remember(series) { series.resumeChapter() }
 
     Column(
@@ -527,7 +524,6 @@ fun DownloadedSeriesScreen(
             totalCount = series.totalChapterCount,
             firstChapter = firstChapter,
             resumeChapter = resumeChapter,
-            latestChapter = latestChapter,
             onOpenChapter = onOpenChapter,
         )
     }
@@ -550,7 +546,6 @@ private fun DownloadedSeriesActionBar(
     totalCount: Int,
     firstChapter: DownloadedChapter?,
     resumeChapter: DownloadedChapter?,
-    latestChapter: DownloadedChapter?,
     onOpenChapter: (DownloadedChapter) -> Unit,
 ) {
     Surface(
@@ -591,13 +586,6 @@ private fun DownloadedSeriesActionBar(
                 ) {
                     Text("Riprendi")
                 }
-                OutlinedButton(
-                    onClick = { latestChapter?.let(onOpenChapter) },
-                    enabled = latestChapter != null,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Ultimo")
-                }
             }
         }
     }
@@ -617,17 +605,43 @@ fun ReaderScreen(
     val minScale = 1f
     val maxScale = 4f
     var readerScale by remember(chapter?.relativePath) { mutableStateOf(minScale) }
-    val horizontalScrollState = rememberScrollState()
+    var readerOffsetX by remember(chapter?.relativePath) { mutableStateOf(0f) }
+    var readerOffsetY by remember(chapter?.relativePath) { mutableStateOf(0f) }
+    var viewportSize by remember(chapter?.relativePath) { mutableStateOf(IntSize.Zero) }
+
+    fun clampOffsets(
+        scale: Float,
+        offsetX: Float,
+        offsetY: Float,
+    ): Pair<Float, Float> {
+        val maxX = ((viewportSize.width * (scale - 1f)) / 2f).coerceAtLeast(0f)
+        val maxY = ((viewportSize.height * (scale - 1f)) / 2f).coerceAtLeast(0f)
+        return offsetX.coerceIn(-maxX, maxX) to offsetY.coerceIn(-maxY, maxY)
+    }
+
+    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+        val nextScale = (readerScale * zoomChange).coerceIn(minScale, maxScale)
+        if (nextScale <= minScale) {
+            readerScale = minScale
+            readerOffsetX = 0f
+            readerOffsetY = 0f
+        } else {
+            val (clampedX, clampedY) = clampOffsets(
+                scale = nextScale,
+                offsetX = readerOffsetX + panChange.x,
+                offsetY = readerOffsetY + panChange.y,
+            )
+            readerScale = nextScale
+            readerOffsetX = clampedX
+            readerOffsetY = clampedY
+        }
+    }
 
     LaunchedEffect(chapter?.relativePath) {
         readerScale = minScale
-        horizontalScrollState.scrollTo(0)
-    }
-
-    LaunchedEffect(readerScale) {
-        if (readerScale <= minScale) {
-            horizontalScrollState.scrollTo(0)
-        }
+        readerOffsetX = 0f
+        readerOffsetY = 0f
+        viewportSize = IntSize.Zero
     }
 
     when {
@@ -650,89 +664,75 @@ fun ReaderScreen(
             )
         }
         else -> {
-            LazyColumn(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(padding)
+                    .background(if (readerScale > minScale) Color.Black else Color.Transparent)
+                    .clipToBounds()
+                    .transformable(state = transformableState)
+                    .pointerInput(chapter.relativePath, readerScale) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (readerScale > minScale) {
+                                    readerScale = minScale
+                                    readerOffsetX = 0f
+                                    readerOffsetY = 0f
+                                } else {
+                                    readerScale = 2f
+                                }
+                            },
+                        )
+                    }
+                    .onSizeChanged { size ->
+                        viewportSize = size
+                        val (clampedX, clampedY) = clampOffsets(
+                            scale = readerScale,
+                            offsetX = readerOffsetX,
+                            offsetY = readerOffsetY,
+                        )
+                        readerOffsetX = clampedX
+                        readerOffsetY = clampedY
+                    },
             ) {
-                item("reader-nav-top") {
-                    ReaderChapterNavigationRow(
-                        previousChapter = previousChapter,
-                        nextChapter = nextChapter,
-                        onOpenPrevious = onOpenPrevious,
-                        onOpenNext = onOpenNext,
-                    )
-                }
-                items(pages, key = { it.absolutePath }) { page ->
-                    ZoomableReaderPage(
-                        page = page,
-                        contentDescription = chapter.title,
-                        scale = readerScale,
-                        minScale = minScale,
-                        maxScale = maxScale,
-                        horizontalScrollState = horizontalScrollState,
-                        onScaleChange = { readerScale = it },
-                    )
-                }
-                item("reader-nav-bottom") {
-                    ReaderChapterNavigationRow(
-                        previousChapter = previousChapter,
-                        nextChapter = nextChapter,
-                        onOpenPrevious = onOpenPrevious,
-                        onOpenNext = onOpenNext,
-                    )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = readerScale
+                            scaleY = readerScale
+                            translationX = readerOffsetX
+                            translationY = readerOffsetY
+                        },
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item("reader-nav-top") {
+                        ReaderChapterNavigationRow(
+                            previousChapter = previousChapter,
+                            nextChapter = nextChapter,
+                            onOpenPrevious = onOpenPrevious,
+                            onOpenNext = onOpenNext,
+                        )
+                    }
+                    items(pages, key = { it.absolutePath }) { page ->
+                        AsyncImage(
+                            model = page,
+                            contentDescription = chapter.title,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth,
+                        )
+                    }
+                    item("reader-nav-bottom") {
+                        ReaderChapterNavigationRow(
+                            previousChapter = previousChapter,
+                            nextChapter = nextChapter,
+                            onOpenPrevious = onOpenPrevious,
+                            onOpenNext = onOpenNext,
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ZoomableReaderPage(
-    page: File,
-    contentDescription: String,
-    scale: Float,
-    minScale: Float,
-    maxScale: Float,
-    horizontalScrollState: ScrollState,
-    onScaleChange: (Float) -> Unit,
-) {
-    val transformableState = rememberTransformableState { zoomChange, _, _ ->
-        onScaleChange((scale * zoomChange).coerceIn(minScale, maxScale))
-    }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(if (scale > minScale) Color.Black else Color.Transparent)
-            .clipToBounds()
-            .transformable(state = transformableState)
-            .pointerInput(page.absolutePath, scale) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        onScaleChange(if (scale > minScale) minScale else 2f)
-                    },
-                )
-            },
-    ) {
-        val contentWidth = maxWidth * scale
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(
-                    state = horizontalScrollState,
-                    enabled = scale > minScale,
-                ),
-        ) {
-            AsyncImage(
-                model = page,
-                contentDescription = contentDescription,
-                modifier = Modifier.requiredWidth(contentWidth),
-                contentScale = ContentScale.FillWidth,
-            )
         }
     }
 }

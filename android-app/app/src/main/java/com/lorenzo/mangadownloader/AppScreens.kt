@@ -722,22 +722,6 @@ private fun AutoReaderSettings(
             valueRange = 0f..speeds.lastIndex.toFloat(),
             steps = speeds.size - 2,
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            speeds.forEach { speed ->
-                Text(
-                    text = speed.displayLabel(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (speed == selectedSpeed) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        }
     }
 }
 

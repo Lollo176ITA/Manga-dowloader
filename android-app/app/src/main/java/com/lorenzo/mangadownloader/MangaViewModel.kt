@@ -54,7 +54,17 @@ data class AppSettings(
     val parentalBiometricEnabled: Boolean = false,
     val parentalPinSalt: String? = null,
     val parentalPinHash: String? = null,
+    val labsEnabled: Boolean = false,
+    val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
 )
+
+enum class AutoReaderSpeed(val dpPerSecond: Float) {
+    OFF(0f),
+    CALM(35f),
+    NORMAL(70f),
+    FAST(120f),
+    SMART(0f),
+}
 
 enum class ParentalAction {
     OPEN_SEARCH,
@@ -542,6 +552,17 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSmartCleanupKeepPreviousChapters(value: Int) {
         updateSettings { it.copy(smartCleanupKeepPreviousChapters = value.coerceAtLeast(0)) }
+    }
+
+    fun setLabsEnabled(enabled: Boolean) {
+        updateSettings {
+            if (enabled) it.copy(labsEnabled = true)
+            else it.copy(labsEnabled = false, autoReaderSpeed = AutoReaderSpeed.OFF)
+        }
+    }
+
+    fun setAutoReaderSpeed(speed: AutoReaderSpeed) {
+        updateSettings { it.copy(autoReaderSpeed = speed) }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -1236,6 +1257,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
             parentalPinSalt = prefs.getString(KEY_PARENTAL_PIN_SALT, null),
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
+            labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
+            autoReaderSpeed = runCatching {
+                AutoReaderSpeed.valueOf(
+                    prefs.getString(KEY_AUTO_READER_SPEED, AutoReaderSpeed.OFF.name)
+                        ?: AutoReaderSpeed.OFF.name,
+                )
+            }.getOrDefault(AutoReaderSpeed.OFF),
         )
     }
 
@@ -1252,6 +1280,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
             .putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
             .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
+            .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
+            .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
             .apply()
     }
 
@@ -1279,6 +1309,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_PARENTAL_BIOMETRIC_ENABLED = "parental_biometric_enabled"
         private const val KEY_PARENTAL_PIN_SALT = "parental_pin_salt"
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
+        private const val KEY_LABS_ENABLED = "labs_enabled"
+        private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
     }

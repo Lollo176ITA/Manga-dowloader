@@ -276,6 +276,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     pages = state.readerPages,
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
+                    autoReaderSpeed = state.settings.autoReaderSpeed,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                 )
@@ -294,6 +295,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
+                    onToggleLabs = viewModel::setLabsEnabled,
+                    onSelectAutoReaderSpeed = viewModel::setAutoReaderSpeed,
                 )
             }
             selectedManga != null -> {

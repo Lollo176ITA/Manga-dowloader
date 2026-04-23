@@ -1,8 +1,11 @@
 package com.lorenzo.mangadownloader
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +48,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -55,6 +59,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -62,6 +67,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,6 +77,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -426,6 +435,8 @@ fun SettingsScreen(
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
+    onToggleLabs: (Boolean) -> Unit,
+    onSelectAutoReaderSpeed: (AutoReaderSpeed) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -572,7 +583,76 @@ fun SettingsScreen(
                 Text("Cambia PIN")
             }
         }
+
+        Text(
+            text = "Labs",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Funzionalità in sviluppo",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = "Mostra opzioni sperimentali. Possono cambiare o sparire nelle prossime versioni.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.labsEnabled,
+                onCheckedChange = onToggleLabs,
+            )
+        }
+
+        if (settings.labsEnabled) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Reader automatico",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = "Scorre la pagina automaticamente verso il basso. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AutoReaderSpeed.values().forEach { speed ->
+                        FilterChip(
+                            selected = settings.autoReaderSpeed == speed,
+                            onClick = { onSelectAutoReaderSpeed(speed) },
+                            label = { Text(speed.displayLabel()) },
+                        )
+                    }
+                }
+                if (settings.autoReaderSpeed == AutoReaderSpeed.SMART) {
+                    Text(
+                        text = "Intelligente analizza il testo di ogni pagina con ML Kit (on-device) per regolare la velocità: pagine dense vanno più lente, pagine vuote più veloci.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
+}
+
+private fun AutoReaderSpeed.displayLabel(): String = when (this) {
+    AutoReaderSpeed.OFF -> "Off"
+    AutoReaderSpeed.CALM -> "Calmo"
+    AutoReaderSpeed.NORMAL -> "Normale"
+    AutoReaderSpeed.FAST -> "Veloce"
+    AutoReaderSpeed.SMART -> "Intelligente"
 }
 
 @Composable
@@ -692,6 +772,7 @@ fun ReaderScreen(
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
+    autoReaderSpeed: AutoReaderSpeed,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
 ) {
@@ -701,6 +782,74 @@ fun ReaderScreen(
     var readerOffsetX by remember(chapter?.relativePath) { mutableStateOf(0f) }
     var readerOffsetY by remember(chapter?.relativePath) { mutableStateOf(0f) }
     var viewportSize by remember(chapter?.relativePath) { mutableStateOf(IntSize.Zero) }
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val view = LocalView.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val analyzer = remember { PageReadingAnalyzer(context.applicationContext) }
+    DisposableEffect(Unit) {
+        onDispose { analyzer.close() }
+    }
+
+    DisposableEffect(autoReaderSpeed) {
+        val window = (view.context as? Activity)?.window
+        if (autoReaderSpeed != AutoReaderSpeed.OFF) {
+            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
+
+    LaunchedEffect(autoReaderSpeed, chapter?.relativePath) {
+        if (autoReaderSpeed == AutoReaderSpeed.OFF || chapter == null) return@LaunchedEffect
+        val fixedPxPerSecond = with(density) { autoReaderSpeed.dpPerSecond.dp.toPx() }
+        val fallbackPxPerSecond = with(density) { AutoReaderSpeed.NORMAL.dpPerSecond.dp.toPx() }
+        if (autoReaderSpeed == AutoReaderSpeed.SMART) {
+            analyzer.prefetch(pages, startIndex = 0)
+        }
+        var lastFrame = 0L
+        var residual = 0f
+        var lastPrefetchedFrom = -1
+        while (true) {
+            withFrameNanos { now ->
+                if (lastFrame != 0L) {
+                    val deltaSec = (now - lastFrame) / 1_000_000_000f
+                    val pxPerSecond = if (autoReaderSpeed == AutoReaderSpeed.SMART) {
+                        val info = listState.layoutInfo
+                        val visiblePage = info.visibleItemsInfo.firstOrNull { item ->
+                            val k = item.key
+                            k != "reader-nav-top" && k != "reader-nav-bottom" && k is String
+                        }
+                        val pageIndex = visiblePage
+                            ?.let { vp -> pages.indexOfFirst { it.absolutePath == vp.key } }
+                            ?: -1
+                        if (pageIndex >= 0 && pageIndex > lastPrefetchedFrom) {
+                            analyzer.prefetch(pages, startIndex = pageIndex)
+                            lastPrefetchedFrom = pageIndex
+                        }
+                        val pageHeightPx = visiblePage?.size?.toFloat() ?: 0f
+                        val timeMs = if (pageIndex >= 0) analyzer.cachedTimeMs(pages[pageIndex]) else null
+                        if (timeMs != null && pageHeightPx > 0f) {
+                            pageHeightPx / (timeMs / 1000f)
+                        } else {
+                            fallbackPxPerSecond
+                        }
+                    } else {
+                        fixedPxPerSecond
+                    }
+                    val moveF = pxPerSecond * deltaSec + residual
+                    val moveInt = moveF.toInt()
+                    residual = moveF - moveInt
+                    if (moveInt > 0) {
+                        coroutineScope.launch { listState.scrollBy(moveInt.toFloat()) }
+                    }
+                }
+                lastFrame = now
+            }
+        }
+    }
 
     fun clampOffsets(
         scale: Float,
@@ -789,6 +938,7 @@ fun ReaderScreen(
                     },
             ) {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {

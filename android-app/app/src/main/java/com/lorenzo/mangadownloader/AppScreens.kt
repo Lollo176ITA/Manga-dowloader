@@ -5,10 +5,8 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -57,7 +55,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +64,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -79,7 +77,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,8 +87,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +96,7 @@ import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
 import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class SeriesDownloadStatus(
@@ -673,6 +669,7 @@ private fun AutoReaderSettings(
     selectedSpeed: AutoReaderSpeed,
     onSelectSpeed: (AutoReaderSpeed) -> Unit,
 ) {
+    val speeds = AutoReaderSpeed.values()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -695,28 +692,51 @@ private fun AutoReaderSettings(
             )
         }
         Text(
-            text = "Scorre la pagina automaticamente verso il basso. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
+            text = "Si ferma su ogni pagina per un po', poi scorre a quella successiva. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            AutoReaderSpeed.values().forEach { speed ->
-                FilterChip(
-                    selected = selectedSpeed == speed,
-                    onClick = { onSelectSpeed(speed) },
-                    label = { Text(speed.displayLabel()) },
-                )
-            }
-        }
-        if (selectedSpeed == AutoReaderSpeed.SMART) {
             Text(
-                text = "Intelligente analizza il testo di ogni pagina con ML Kit (on-device) per regolare la velocità: pagine dense vanno più lente, pagine vuote più veloci.",
+                text = selectedSpeed.displayLabel(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = selectedSpeed.pauseLabel(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        val currentIndex = speeds.indexOf(selectedSpeed).coerceAtLeast(0)
+        Slider(
+            value = currentIndex.toFloat(),
+            onValueChange = { v ->
+                val idx = v.toInt().coerceIn(0, speeds.lastIndex)
+                if (speeds[idx] != selectedSpeed) onSelectSpeed(speeds[idx])
+            },
+            valueRange = 0f..speeds.lastIndex.toFloat(),
+            steps = speeds.size - 2,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            speeds.forEach { speed ->
+                Text(
+                    text = speed.displayLabel(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (speed == selectedSpeed) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }
@@ -726,7 +746,11 @@ private fun AutoReaderSpeed.displayLabel(): String = when (this) {
     AutoReaderSpeed.CALM -> "Calmo"
     AutoReaderSpeed.NORMAL -> "Normale"
     AutoReaderSpeed.FAST -> "Veloce"
-    AutoReaderSpeed.SMART -> "Intelligente"
+}
+
+private fun AutoReaderSpeed.pauseLabel(): String = when (this) {
+    AutoReaderSpeed.OFF -> "Disattivato"
+    else -> "${pauseSeconds}s per pagina"
 }
 
 @Composable
@@ -858,14 +882,7 @@ fun ReaderScreen(
     var readerOffsetY by remember(chapter?.relativePath) { mutableStateOf(0f) }
     var viewportSize by remember(chapter?.relativePath) { mutableStateOf(IntSize.Zero) }
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
     val view = LocalView.current
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val analyzer = remember { PageReadingAnalyzer(context.applicationContext) }
-    DisposableEffect(Unit) {
-        onDispose { analyzer.close() }
-    }
 
     DisposableEffect(autoReaderSpeed) {
         val window = (view.context as? Activity)?.window
@@ -879,50 +896,17 @@ fun ReaderScreen(
 
     LaunchedEffect(autoReaderSpeed, chapter?.relativePath) {
         if (autoReaderSpeed == AutoReaderSpeed.OFF || chapter == null) return@LaunchedEffect
-        val fixedPxPerSecond = with(density) { autoReaderSpeed.dpPerSecond.dp.toPx() }
-        val fallbackPxPerSecond = with(density) { AutoReaderSpeed.NORMAL.dpPerSecond.dp.toPx() }
-        if (autoReaderSpeed == AutoReaderSpeed.SMART) {
-            analyzer.prefetch(pages, startIndex = 0)
-        }
-        var lastFrame = 0L
-        var residual = 0f
-        var lastPrefetchedFrom = -1
+        val pauseMs = autoReaderSpeed.pauseSeconds * 1000L
         while (true) {
-            withFrameNanos { now ->
-                if (lastFrame != 0L) {
-                    val deltaSec = (now - lastFrame) / 1_000_000_000f
-                    val pxPerSecond = if (autoReaderSpeed == AutoReaderSpeed.SMART) {
-                        val info = listState.layoutInfo
-                        val visiblePage = info.visibleItemsInfo.firstOrNull { item ->
-                            val k = item.key
-                            k != "reader-nav-top" && k != "reader-nav-bottom" && k is String
-                        }
-                        val pageIndex = visiblePage
-                            ?.let { vp -> pages.indexOfFirst { it.absolutePath == vp.key } }
-                            ?: -1
-                        if (pageIndex >= 0 && pageIndex > lastPrefetchedFrom) {
-                            analyzer.prefetch(pages, startIndex = pageIndex)
-                            lastPrefetchedFrom = pageIndex
-                        }
-                        val pageHeightPx = visiblePage?.size?.toFloat() ?: 0f
-                        val timeMs = if (pageIndex >= 0) analyzer.cachedTimeMs(pages[pageIndex]) else null
-                        if (timeMs != null && pageHeightPx > 0f) {
-                            pageHeightPx / (timeMs / 1000f)
-                        } else {
-                            fallbackPxPerSecond
-                        }
-                    } else {
-                        fixedPxPerSecond
-                    }
-                    val moveF = pxPerSecond * deltaSec + residual
-                    val moveInt = moveF.toInt()
-                    residual = moveF - moveInt
-                    if (moveInt > 0) {
-                        coroutineScope.launch { listState.scrollBy(moveInt.toFloat()) }
-                    }
-                }
-                lastFrame = now
-            }
+            delay(pauseMs)
+            val info = listState.layoutInfo
+            val topVisible = info.visibleItemsInfo.firstOrNull { item ->
+                val k = item.key
+                k is String && k != "reader-nav-top" && k != "reader-nav-bottom"
+            } ?: continue
+            val targetIndex = topVisible.index + 1
+            if (targetIndex >= info.totalItemsCount) break
+            listState.animateScrollToItem(targetIndex)
         }
     }
 

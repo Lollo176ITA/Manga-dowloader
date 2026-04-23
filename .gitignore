@@ -20,3 +20,4 @@ android-app/release-keystore.jks
 *.png
 !docs/**/*.png
 .claude/
+.vscode/

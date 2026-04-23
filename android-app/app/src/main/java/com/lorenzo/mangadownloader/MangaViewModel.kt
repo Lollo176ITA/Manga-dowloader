@@ -58,12 +58,11 @@ data class AppSettings(
     val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
 )
 
-enum class AutoReaderSpeed(val dpPerSecond: Float) {
-    OFF(0f),
-    CALM(35f),
-    NORMAL(70f),
-    FAST(120f),
-    SMART(0f),
+enum class AutoReaderSpeed(val pauseSeconds: Int) {
+    OFF(0),
+    CALM(30),
+    NORMAL(20),
+    FAST(10),
 }
 
 enum class ParentalAction {

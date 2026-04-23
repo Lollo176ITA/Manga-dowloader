@@ -692,9 +692,10 @@ fun DownloadedSeriesScreen(
             }
         }
 
+        val downloadedCount = series.chapters.size
         DownloadedSeriesActionBar(
-            readCount = series.readChapterCount(),
-            totalCount = series.totalChapterCount,
+            readCount = series.readChapterCount().coerceAtMost(downloadedCount),
+            totalCount = downloadedCount,
             firstChapter = firstChapter,
             resumeChapter = resumeChapter,
             onOpenChapter = onOpenChapter,
@@ -1268,7 +1269,7 @@ private fun LibrarySeriesCard(
                     )
                 }
                 downloadStatus?.let { status ->
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     SeriesDownloadSummary(
                         status = status,
                         onStopDownloads = onStopDownloads,
@@ -1376,57 +1377,28 @@ private fun SeriesDownloadSummary(
     } else {
         null
     }
-    val title = when (status.state) {
-        WorkInfo.State.RUNNING -> "Download in corso"
-        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
-            if (status.requestCount > 1) "In coda (${status.requestCount})" else "In coda"
-        else -> "Download"
-    }
     val supporting = when {
-        fraction != null -> "${status.doneChapters} / ${status.totalChapters} capitoli"
-        status.totalChapters > 0 -> "0 / ${status.totalChapters} capitoli"
+        status.state == WorkInfo.State.RUNNING && status.totalChapters > 0 ->
+            "${status.doneChapters} / ${status.totalChapters} capitoli"
+        status.state == WorkInfo.State.ENQUEUED || status.state == WorkInfo.State.BLOCKED ->
+            if (status.requestCount > 1) "In coda (${status.requestCount})" else "In coda"
         else -> null
     }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                IconButton(
-                    onClick = onStopDownloads,
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Stop,
-                        contentDescription = "Ferma download",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
             supporting?.let { text ->
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = text,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             if (status.state == WorkInfo.State.RUNNING) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 if (fraction != null) {
                     LinearProgressIndicator(
                         progress = { fraction },
@@ -1436,6 +1408,17 @@ private fun SeriesDownloadSummary(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        IconButton(
+            onClick = onStopDownloads,
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Stop,
+                contentDescription = "Ferma download",
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

@@ -56,6 +56,8 @@ data class AppSettings(
     val parentalPinHash: String? = null,
     val labsEnabled: Boolean = false,
     val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
+    val themeMode: ThemeMode = ThemeMode.AUTO,
+    val useDynamicColor: Boolean = true,
 )
 
 enum class AutoReaderSpeed(val pauseSeconds: Int) {
@@ -562,6 +564,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAutoReaderSpeed(speed: AutoReaderSpeed) {
         updateSettings { it.copy(autoReaderSpeed = speed) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        updateSettings { it.copy(themeMode = mode) }
+    }
+
+    fun setUseDynamicColor(enabled: Boolean) {
+        updateSettings { it.copy(useDynamicColor = enabled) }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -1263,6 +1273,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                         ?: AutoReaderSpeed.OFF.name,
                 )
             }.getOrDefault(AutoReaderSpeed.OFF),
+            themeMode = runCatching {
+                ThemeMode.valueOf(
+                    prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
+                        ?: ThemeMode.AUTO.name,
+                )
+            }.getOrDefault(ThemeMode.AUTO),
+            useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, true),
         )
     }
 
@@ -1281,6 +1298,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
             .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
+            .putString(KEY_THEME_MODE, settings.themeMode.name)
+            .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             .apply()
     }
 
@@ -1310,6 +1329,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         private const val KEY_LABS_ENABLED = "labs_enabled"
         private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
     }

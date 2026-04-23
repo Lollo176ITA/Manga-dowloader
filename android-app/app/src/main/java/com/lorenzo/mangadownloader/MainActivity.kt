@@ -42,9 +42,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MangaDownloaderTheme {
-                MangaDownloaderApp()
-            }
+            MangaDownloaderApp()
         }
     }
 }
@@ -53,6 +51,20 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
+    MangaDownloaderTheme(
+        themeMode = state.settings.themeMode,
+        useDynamicColor = state.settings.useDynamicColor,
+    ) {
+        MangaDownloaderAppContent(state = state, viewModel = viewModel)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun MangaDownloaderAppContent(
+    state: MangaUiState,
+    viewModel: MangaViewModel,
+) {
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val appContext = remember(context) { context.applicationContext }
@@ -287,6 +299,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     isBiometricAvailable = state.isBiometricAvailable,
                     isParentalAuthInProgress = state.isParentalAuthInProgress,
                     padding = innerPadding,
+                    onSelectThemeMode = viewModel::setThemeMode,
+                    onToggleDynamicColor = viewModel::setUseDynamicColor,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -327,6 +341,7 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                             state = state,
                             padding = innerPadding,
                             onQueryChange = viewModel::onQueryChange,
+                            onRefresh = viewModel::submitSearch,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                         )

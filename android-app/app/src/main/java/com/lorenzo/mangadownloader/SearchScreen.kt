@@ -1,0 +1,114 @@
+package com.lorenzo.mangadownloader
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchScreen(
+    state: MangaUiState,
+    padding: PaddingValues,
+    onQueryChange: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onSelect: (MangaSearchResult) -> Unit,
+    onToggleFavorite: (MangaSearchResult) -> Unit,
+) {
+    val trimmed = state.query.trim()
+    val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
+    val pullState = rememberPullToRefreshState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    ) {
+        SearchField(
+            value = state.query,
+            placeholder = "Cerca manga",
+            onValueChange = onQueryChange,
+        )
+
+        PullToRefreshBox(
+            isRefreshing = state.isSearching && state.results.isNotEmpty(),
+            onRefresh = onRefresh,
+            state = pullState,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    state.isSearching && state.results.isEmpty() -> {
+                        AppLoadingIndicator(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 24.dp),
+                        )
+                    }
+                    state.results.isNotEmpty() -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(
+                                state.results,
+                                key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
+                            ) { result ->
+                                ResultCard(
+                                    result = result,
+                                    isFavorite = MangaSourceCatalog.identityKey(
+                                        result.sourceId,
+                                        result.mangaUrl,
+                                    ) in state.favoriteMangaKeys,
+                                    onClick = { onSelect(result) },
+                                    onToggleFavorite = { onToggleFavorite(result) },
+                                )
+                            }
+                        }
+                    }
+                    trimmed.isEmpty() -> {
+                        EmptyStateText(
+                            text = if (searchConfig.showAllOnEmptyQuery) {
+                                "Nessun risultato"
+                            } else {
+                                "Digita per cercare"
+                            },
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
+                    trimmed.length < searchConfig.minQueryLength -> {
+                        EmptyStateText(
+                            text = if (searchConfig.minQueryLength == 1) {
+                                "Digita almeno 1 carattere"
+                            } else {
+                                "Digita almeno ${searchConfig.minQueryLength} caratteri"
+                            },
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
+                    else -> {
+                        EmptyStateText(
+                            text = "Nessun risultato",
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

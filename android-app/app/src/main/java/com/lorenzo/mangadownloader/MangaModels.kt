@@ -43,3 +43,9 @@ enum class DownloadResult {
     DOWNLOADED,
     SKIPPED_EXISTING,
 }
+
+enum class ThemeMode {
+    AUTO,
+    LIGHT,
+    DARK,
+}

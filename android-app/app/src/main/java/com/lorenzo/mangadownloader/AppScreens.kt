@@ -4,9 +4,11 @@ import android.app.Activity
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -81,10 +83,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
@@ -904,24 +908,6 @@ fun ReaderScreen(
         return offsetX.coerceIn(-maxX, maxX) to offsetY.coerceIn(-maxY, maxY)
     }
 
-    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
-        val nextScale = (readerScale * zoomChange).coerceIn(minScale, maxScale)
-        if (nextScale <= minScale) {
-            readerScale = minScale
-            readerOffsetX = 0f
-            readerOffsetY = 0f
-        } else {
-            val (clampedX, clampedY) = clampOffsets(
-                scale = nextScale,
-                offsetX = readerOffsetX + panChange.x,
-                offsetY = readerOffsetY + panChange.y,
-            )
-            readerScale = nextScale
-            readerOffsetX = clampedX
-            readerOffsetY = clampedY
-        }
-    }
-
     LaunchedEffect(chapter?.relativePath) {
         readerScale = minScale
         readerOffsetX = 0f
@@ -955,8 +941,41 @@ fun ReaderScreen(
                     .padding(padding)
                     .background(if (readerScale > minScale) Color.Black else Color.Transparent)
                     .clipToBounds()
-                    .transformable(state = transformableState)
-                    .pointerInput(chapter.relativePath, readerScale) {
+                    .pointerInput(chapter.relativePath) {
+                        awaitEachGesture {
+                            awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial,
+                            )
+                            do {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    if (zoomChange != 1f || panChange != Offset.Zero) {
+                                        val nextScale = (readerScale * zoomChange)
+                                            .coerceIn(minScale, maxScale)
+                                        if (nextScale <= minScale) {
+                                            readerScale = minScale
+                                            readerOffsetX = 0f
+                                            readerOffsetY = 0f
+                                        } else {
+                                            val (clampedX, clampedY) = clampOffsets(
+                                                scale = nextScale,
+                                                offsetX = readerOffsetX + panChange.x,
+                                                offsetY = readerOffsetY + panChange.y,
+                                            )
+                                            readerScale = nextScale
+                                            readerOffsetX = clampedX
+                                            readerOffsetY = clampedY
+                                        }
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
+                    .pointerInput(chapter.relativePath) {
                         detectTapGestures(
                             onDoubleTap = {
                                 if (readerScale > minScale) {

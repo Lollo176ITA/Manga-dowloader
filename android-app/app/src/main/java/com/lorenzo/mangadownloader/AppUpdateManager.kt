@@ -53,7 +53,30 @@ class AppUpdateRepository(
         }.getOrNull()
 
         val info = latestRelease ?: fetchUpdateConfigInfo()
-        if (info.versionCode > BuildConfig.VERSION_CODE) info else null
+        if (info.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
+
+        val commitMessage = runCatching { fetchCommitMessage(info) }.getOrNull()
+        if (commitMessage != null) info.copy(releaseNotes = commitMessage) else info
+    }
+
+    private fun fetchCommitMessage(info: AppUpdateInfo): String? {
+        val repoOwner = info.repoOwner.trim().ifBlank { return null }
+        val repoName = info.repoName.trim().ifBlank { return null }
+        val tag = info.releaseTag
+
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/$repoOwner/$repoName/commits/$tag")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("Cache-Control", "no-cache")
+            .build()
+
+        val raw = httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            response.body?.string() ?: return null
+        }
+
+        return parseCommitMessage(raw)
     }
 
     private fun fetchLatestReleaseInfo(): AppUpdateInfo {
@@ -149,9 +172,6 @@ internal fun parseUpdateConfigInfo(raw: String): AppUpdateInfo {
         repoOwner = properties.getProperty("repoOwner").orEmpty(),
         repoName = properties.getProperty("repoName").orEmpty(),
         apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
-        releaseNotes = properties.getProperty("releaseNotes")
-            ?.trim()
-            ?.takeIf(String::isNotBlank),
     )
         .also { info ->
             if (
@@ -198,9 +218,18 @@ internal fun parseLatestReleaseInfo(
         repoOwner = repoOwner,
         repoName = repoName,
         apkAssetName = apkAssetName,
-        releaseNotes = root["body"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank),
         apkDownloadUrl = apkDownloadUrl,
     )
+}
+
+internal fun parseCommitMessage(raw: String): String? {
+    val message = Json.parseToJsonElement(raw).jsonObject["commit"]
+        ?.jsonObject
+        ?.get("message")
+        ?.jsonPrimitive
+        ?.contentOrNull
+        ?.trim()
+    return message?.takeIf(String::isNotBlank)
 }
 
 private fun extractVersionNameFromRelease(

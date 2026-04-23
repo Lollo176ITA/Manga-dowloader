@@ -8,6 +8,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,28 +33,37 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -74,6 +86,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -442,207 +455,268 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Download automatico",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        SettingsSection(
+            title = "Download automatico",
+            icon = Icons.Default.Download,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Scarica capitoli successivi automaticamente",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = "Quando leggi gli ultimi capitoli scaricati, scarica automaticamente i successivi",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
+            SettingsSwitchRow(
+                title = "Scarica capitoli successivi automaticamente",
+                description = "Quando leggi gli ultimi capitoli scaricati, scarica automaticamente i successivi",
                 checked = settings.autoDownloadEnabled,
                 onCheckedChange = onToggleAutoDownload,
             )
+            SettingsDivider()
+            SettingsNumberRow(
+                label = "Capitoli rimanenti per attivare il download",
+                value = settings.autoDownloadTriggerChapters,
+                enabled = settings.autoDownloadEnabled,
+                onValueChange = onTriggerChange,
+            )
+            SettingsNumberRow(
+                label = "Capitoli da scaricare ogni volta",
+                value = settings.autoDownloadBatchSize,
+                enabled = settings.autoDownloadEnabled,
+                onValueChange = onBatchChange,
+            )
         }
-        NumberSettingField(
-            label = "Capitoli rimanenti per attivare il download",
-            value = settings.autoDownloadTriggerChapters,
-            enabled = settings.autoDownloadEnabled,
-            onValueChange = onTriggerChange,
-        )
-        NumberSettingField(
-            label = "Capitoli da scaricare ogni volta",
-            value = settings.autoDownloadBatchSize,
-            enabled = settings.autoDownloadEnabled,
-            onValueChange = onBatchChange,
-        )
 
-        Text(
-            text = "Libera memoria intelligente",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        SettingsSection(
+            title = "Libera memoria intelligente",
+            icon = Icons.Default.CleaningServices,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Elimina i capitoli letti più vecchi",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = "Quando apri un capitolo, mantiene solo gli ultimi capitoli precedenti che scegli tu",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
+            SettingsSwitchRow(
+                title = "Elimina i capitoli letti più vecchi",
+                description = "Quando apri un capitolo, mantiene solo gli ultimi capitoli precedenti che scegli tu",
                 checked = settings.smartCleanupEnabled,
                 onCheckedChange = onToggleSmartCleanup,
             )
-        }
-        NumberSettingField(
-            label = "Capitoli precedenti da mantenere",
-            value = settings.smartCleanupKeepPreviousChapters,
-            enabled = settings.smartCleanupEnabled,
-            onValueChange = onSmartCleanupKeepChange,
-        )
-
-        Text(
-            text = "Parental control",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Proteggi la ricerca con PIN",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = if (settings.parentalControlEnabled) {
-                        if (settings.parentalPinConfigured) {
-                            "PIN configurato. Cerca richiede autenticazione a ogni accesso."
-                        } else {
-                            "Attivo ma PIN non ancora configurato."
-                        }
-                    } else {
-                        "Disattivato di default. Preferiti e Libreria restano sempre liberi."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = settings.parentalControlEnabled,
-                enabled = !isParentalAuthInProgress,
-                onCheckedChange = onToggleParentalControl,
+            SettingsDivider()
+            SettingsNumberRow(
+                label = "Capitoli precedenti da mantenere",
+                value = settings.smartCleanupKeepPreviousChapters,
+                enabled = settings.smartCleanupEnabled,
+                onValueChange = onSmartCleanupKeepChange,
             )
         }
 
-        if (settings.parentalControlEnabled && settings.parentalPinConfigured && isBiometricAvailable) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Usa anche la biometria",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        text = "Puoi usare impronta o volto, con PIN sempre disponibile come fallback.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
+        SettingsSection(
+            title = "Parental control",
+            icon = Icons.Default.Lock,
+        ) {
+            SettingsSwitchRow(
+                title = "Proteggi la ricerca con PIN",
+                description = if (settings.parentalControlEnabled) {
+                    if (settings.parentalPinConfigured) {
+                        "PIN configurato. Cerca richiede autenticazione a ogni accesso."
+                    } else {
+                        "Attivo ma PIN non ancora configurato."
+                    }
+                } else {
+                    "Disattivato di default. Preferiti e Libreria restano sempre liberi."
+                },
+                checked = settings.parentalControlEnabled,
+                switchEnabled = !isParentalAuthInProgress,
+                onCheckedChange = onToggleParentalControl,
+            )
+            if (settings.parentalControlEnabled && settings.parentalPinConfigured && isBiometricAvailable) {
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = "Usa anche la biometria",
+                    description = "Puoi usare impronta o volto, con PIN sempre disponibile come fallback.",
                     checked = settings.parentalBiometricEnabled,
-                    enabled = !isParentalAuthInProgress,
+                    switchEnabled = !isParentalAuthInProgress,
                     onCheckedChange = onToggleParentalBiometric,
                 )
             }
-        }
-
-        if (settings.parentalControlEnabled && settings.parentalPinConfigured) {
-            FilledTonalButton(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isParentalAuthInProgress,
-                onClick = onRequestChangeParentalPin,
-            ) {
-                Text("Cambia PIN")
+            if (settings.parentalControlEnabled && settings.parentalPinConfigured) {
+                SettingsDivider()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    FilledTonalButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isParentalAuthInProgress,
+                        onClick = onRequestChangeParentalPin,
+                    ) {
+                        Text("Cambia PIN")
+                    }
+                }
             }
         }
 
-        Text(
-            text = "Labs",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        SettingsSection(
+            title = "Labs",
+            icon = Icons.Default.Science,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Funzionalità in sviluppo",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = "Mostra opzioni sperimentali. Possono cambiare o sparire nelle prossime versioni.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
+            SettingsSwitchRow(
+                title = "Funzionalità in sviluppo",
+                description = "Mostra opzioni sperimentali. Possono cambiare o sparire nelle prossime versioni.",
                 checked = settings.labsEnabled,
                 onCheckedChange = onToggleLabs,
             )
-        }
-
-        if (settings.labsEnabled) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "Reader automatico",
-                    style = MaterialTheme.typography.bodyLarge,
+            if (settings.labsEnabled) {
+                SettingsDivider()
+                AutoReaderSettings(
+                    selectedSpeed = settings.autoReaderSpeed,
+                    onSelectSpeed = onSelectAutoReaderSpeed,
                 )
-                Text(
-                    text = "Scorre la pagina automaticamente verso il basso. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AutoReaderSpeed.values().forEach { speed ->
-                        FilterChip(
-                            selected = settings.autoReaderSpeed == speed,
-                            onClick = { onSelectAutoReaderSpeed(speed) },
-                            label = { Text(speed.displayLabel()) },
-                        )
-                    }
-                }
-                if (settings.autoReaderSpeed == AutoReaderSpeed.SMART) {
-                    Text(
-                        text = "Intelligente analizza il testo di ogni pagina con ML Kit (on-device) per regolare la velocità: pagine dense vanno più lente, pagine vuote più veloci.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    icon: ImageVector,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    switchEnabled: Boolean = true,
+) {
+    ListItem(
+        headlineContent = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                enabled = switchEnabled,
+                onCheckedChange = onCheckedChange,
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
+}
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+    )
+}
+
+@Composable
+private fun SettingsNumberRow(
+    label: String,
+    value: Int,
+    enabled: Boolean,
+    onValueChange: (Int) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        NumberSettingField(
+            label = label,
+            value = value,
+            enabled = enabled,
+            onValueChange = onValueChange,
+        )
+    }
+}
+
+@Composable
+private fun AutoReaderSettings(
+    selectedSpeed: AutoReaderSpeed,
+    onSelectSpeed: (AutoReaderSpeed) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Reader automatico",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        Text(
+            text = "Scorre la pagina automaticamente verso il basso. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AutoReaderSpeed.values().forEach { speed ->
+                FilterChip(
+                    selected = selectedSpeed == speed,
+                    onClick = { onSelectSpeed(speed) },
+                    label = { Text(speed.displayLabel()) },
+                )
+            }
+        }
+        if (selectedSpeed == AutoReaderSpeed.SMART) {
+            Text(
+                text = "Intelligente analizza il testo di ogni pagina con ML Kit (on-device) per regolare la velocità: pagine dense vanno più lente, pagine vuote più veloci.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

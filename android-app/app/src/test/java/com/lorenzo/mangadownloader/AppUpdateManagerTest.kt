@@ -16,13 +16,12 @@ class AppUpdateManagerTest {
                 repoOwner=Lollo176ITA
                 repoName=Manga-dowloader
                 apkAssetName=app-release.apk
-                releaseNotes=Compatibility fix
             """.trimIndent(),
         )
 
         assertEquals(1_008_001, info.versionCode)
         assertEquals("1.8.1", info.versionName)
-        assertEquals("Compatibility fix", info.releaseNotes)
+        assertNull(info.releaseNotes)
     }
 
     @Test
@@ -41,13 +40,12 @@ class AppUpdateManagerTest {
     }
 
     @Test
-    fun parseLatestReleaseInfo_readsVersionNotesAndAssetUrl() {
+    fun parseLatestReleaseInfo_readsVersionAndAssetUrl() {
         val info = parseLatestReleaseInfo(
             raw = """
                 {
                   "tag_name": "android-v1.8.0",
                   "name": "Android 1.8.0",
-                  "body": "Bugfix update",
                   "assets": [
                     {
                       "name": "app-release.apk",
@@ -64,12 +62,45 @@ class AppUpdateManagerTest {
         assertNotNull(info)
         assertEquals("1.8.0", info?.versionName)
         assertEquals(1_008_000, info?.versionCode)
-        assertEquals("Bugfix update", info?.releaseNotes)
+        assertNull(info?.releaseNotes)
         assertEquals("app-release.apk", info?.apkAssetName)
         assertEquals(
             "https://github.com/Lollo176ITA/Manga-dowloader/releases/download/android-v1.8.0/app-release.apk",
             info?.apkUrl,
         )
+    }
+
+    @Test
+    fun parseCommitMessage_returnsTrimmedCommitMessage() {
+        val message = parseCommitMessage(
+            """
+                {
+                  "sha": "abc123",
+                  "commit": {
+                    "message": "feat: add swipe navigation\n\n- Tap edges to turn page\n- Respect RTL reading"
+                  }
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "feat: add swipe navigation\n\n- Tap edges to turn page\n- Respect RTL reading",
+            message,
+        )
+    }
+
+    @Test
+    fun parseCommitMessage_returnsNullWhenMessageIsMissing() {
+        val message = parseCommitMessage(
+            """
+                {
+                  "sha": "abc123",
+                  "commit": {}
+                }
+            """.trimIndent(),
+        )
+
+        assertNull(message)
     }
 
     @Test

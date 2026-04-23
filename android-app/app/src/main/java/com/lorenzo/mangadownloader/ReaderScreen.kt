@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -257,7 +258,7 @@ private fun ReaderContent(
                             onOpenNext = onOpenNext,
                         )
                     }
-                    androidx.compose.foundation.lazy.items(pages, key = { it.absolutePath }) { page ->
+                    items(pages, key = { it.absolutePath }) { page ->
                         AsyncImage(
                             model = page,
                             contentDescription = chapter.title,

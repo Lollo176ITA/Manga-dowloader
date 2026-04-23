@@ -120,6 +120,15 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    lint {
+        // Work around known detector crashes with the current Kotlin/Compose toolchain mix.
+        disable += setOf(
+            "FrequentlyChangingValue",
+            "NullSafeMutableLiveData",
+            "RememberInComposition",
+        )
+    }
 }
 
 dependencies {
@@ -133,8 +142,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material3:material3-window-size-class")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha18")
+    implementation("androidx.compose.material3:material3-window-size-class:1.5.0-alpha18")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.compose.material:material-icons-extended")

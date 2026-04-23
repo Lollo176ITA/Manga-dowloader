@@ -214,7 +214,7 @@ private fun DownloadAllSplitButton(
                         contentDescription = null,
                         modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
                     )
-                    Spacer(modifier = Modifier.width(SplitButtonDefaults.IconSpacing))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Scarica tutto")
                 }
             },
@@ -232,7 +232,7 @@ private fun DownloadAllSplitButton(
                         onDismissRequest = { onMenuExpandedChange(false) },
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Scarica selezione…") },
+                            text = { Text("Scarica selezione...") },
                             leadingIcon = {
                                 Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = null)
                             },

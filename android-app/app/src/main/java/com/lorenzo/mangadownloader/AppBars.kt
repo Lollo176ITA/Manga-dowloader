@@ -18,6 +18,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledIconToggleButton
@@ -90,7 +91,7 @@ fun AppTopBar(
         !inSeries
 
     CenterAlignedTopAppBar(
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+        colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
         title = {
@@ -101,15 +102,6 @@ fun AppTopBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (showOverflow) {
-                    Text(
-                        text = selectedSourceShortName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         },
         navigationIcon = {
@@ -123,7 +115,7 @@ fun AppTopBar(
             }
         },
         actions = {
-            if (inDetail && selectedManga != null) {
+            if (selectedManga != null) {
                 val isFavorite = MangaSourceCatalog.identityKey(
                     selectedManga.sourceId,
                     selectedManga.mangaUrl,
@@ -193,7 +185,7 @@ fun AppTopBar(
                         value = selectedSourceName,
                         onValueChange = {},
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth(),
                         readOnly = true,
                         singleLine = true,

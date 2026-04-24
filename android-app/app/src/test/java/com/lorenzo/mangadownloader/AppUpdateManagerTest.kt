@@ -3,6 +3,7 @@ package com.lorenzo.mangadownloader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppUpdateManagerTest {
@@ -35,7 +36,7 @@ class AppUpdateManagerTest {
             """.trimIndent(),
         )
 
-        assertEquals(1_008_001, info.versionCode)
+        assertEquals(100_800_199, info.versionCode)
         assertEquals("1.8.1", info.versionName)
     }
 
@@ -61,7 +62,9 @@ class AppUpdateManagerTest {
 
         assertNotNull(info)
         assertEquals("1.8.0", info?.versionName)
-        assertEquals(1_008_000, info?.versionCode)
+        assertEquals(100_800_099, info?.versionCode)
+        assertEquals(AppUpdateChannel.STABLE, info?.channel)
+        assertEquals("android-v1.8.0", info?.releaseTag)
         assertNull(info?.releaseNotes)
         assertEquals("app-release.apk", info?.apkAssetName)
         assertEquals(
@@ -128,6 +131,7 @@ class AppUpdateManagerTest {
 
         assertNotNull(info)
         assertEquals("2.0.1", info?.versionName)
+        assertEquals(200_000_199, info?.versionCode)
         assertEquals("manga-downloader.apk", info?.apkAssetName)
         assertEquals("https://example.com/manga-downloader.apk", info?.apkUrl)
     }
@@ -152,5 +156,173 @@ class AppUpdateManagerTest {
         )
 
         assertNull(info)
+    }
+
+    @Test
+    fun parseLatestPreviewReleaseInfo_readsPreviewVersionAndAssetUrl() {
+        val info = parseLatestPreviewReleaseInfo(
+            raw = """
+                [
+                  {
+                    "tag_name": "android-preview-v1.8.11-preview.1",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/app-release.apk"
+                      }
+                    ]
+                  }
+                ]
+            """.trimIndent(),
+            repoOwner = "Lollo176ITA",
+            repoName = "Manga-dowloader",
+            expectedAssetName = "app-release.apk",
+        )
+
+        assertNotNull(info)
+        assertEquals("1.8.11-preview.1", info?.versionName)
+        assertEquals(100_801_101, info?.versionCode)
+        assertEquals(AppUpdateChannel.PREVIEW, info?.channel)
+        assertEquals("android-preview-v1.8.11-preview.1", info?.releaseTag)
+        assertEquals("https://example.com/app-release.apk", info?.apkUrl)
+    }
+
+    @Test
+    fun parseLatestPreviewReleaseInfo_ignoresDraftStableAndUnsupportedTags() {
+        val info = parseLatestPreviewReleaseInfo(
+            raw = """
+                [
+                  {
+                    "tag_name": "android-preview-v1.8.11-preview.2",
+                    "draft": true,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/draft.apk"
+                      }
+                    ]
+                  },
+                  {
+                    "tag_name": "android-v1.8.11",
+                    "draft": false,
+                    "prerelease": false,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/stable.apk"
+                      }
+                    ]
+                  },
+                  {
+                    "tag_name": "preview-2026-04-24",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/bad.apk"
+                      }
+                    ]
+                  }
+                ]
+            """.trimIndent(),
+            repoOwner = "Lollo176ITA",
+            repoName = "Manga-dowloader",
+            expectedAssetName = "app-release.apk",
+        )
+
+        assertNull(info)
+    }
+
+    @Test
+    fun parseLatestPreviewReleaseInfo_picksHighestPreviewAndFirstApkFallback() {
+        val info = parseLatestPreviewReleaseInfo(
+            raw = """
+                [
+                  {
+                    "tag_name": "android-preview-v1.8.11-preview.1",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/old.apk"
+                      }
+                    ]
+                  },
+                  {
+                    "tag_name": "android-preview-v1.8.11-preview.3",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "notes.txt",
+                        "browser_download_url": "https://example.com/notes.txt"
+                      },
+                      {
+                        "name": "manga-downloader-preview.apk",
+                        "browser_download_url": "https://example.com/new.apk"
+                      }
+                    ]
+                  }
+                ]
+            """.trimIndent(),
+            repoOwner = "Lollo176ITA",
+            repoName = "Manga-dowloader",
+            expectedAssetName = "app-release.apk",
+        )
+
+        assertNotNull(info)
+        assertEquals("1.8.11-preview.3", info?.versionName)
+        assertEquals(100_801_103, info?.versionCode)
+        assertEquals("manga-downloader-preview.apk", info?.apkAssetName)
+        assertEquals("https://example.com/new.apk", info?.apkUrl)
+    }
+
+    @Test
+    fun stableVersionCodeSortsAfterPreviewsForSameVersion() {
+        val stable = parseLatestReleaseInfo(
+            raw = """
+                {
+                  "tag_name": "android-v1.8.11",
+                  "assets": [
+                    {
+                      "name": "app-release.apk",
+                      "browser_download_url": "https://example.com/stable.apk"
+                    }
+                  ]
+                }
+            """.trimIndent(),
+            repoOwner = "Lollo176ITA",
+            repoName = "Manga-dowloader",
+            expectedAssetName = "app-release.apk",
+        )
+        val preview = parseLatestPreviewReleaseInfo(
+            raw = """
+                [
+                  {
+                    "tag_name": "android-preview-v1.8.11-preview.98",
+                    "draft": false,
+                    "prerelease": true,
+                    "assets": [
+                      {
+                        "name": "app-release.apk",
+                        "browser_download_url": "https://example.com/preview.apk"
+                      }
+                    ]
+                  }
+                ]
+            """.trimIndent(),
+            repoOwner = "Lollo176ITA",
+            repoName = "Manga-dowloader",
+            expectedAssetName = "app-release.apk",
+        )
+
+        assertNotNull(stable)
+        assertNotNull(preview)
+        assertTrue(stable!!.versionCode > preview!!.versionCode)
     }
 }

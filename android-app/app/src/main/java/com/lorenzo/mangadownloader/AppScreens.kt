@@ -449,6 +449,7 @@ fun SettingsScreen(
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
     onToggleLabs: (Boolean) -> Unit,
+    onToggleDownloadDevUpdates: (Boolean) -> Unit,
     onSelectAutoReaderSpeed: (AutoReaderSpeed) -> Unit,
 ) {
     Column(
@@ -561,6 +562,13 @@ fun SettingsScreen(
                 onCheckedChange = onToggleLabs,
             )
             if (settings.labsEnabled) {
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = "Scarica versioni dev",
+                    description = "Include le preview pubblicate dal branch dev quando controlli gli aggiornamenti.",
+                    checked = settings.downloadDevUpdates,
+                    onCheckedChange = onToggleDownloadDevUpdates,
+                )
                 SettingsDivider()
                 AutoReaderSettings(
                     selectedSpeed = settings.autoReaderSpeed,

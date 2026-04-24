@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -15,6 +16,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -142,6 +146,38 @@ class MangaViewModelParentalControlTest {
         assertNull(state.biometricPromptRequest)
     }
 
+    @Test
+    fun enablingDownloadDevUpdates_persistsAndForcesPreviewUpdateCheck() = runBlocking {
+        val updateRepository = RecordingUpdateRepository(application)
+        val viewModel = createViewModel(updateRepository)
+
+        viewModel.setLabsEnabled(true)
+        viewModel.setDownloadDevUpdates(true)
+
+        waitUntil { updateRepository.includePreviewCalls.isNotEmpty() }
+        assertTrue(viewModel.state.value.settings.downloadDevUpdates)
+        assertEquals(listOf(true), updateRepository.includePreviewCalls)
+
+        val recreated = createViewModel(RecordingUpdateRepository(application))
+        assertTrue(recreated.state.value.settings.downloadDevUpdates)
+    }
+
+    @Test
+    fun disablingLabs_clearsDownloadDevUpdates() = runBlocking {
+        val updateRepository = RecordingUpdateRepository(application)
+        val viewModel = createViewModel(updateRepository)
+        viewModel.setLabsEnabled(true)
+        viewModel.setDownloadDevUpdates(true)
+        waitUntil { updateRepository.includePreviewCalls.isNotEmpty() }
+
+        viewModel.setLabsEnabled(false)
+
+        val state = viewModel.state.value
+        assertFalse(state.settings.labsEnabled)
+        assertFalse(state.settings.downloadDevUpdates)
+        assertEquals(AutoReaderSpeed.OFF, state.settings.autoReaderSpeed)
+    }
+
     private fun createConfiguredViewModel(): MangaViewModel {
         return createViewModel().also { viewModel ->
             viewModel.setParentalControlEnabled(true)
@@ -173,7 +209,30 @@ class MangaViewModelParentalControlTest {
         viewModel.onBiometricAuthenticationSucceeded(request.requestId)
     }
 
-    private fun createViewModel(): MangaViewModel = MangaViewModel(application)
+    private fun createViewModel(
+        appUpdateRepository: AppUpdateRepository = AppUpdateRepository(application),
+    ): MangaViewModel = MangaViewModel(application, appUpdateRepository)
+
+    private suspend fun waitUntil(condition: () -> Boolean) {
+        withTimeout(1_000) {
+            while (!condition()) {
+                delay(10)
+            }
+        }
+    }
+
+    private class RecordingUpdateRepository(context: Context) : AppUpdateRepository(context) {
+        val includePreviewCalls = mutableListOf<Boolean>()
+
+        override suspend fun checkForUpdate(includePreview: Boolean): AppUpdateInfo? {
+            includePreviewCalls += includePreview
+            return null
+        }
+
+        override suspend fun downloadUpdateApk(info: AppUpdateInfo): File {
+            throw UnsupportedOperationException("Download is not used by these tests")
+        }
+    }
 
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"

@@ -14,12 +14,18 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
+
+enum class AppUpdateChannel {
+    STABLE,
+    PREVIEW,
+}
 
 data class AppUpdateInfo(
     val versionCode: Int,
@@ -29,16 +35,15 @@ data class AppUpdateInfo(
     val apkAssetName: String,
     val releaseNotes: String? = null,
     val apkDownloadUrl: String? = null,
+    val channel: AppUpdateChannel = AppUpdateChannel.STABLE,
+    val releaseTag: String = buildReleaseTag(versionName, channel),
 ) {
-    val releaseTag: String
-        get() = buildReleaseTag(versionName)
-
     val apkUrl: String
         get() = apkDownloadUrl
             ?: "https://github.com/$repoOwner/$repoName/releases/download/$releaseTag/$apkAssetName"
 }
 
-class AppUpdateRepository(
+open class AppUpdateRepository(
     private val context: Context,
 ) {
     private val httpClient = OkHttpClient.Builder()
@@ -47,12 +52,18 @@ class AppUpdateRepository(
         .callTimeout(45, TimeUnit.SECONDS)
         .build()
 
-    suspend fun checkForUpdate(): AppUpdateInfo? = withContext(Dispatchers.IO) {
+    open suspend fun checkForUpdate(includePreview: Boolean = false): AppUpdateInfo? = withContext(Dispatchers.IO) {
         val latestRelease = runCatching {
             fetchLatestReleaseInfo()
         }.getOrNull()
 
-        val info = latestRelease ?: fetchUpdateConfigInfo()
+        val stableInfo = latestRelease ?: fetchUpdateConfigInfo()
+        val previewInfo = if (includePreview) {
+            runCatching { fetchLatestPreviewReleaseInfo() }.getOrNull()
+        } else {
+            null
+        }
+        val info = listOfNotNull(stableInfo, previewInfo).maxBy { it.versionCode }
         if (info.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
 
         val commitMessage = runCatching { fetchCommitMessage(info) }.getOrNull()
@@ -109,6 +120,36 @@ class AppUpdateRepository(
         ) ?: throw IOException("Latest release GitHub non valida")
     }
 
+    private fun fetchLatestPreviewReleaseInfo(): AppUpdateInfo {
+        val repoOwner = BuildConfig.UPDATE_REPO_OWNER.trim()
+        val repoName = BuildConfig.UPDATE_REPO_NAME.trim()
+        val assetName = BuildConfig.UPDATE_APK_ASSET_NAME.trim()
+        if (repoOwner.isBlank() || repoName.isBlank() || assetName.isBlank()) {
+            throw IOException("Configurazione repository update incompleta")
+        }
+
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/$repoOwner/$repoName/releases?per_page=20")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("Cache-Control", "no-cache")
+            .build()
+
+        val raw = httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Impossibile leggere le preview GitHub: HTTP ${response.code}")
+            }
+            response.body?.string() ?: throw IOException("Lista release GitHub vuota")
+        }
+
+        return parseLatestPreviewReleaseInfo(
+            raw = raw,
+            repoOwner = repoOwner,
+            repoName = repoName,
+            expectedAssetName = assetName,
+        ) ?: throw IOException("Preview GitHub non valida")
+    }
+
     private fun fetchUpdateConfigInfo(): AppUpdateInfo {
         val request = Request.Builder()
             .url(BuildConfig.UPDATE_CONFIG_URL)
@@ -125,7 +166,7 @@ class AppUpdateRepository(
         return parseUpdateConfigInfo(raw)
     }
 
-    suspend fun downloadUpdateApk(info: AppUpdateInfo): File = withContext(Dispatchers.IO) {
+    open suspend fun downloadUpdateApk(info: AppUpdateInfo): File = withContext(Dispatchers.IO) {
         val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
         val targetFile = File(updatesDir, "manga-downloader-${info.versionName}.apk")
         if (targetFile.isFile && targetFile.length() > 0L) {
@@ -167,11 +208,12 @@ internal fun parseUpdateConfigInfo(raw: String): AppUpdateInfo {
     val versionName = properties.getProperty("versionName").orEmpty()
     return AppUpdateInfo(
         versionCode = properties.getProperty("versionCode")?.toIntOrNull()
-            ?: versionCodeFromVersionName(versionName),
+            ?: stableVersionCodeFromVersionName(versionName),
         versionName = versionName,
         repoOwner = properties.getProperty("repoOwner").orEmpty(),
         repoName = properties.getProperty("repoName").orEmpty(),
         apkAssetName = properties.getProperty("apkAssetName").orEmpty(),
+        channel = AppUpdateChannel.STABLE,
     )
         .also { info ->
             if (
@@ -213,13 +255,60 @@ internal fun parseLatestReleaseInfo(
         ?: return null
 
     return AppUpdateInfo(
-        versionCode = versionCodeFromVersionName(versionName),
+        versionCode = stableVersionCodeFromVersionName(versionName),
         versionName = versionName,
         repoOwner = repoOwner,
         repoName = repoName,
         apkAssetName = apkAssetName,
         apkDownloadUrl = apkDownloadUrl,
+        channel = AppUpdateChannel.STABLE,
+        releaseTag = buildReleaseTag(versionName, AppUpdateChannel.STABLE),
     )
+}
+
+internal fun parseLatestPreviewReleaseInfo(
+    raw: String,
+    repoOwner: String,
+    repoName: String,
+    expectedAssetName: String,
+): AppUpdateInfo? {
+    return Json.parseToJsonElement(raw)
+        .jsonArray
+        .mapNotNull { release ->
+            val root = release.jsonObject
+            val isDraft = root["draft"]?.jsonPrimitive?.booleanOrNull ?: false
+            val isPrerelease = root["prerelease"]?.jsonPrimitive?.booleanOrNull ?: false
+            if (isDraft || !isPrerelease) return@mapNotNull null
+
+            val tagName = root["tag_name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val versionName = extractPreviewVersionNameFromTag(tagName) ?: return@mapNotNull null
+            val assets = root["assets"]?.jsonArray.orEmpty()
+            val selectedAsset = assets.firstOrNull { asset ->
+                asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull == expectedAssetName
+            } ?: assets.firstOrNull { asset ->
+                asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk", ignoreCase = true) == true
+            } ?: return@mapNotNull null
+
+            val apkAssetName = selectedAsset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val apkDownloadUrl = selectedAsset.jsonObject["browser_download_url"]
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+
+            AppUpdateInfo(
+                versionCode = previewVersionCodeFromVersionName(versionName),
+                versionName = versionName,
+                repoOwner = repoOwner,
+                repoName = repoName,
+                apkAssetName = apkAssetName,
+                apkDownloadUrl = apkDownloadUrl,
+                channel = AppUpdateChannel.PREVIEW,
+                releaseTag = tagName,
+            )
+        }
+        .maxByOrNull { it.versionCode }
 }
 
 internal fun parseCommitMessage(raw: String): String? {
@@ -247,7 +336,41 @@ private fun isSupportedVersionName(value: String): Boolean {
     return value.matches(Regex("""\d+(?:\.\d+){0,2}"""))
 }
 
-private fun versionCodeFromVersionName(versionName: String): Int {
+private fun extractPreviewVersionNameFromTag(tagName: String): String? {
+    return tagName
+        .removePrefix("android-preview-v")
+        .takeIf { it != tagName }
+        ?.takeIf(::isSupportedPreviewVersionName)
+}
+
+private fun isSupportedPreviewVersionName(value: String): Boolean {
+    return value.matches(Regex("""\d+(?:\.\d+){0,2}-preview\.(?:[1-9]|[1-8]\d|9[0-8])"""))
+}
+
+private fun buildReleaseTag(versionName: String, channel: AppUpdateChannel): String {
+    return when (channel) {
+        AppUpdateChannel.STABLE -> "android-v$versionName"
+        AppUpdateChannel.PREVIEW -> "android-preview-v$versionName"
+    }
+}
+
+private fun stableVersionCodeFromVersionName(versionName: String): Int {
+    return baseVersionCodeFromVersionName(versionName) * VERSION_CODE_CHANNEL_MULTIPLIER + STABLE_VERSION_CODE_SUFFIX
+}
+
+private fun previewVersionCodeFromVersionName(versionName: String): Int {
+    val previewNumber = versionName.substringAfter("-preview.", missingDelimiterValue = "")
+        .toIntOrNull()
+        ?: throw IOException("Numero preview remoto non valido: $versionName")
+    if (previewNumber !in 1..98) {
+        throw IOException("Numero preview remoto fuori range: $versionName")
+    }
+    return baseVersionCodeFromVersionName(versionName.substringBefore("-preview.")) *
+        VERSION_CODE_CHANNEL_MULTIPLIER +
+        previewNumber
+}
+
+private fun baseVersionCodeFromVersionName(versionName: String): Int {
     val raw = versionName.trim()
     if (raw.isBlank()) {
         throw IOException("versionName remoto mancante")
@@ -269,6 +392,9 @@ private fun versionCodeFromVersionName(versionName: String): Int {
 
     return (major * 1_000_000) + (minor * 1_000) + patch
 }
+
+private const val VERSION_CODE_CHANNEL_MULTIPLIER = 100
+private const val STABLE_VERSION_CODE_SUFFIX = 99
 
 object AppUpdateInstaller {
     fun canInstallPackages(context: Context): Boolean {

@@ -9,16 +9,24 @@ val versionProperties = Properties().apply {
     val versionFile = rootProject.file("version.properties")
     versionFile.inputStream().use(::load)
 }
-val appVersionName = versionProperties.getProperty("versionName")
+val appVersionName = project.findProperty("appVersionNameOverride")
+    ?.toString()
+    ?.trim()
+    ?.takeIf(String::isNotBlank)
+    ?: versionProperties.getProperty("versionName")
 val derivedAppVersionCode = appVersionName.toAndroidVersionCode()
-val appVersionCodeProperty = versionProperties.getProperty("versionCode")?.trim()
-require(!appVersionCodeProperty.isNullOrEmpty()) {
-    "versionCode mancante in version.properties: serve per compatibilita con gli update delle versioni precedenti"
-}
-val appVersionCode = appVersionCodeProperty!!.toIntOrNull()
-    ?: error("versionCode non valido in version.properties: $appVersionCodeProperty")
-require(appVersionCode == derivedAppVersionCode) {
-    "versionCode ($appVersionCode) non coerente con versionName ($appVersionName). Atteso: $derivedAppVersionCode"
+val appVersionCodeProperty = project.findProperty("appVersionCodeOverride")
+    ?.toString()
+    ?.trim()
+    ?.takeIf(String::isNotBlank)
+    ?: versionProperties.getProperty("versionCode")?.trim()
+val appVersionCode = appVersionCodeProperty?.let { raw ->
+    raw.toIntOrNull() ?: error("versionCode non valido: $raw")
+} ?: derivedAppVersionCode
+val legacyAppVersionCode = appVersionName.toLegacyAndroidVersionCodeOrNull()
+require(appVersionCode == derivedAppVersionCode || appVersionCode == legacyAppVersionCode) {
+    val legacyMessage = legacyAppVersionCode?.let { " oppure legacy $it" }.orEmpty()
+    "versionCode ($appVersionCode) non coerente con versionName ($appVersionName). Atteso: $derivedAppVersionCode$legacyMessage"
 }
 val updateConfigUrl = versionProperties.getProperty("updateConfigUrl")
 val repoOwner = versionProperties.getProperty("repoOwner")
@@ -29,9 +37,14 @@ fun String?.toAndroidVersionCode(): Int {
     val raw = this?.trim().orEmpty()
     require(raw.isNotBlank()) { "versionName mancante in version.properties" }
 
-    val parts = raw.split('.')
+    val previewNumber = raw.substringAfter("-preview.", missingDelimiterValue = "")
+        .takeIf(String::isNotBlank)
+        ?.toIntOrNull()
+    val stableVersion = raw.substringBefore("-preview.")
+
+    val parts = stableVersion.split('.')
     require(parts.size in 1..3) {
-        "versionName deve avere formato semver semplice tipo 1.7.1"
+        "versionName deve avere formato semver semplice tipo 1.7.1 o preview tipo 1.7.2-preview.1"
     }
 
     val major = parts.getOrNull(0)?.toIntOrNull()
@@ -41,6 +54,28 @@ fun String?.toAndroidVersionCode(): Int {
     require(major != null) { "Major non valido in versionName: $raw" }
     require(minor in 0..999) { "Minor fuori range in versionName: $raw" }
     require(patch in 0..999) { "Patch fuori range in versionName: $raw" }
+
+    val baseVersionCode = (major * 1_000_000) + (minor * 1_000) + patch
+    return if (previewNumber != null) {
+        require(raw.matches(Regex("""\d+(?:\.\d+){0,2}-preview\.(?:[1-9]|[1-8]\d|9[0-8])"""))) {
+            "versionName preview non valido: $raw"
+        }
+        baseVersionCode * 100 + previewNumber
+    } else {
+        require(!raw.contains("-preview.")) { "versionName preview non valido: $raw" }
+        baseVersionCode * 100 + 99
+    }
+}
+
+fun String?.toLegacyAndroidVersionCodeOrNull(): Int? {
+    val raw = this?.trim().orEmpty()
+    if (!raw.matches(Regex("""\d+(?:\.\d+){0,2}"""))) return null
+
+    val parts = raw.split('.')
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+    if (minor !in 0..999 || patch !in 0..999) return null
 
     return (major * 1_000_000) + (minor * 1_000) + patch
 }

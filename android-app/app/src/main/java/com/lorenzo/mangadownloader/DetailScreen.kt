@@ -4,25 +4,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -33,12 +28,11 @@ import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,27 +49,27 @@ fun DetailScreen(
     details: MangaDetails,
     isLoading: Boolean,
     padding: PaddingValues,
+    downloadedChapterKeys: Set<String>,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
     var endMenuExpanded by remember { mutableStateOf(false) }
-    var downloadAllMenuExpanded by remember { mutableStateOf(false) }
     var fabMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
     val chapters = details.chapters
     val hasChapters = chapters.isNotEmpty()
+    val isAtListBottom by remember(chapters.size) {
+        derivedStateOf {
+            val visibleItems = listState.layoutInfo.visibleItemsInfo
+            visibleItems.isNotEmpty() && visibleItems.last().index >= chapters.lastIndex
+        }
+    }
 
     val startAll: () -> Unit = {
         if (hasChapters) onStart(details, chapters.first(), chapters.last())
-    }
-    val startLastN: (Int) -> Unit = { n ->
-        if (hasChapters) {
-            val lastN = chapters.takeLast(n.coerceAtLeast(1))
-            onStart(details, lastN.first(), lastN.last())
-        }
     }
     val startSelectRange: () -> Unit = {
         if (hasChapters) {
@@ -97,22 +91,6 @@ fun DetailScreen(
                 subtitle = "${chapters.size} capitoli disponibili",
             )
 
-            if (hasChapters) {
-                DownloadAllSplitButton(
-                    onDownloadAll = startAll,
-                    menuExpanded = downloadAllMenuExpanded,
-                    onMenuExpandedChange = { downloadAllMenuExpanded = it },
-                    onPickRange = {
-                        downloadAllMenuExpanded = false
-                        startSelectRange()
-                    },
-                    onDownloadLast = { n ->
-                        downloadAllMenuExpanded = false
-                        startLastN(n)
-                    },
-                )
-            }
-
             if (isLoading && chapters.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                     AppLoadingIndicator(modifier = Modifier.padding(top = 24.dp))
@@ -125,7 +103,10 @@ fun DetailScreen(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(chapters, key = { it.url }) { chapter ->
-                        ChapterRow(chapter = chapter) {
+                        ChapterRow(
+                            chapter = chapter,
+                            isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
+                        ) {
                             pendingStart = chapter
                             pendingEnd = chapter
                             endMenuExpanded = false
@@ -147,10 +128,11 @@ fun DetailScreen(
                     fabMenuExpanded = false
                     startSelectRange()
                 },
-                onScrollToBottom = {
+                isAtBottom = isAtListBottom,
+                onScrollToEdge = {
                     fabMenuExpanded = false
                     scope.launch {
-                        listState.animateScrollToItem(chapters.lastIndex)
+                        listState.animateScrollToItem(if (isAtListBottom) 0 else chapters.lastIndex)
                     }
                 },
                 modifier = Modifier
@@ -194,73 +176,13 @@ fun DetailScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun DownloadAllSplitButton(
-    onDownloadAll: () -> Unit,
-    menuExpanded: Boolean,
-    onMenuExpandedChange: (Boolean) -> Unit,
-    onPickRange: () -> Unit,
-    onDownloadLast: (Int) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        SplitButtonLayout(
-            leadingButton = {
-                SplitButtonDefaults.LeadingButton(onClick = onDownloadAll) {
-                    Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Scarica tutto")
-                }
-            },
-            trailingButton = {
-                SplitButtonDefaults.TrailingButton(
-                    checked = menuExpanded,
-                    onCheckedChange = onMenuExpandedChange,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Altre opzioni di download",
-                    )
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { onMenuExpandedChange(false) },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Scarica selezione...") },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = null)
-                            },
-                            onClick = onPickRange,
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Scarica gli ultimi 10") },
-                            onClick = { onDownloadLast(10) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Scarica gli ultimi 20") },
-                            onClick = { onDownloadLast(20) },
-                        )
-                    }
-                }
-            },
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
 private fun DetailFabMenu(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onDownloadAll: () -> Unit,
     onPickRange: () -> Unit,
-    onScrollToBottom: () -> Unit,
+    isAtBottom: Boolean,
+    onScrollToEdge: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     FloatingActionButtonMenu(
@@ -289,11 +211,30 @@ private fun DetailFabMenu(
             text = { Text("Scarica intervallo") },
         )
         FloatingActionButtonMenuItem(
-            onClick = onScrollToBottom,
-            icon = { Icon(Icons.Default.KeyboardDoubleArrowDown, contentDescription = null) },
-            text = { Text("Vai in fondo") },
+            onClick = onScrollToEdge,
+            icon = {
+                Icon(
+                    imageVector = if (isAtBottom) {
+                        Icons.Default.KeyboardDoubleArrowUp
+                    } else {
+                        Icons.Default.KeyboardDoubleArrowDown
+                    },
+                    contentDescription = null,
+                )
+            },
+            text = { Text(if (isAtBottom) "Vai in cima" else "Vai in fondo") },
         )
     }
+}
+
+private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boolean {
+    val stableId = DownloadStorage.stableChapterId(
+        numberText = displayNumber(),
+        url = url,
+        slug = slug,
+    )
+    val numberKey = "number:${DownloadStorage.normalizedChapterLabel(displayNumber())}"
+    return stableId in downloadedChapterKeys || numberKey in downloadedChapterKeys
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -248,7 +248,7 @@ private fun DynamicColorRow(
 ) {
     val available = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val description = if (available) {
-        "Adatta la palette ai colori del tuo wallpaper (Material You)."
+        "Usa i colori del wallpaper. Disattivalo per la palette più leggibile dell'app."
     } else {
         "Disponibile da Android 12."
     }

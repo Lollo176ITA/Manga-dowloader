@@ -314,10 +314,14 @@ private fun MangaDownloaderAppContent(
                 )
             }
             selectedManga != null -> {
+                val downloadedChapterKeys = remember(selectedManga, state.library) {
+                    downloadedChapterKeysFor(selectedManga, state.library)
+                }
                 DetailScreen(
                     details = selectedManga,
                     isLoading = state.isLoadingDetails,
                     padding = innerPadding,
+                    downloadedChapterKeys = downloadedChapterKeys,
                     onStart = onStartDownload,
                 )
             }
@@ -421,6 +425,33 @@ private fun WorkInfo.isActiveDownload(): Boolean {
     return state == WorkInfo.State.RUNNING ||
         state == WorkInfo.State.ENQUEUED ||
         state == WorkInfo.State.BLOCKED
+}
+
+private fun downloadedChapterKeysFor(
+    details: MangaDetails,
+    library: List<DownloadedSeries>,
+): Set<String> {
+    val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
+    val detailsTitleKey = MangaSourceCatalog.identityKeyOrNull(
+        sourceId = details.sourceId,
+        mangaUrl = null,
+        title = details.title,
+    )
+    val matchingSeries = library.firstOrNull { series ->
+        val seriesKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = series.mangaUrl,
+            title = series.title,
+        )
+        seriesKey == detailsKey || (detailsTitleKey != null && seriesKey == detailsTitleKey)
+    } ?: return emptySet()
+
+    return buildSet {
+        matchingSeries.chapters.forEach { chapter ->
+            add(chapter.chapterId)
+            add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
+        }
+    }
 }
 
 private fun MangaUiState.canHandleBack(): Boolean {

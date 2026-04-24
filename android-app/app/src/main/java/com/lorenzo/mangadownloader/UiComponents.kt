@@ -330,22 +330,40 @@ fun FavoriteCard(
 @Composable
 fun ChapterRow(
     chapter: ChapterEntry,
+    isDownloaded: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val containerColor = if (isDownloaded) {
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(MaterialTheme.shapes.large)
             .clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = containerColor,
     ) {
-        Text(
-            text = "Capitolo ${chapter.displayNumber()}",
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Capitolo ${chapter.displayNumber()}",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            if (isDownloaded) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Capitolo scaricato",
+                    tint = ReadGreen,
+                )
+            }
+        }
     }
 }
 

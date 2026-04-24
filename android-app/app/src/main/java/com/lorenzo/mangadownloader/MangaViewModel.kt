@@ -57,7 +57,7 @@ data class AppSettings(
     val labsEnabled: Boolean = false,
     val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
     val themeMode: ThemeMode = ThemeMode.AUTO,
-    val useDynamicColor: Boolean = true,
+    val useDynamicColor: Boolean = false,
 )
 
 enum class AutoReaderSpeed(val pauseSeconds: Int) {
@@ -1279,7 +1279,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                         ?: ThemeMode.AUTO.name,
                 )
             }.getOrDefault(ThemeMode.AUTO),
-            useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, true),
+            useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
         )
     }
 

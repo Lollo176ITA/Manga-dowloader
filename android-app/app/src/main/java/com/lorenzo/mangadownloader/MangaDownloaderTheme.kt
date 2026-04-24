@@ -19,7 +19,7 @@ import androidx.core.view.WindowCompat
 @Composable
 fun MangaDownloaderTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
-    useDynamicColor: Boolean = true,
+    useDynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current

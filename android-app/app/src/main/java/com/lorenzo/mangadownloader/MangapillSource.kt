@@ -202,12 +202,7 @@ class MangapillSource(
             val mangaMatch = mangaRegex.find(normalized)
             if (mangaMatch != null) {
                 val id = mangaMatch.groupValues[1]
-                val slug = mangaMatch.groupValues.getOrNull(2).orEmpty()
-                return if (slug.isBlank()) {
-                    "https://mangapill.com/manga/$id"
-                } else {
-                    "https://mangapill.com/manga/$id/$slug"
-                }
+                return "https://mangapill.com/manga/$id"
             }
             val chapterMatch = chapterRegex.find(normalized)
             if (chapterMatch != null) {

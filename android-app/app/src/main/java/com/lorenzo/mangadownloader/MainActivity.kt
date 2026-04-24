@@ -437,13 +437,22 @@ private fun downloadedChapterKeysFor(
         mangaUrl = null,
         title = details.title,
     )
+    val detailsKeys = buildSet {
+        add(detailsKey)
+        detailsTitleKey?.let(::add)
+    }
     val matchingSeries = library.firstOrNull { series ->
         val seriesKey = MangaSourceCatalog.identityKeyOrNull(
             sourceId = series.sourceId,
             mangaUrl = series.mangaUrl,
             title = series.title,
         )
-        seriesKey == detailsKey || (detailsTitleKey != null && seriesKey == detailsTitleKey)
+        val seriesTitleKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = null,
+            title = series.title,
+        )
+        seriesKey in detailsKeys || seriesTitleKey in detailsKeys
     } ?: return emptySet()
 
     return buildSet {

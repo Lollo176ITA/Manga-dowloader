@@ -52,13 +52,37 @@ jobs:
         run: |
           MAIN_VERSION="$(git show origin/main:android-app/version.properties | grep '^versionName=' | cut -d= -f2-)"
           test -n "$MAIN_VERSION" || { echo "Missing main versionName"; exit 1; }
+          DEV_VERSION="$(grep '^versionName=' version.properties | cut -d= -f2-)"
+          test -n "$DEV_VERSION" || { echo "Missing dev versionName"; exit 1; }
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$MAIN_VERSION"
+          IFS='.' read -r MAIN_MAJOR MAIN_MINOR MAIN_PATCH <<< "$MAIN_VERSION"
+          MAIN_MINOR="${MAIN_MINOR:-0}"
+          MAIN_PATCH="${MAIN_PATCH:-0}"
+          MAIN_BASE_VERSION_CODE=$((MAIN_MAJOR * 1000000 + MAIN_MINOR * 1000 + MAIN_PATCH))
+
+          if [[ ! "$DEV_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "dev versionName must be a simple version like 1.9.0"
+            exit 1
+          fi
+
+          IFS='.' read -r DEV_MAJOR DEV_MINOR DEV_PATCH <<< "$DEV_VERSION"
+          DEV_MINOR="${DEV_MINOR:-0}"
+          DEV_PATCH="${DEV_PATCH:-0}"
+          DEV_BASE_VERSION="$DEV_MAJOR.$DEV_MINOR.$DEV_PATCH"
+          DEV_BASE_VERSION_CODE=$((DEV_MAJOR * 1000000 + DEV_MINOR * 1000 + DEV_PATCH))
+
+          if [ "$DEV_BASE_VERSION_CODE" -gt "$MAIN_BASE_VERSION_CODE" ]; then
+            BASE_VERSION="$DEV_BASE_VERSION"
+          else
+            BASE_VERSION="$MAIN_MAJOR.$MAIN_MINOR.$((MAIN_PATCH + 1))"
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
           MINOR="${MINOR:-0}"
           PATCH="${PATCH:-0}"
-          NEXT_PATCH=$((PATCH + 1))
-          BASE_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
-          BASE_VERSION_REGEX="${MAJOR}\\.${MINOR}\\.${NEXT_PATCH}"
+          BASE_VERSION="$MAJOR.$MINOR.$PATCH"
+          BASE_VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          BASE_VERSION_REGEX="${MAJOR}\\.${MINOR}\\.${PATCH}"
 
           MAX_PREVIEW=0
           while IFS= read -r TAG_NAME; do
@@ -77,7 +101,6 @@ jobs:
           fi
 
           VERSION_NAME="$BASE_VERSION-preview.$PREVIEW_NUMBER"
-          BASE_VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + NEXT_PATCH))
           VERSION_CODE=$((BASE_VERSION_CODE * 100 + PREVIEW_NUMBER))
           RELEASE_TAG="android-preview-v$VERSION_NAME"
 

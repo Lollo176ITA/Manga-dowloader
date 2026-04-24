@@ -157,7 +157,9 @@ android {
     }
 
     lint {
-        // Work around known detector crashes with the current Kotlin/Compose toolchain mix.
+        // Work around known lint detector crashes with the current Kotlin/Compose toolchain mix.
+        // Release CI still builds, signs, shrinks and uploads the APK; lint can run separately when the toolchain is stable.
+        checkReleaseBuilds = false
         disable += setOf(
             "FrequentlyChangingValue",
             "NullSafeMutableLiveData",

@@ -55,6 +55,7 @@ data class AppSettings(
     val parentalPinSalt: String? = null,
     val parentalPinHash: String? = null,
     val labsEnabled: Boolean = false,
+    val downloadDevUpdates: Boolean = false,
     val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
@@ -134,11 +135,15 @@ data class MangaUiState(
     val errorMessage: String? = null,
 )
 
-class MangaViewModel(application: Application) : AndroidViewModel(application) {
+class MangaViewModel internal constructor(
+    application: Application,
+    private val appUpdateRepository: AppUpdateRepository,
+) : AndroidViewModel(application) {
+
+    constructor(application: Application) : this(application, AppUpdateRepository(application))
 
     private val sourceRegistry = MangaSourceRegistry(application)
     private val libraryRepository = LibraryRepository(application)
-    private val appUpdateRepository = AppUpdateRepository(application)
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val initialFavorites = readFavorites()
@@ -558,7 +563,18 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun setLabsEnabled(enabled: Boolean) {
         updateSettings {
             if (enabled) it.copy(labsEnabled = true)
-            else it.copy(labsEnabled = false, autoReaderSpeed = AutoReaderSpeed.OFF)
+            else it.copy(
+                labsEnabled = false,
+                downloadDevUpdates = false,
+                autoReaderSpeed = AutoReaderSpeed.OFF,
+            )
+        }
+    }
+
+    fun setDownloadDevUpdates(enabled: Boolean) {
+        updateSettings { it.copy(downloadDevUpdates = enabled) }
+        if (enabled) {
+            checkForAppUpdate(force = true)
         }
     }
 
@@ -896,7 +912,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(isCheckingUpdate = true)
         updateJob = viewModelScope.launch {
             try {
-                val update = appUpdateRepository.checkForUpdate()
+                val update = appUpdateRepository.checkForUpdate(
+                    includePreview = _state.value.settings.downloadDevUpdates,
+                )
                 _state.value = _state.value.copy(
                     availableUpdate = update,
                     isCheckingUpdate = false,
@@ -1267,6 +1285,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             parentalPinSalt = prefs.getString(KEY_PARENTAL_PIN_SALT, null),
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
             labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
+            downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
             autoReaderSpeed = runCatching {
                 AutoReaderSpeed.valueOf(
                     prefs.getString(KEY_AUTO_READER_SPEED, AutoReaderSpeed.OFF.name)
@@ -1297,6 +1316,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             .putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
             .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
+            .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
             .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
@@ -1328,6 +1348,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         private const val KEY_PARENTAL_PIN_SALT = "parental_pin_salt"
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         private const val KEY_LABS_ENABLED = "labs_enabled"
+        private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
         private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"

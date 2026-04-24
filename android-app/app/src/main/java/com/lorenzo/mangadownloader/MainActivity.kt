@@ -310,6 +310,7 @@ private fun MangaDownloaderAppContent(
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
                     onToggleLabs = viewModel::setLabsEnabled,
+                    onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onSelectAutoReaderSpeed = viewModel::setAutoReaderSpeed,
                 )
             }

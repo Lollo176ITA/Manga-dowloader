@@ -1052,7 +1052,8 @@ class MangaViewModel internal constructor(
         // hammering GitHub on every app open. Preview channel and explicit
         // user-triggered checks always run, since previews ship more often and
         // users hitting "controlla aggiornamenti" expect immediate feedback.
-        if (!force && !includePreview) {
+        val shouldRecordStableCheck = !force && !includePreview
+        if (shouldRecordStableCheck) {
             val lastCheck = prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
             if (lastCheck > 0L &&
                 System.currentTimeMillis() - lastCheck < UPDATE_CHECK_COOLDOWN_MS
@@ -1063,10 +1064,12 @@ class MangaViewModel internal constructor(
 
         _state.value = _state.value.copy(isCheckingUpdate = true)
         updateJob = viewModelScope.launch {
+            var stableCheckCompleted = false
             try {
                 val update = appUpdateRepository.checkForUpdate(
                     includePreview = includePreview,
                 )
+                stableCheckCompleted = true
                 _state.value = _state.value.copy(
                     availableUpdate = update,
                     isCheckingUpdate = false,
@@ -1083,7 +1086,7 @@ class MangaViewModel internal constructor(
                     _state.value.copy(isCheckingUpdate = false)
                 }
             } finally {
-                if (!force && !includePreview) {
+                if (shouldRecordStableCheck && stableCheckCompleted) {
                     prefs.edit()
                         .putLong(KEY_LAST_UPDATE_CHECK_AT, System.currentTimeMillis())
                         .apply()

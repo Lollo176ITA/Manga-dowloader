@@ -66,9 +66,9 @@ class LibraryScannerTest {
             ),
         )
 
-        val series = LibraryScanner.scan(root) { relativePath ->
+        val series = LibraryScanner.scan(root, isRead = { relativePath ->
             relativePath.endsWith("chapter_011.cbz")
-        }
+        })
 
         assertEquals(1, series.size)
         assertEquals("Berserk", series.first().title)
@@ -86,7 +86,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_001.cbz").writeText("chapter1")
         File(seriesDir, "chapter_10.5.cbz").writeText("chapter10.5")
 
-        val series = LibraryScanner.scan(root) { false }
+        val series = LibraryScanner.scan(root, isRead = { false })
 
         assertEquals(1, series.size)
         assertEquals("my series", series.first().title)

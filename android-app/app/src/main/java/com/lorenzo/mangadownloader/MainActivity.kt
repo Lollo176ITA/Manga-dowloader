@@ -78,8 +78,12 @@ private fun MangaDownloaderAppContent(
     val runningOrQueuedWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
         ?: activeWorkInfos.firstOrNull()
     val latestDone = runningOrQueuedWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
-    val anyTerminalWork = remember(workInfos) {
-        workInfos.any { it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED }
+    val terminalWorkKey = remember(workInfos) {
+        workInfos
+            .filter { it.isTerminalDownload() }
+            .map { "${it.id}:${it.state}" }
+            .sorted()
+            .joinToString("|")
     }
     val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
 
@@ -88,19 +92,37 @@ private fun MangaDownloaderAppContent(
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
+    var lastForcedChapterProgressKey by remember { mutableStateOf<String?>(null) }
+    var lastForcedTerminalWorkKey by remember { mutableStateOf("") }
 
     // Refresh the library only on coarse, infrequent transitions: when a chapter
     // completes (latestDone changes), when a worker terminates, or when the set
-    // of active downloads grows/shrinks. Per-page progress no longer triggers a
-    // disk scan; the LibraryRepository TTL cache absorbs accidental duplicates.
+    // of active downloads grows/shrinks. Chapter completion and terminal work
+    // bypass the TTL cache so newly written files are visible immediately.
     LaunchedEffect(
         runningOrQueuedWork?.id,
         runningOrQueuedWork?.state,
         latestDone,
-        anyTerminalWork,
+        terminalWorkKey,
         activeWorkInfos.size,
     ) {
-        viewModel.refreshLibrary(forceRefresh = anyTerminalWork)
+        val chapterProgressKey = runningOrQueuedWork
+            ?.id
+            ?.takeIf { latestDone > 0 }
+            ?.let { "$it:$latestDone" }
+        val chapterCompleted = chapterProgressKey != null &&
+            chapterProgressKey != lastForcedChapterProgressKey
+        val workerTerminated = terminalWorkKey.isNotBlank() &&
+            terminalWorkKey != lastForcedTerminalWorkKey
+
+        if (chapterCompleted) {
+            lastForcedChapterProgressKey = chapterProgressKey
+        }
+        if (workerTerminated) {
+            lastForcedTerminalWorkKey = terminalWorkKey
+        }
+
+        viewModel.refreshLibrary(forceRefresh = chapterCompleted || workerTerminated)
     }
 
     LaunchedEffect(state.errorMessage) {
@@ -454,6 +476,12 @@ private fun WorkInfo.isActiveDownload(): Boolean {
     return state == WorkInfo.State.RUNNING ||
         state == WorkInfo.State.ENQUEUED ||
         state == WorkInfo.State.BLOCKED
+}
+
+private fun WorkInfo.isTerminalDownload(): Boolean {
+    return state == WorkInfo.State.SUCCEEDED ||
+        state == WorkInfo.State.FAILED ||
+        state == WorkInfo.State.CANCELLED
 }
 
 private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {

@@ -18,7 +18,6 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -170,7 +169,7 @@ private fun ReaderContent(
         readerOffsetY = clampedY
     }
 
-    suspend fun applyOneFingerPan(scale: Float, panChange: Offset) {
+    fun applyOneFingerPan(scale: Float, panChange: Offset) {
         val previousOffsetY = readerOffsetY
         val (clampedX, clampedY) = clampOffsets(
             scale = scale,
@@ -184,7 +183,7 @@ private fun ReaderContent(
             val consumedByViewportPan = clampedY - previousOffsetY
             val remainingPanY = panChange.y - consumedByViewportPan
             if (remainingPanY != 0f) {
-                listState.scrollBy(-remainingPanY / scale)
+                listState.dispatchRawDelta(-remainingPanY / scale)
             }
         }
     }

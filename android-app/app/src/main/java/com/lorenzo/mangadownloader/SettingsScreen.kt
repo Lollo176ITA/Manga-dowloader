@@ -141,6 +141,8 @@ fun SettingsScreen(
                     } else {
                         "Attivo ma PIN non ancora configurato."
                     }
+                } else {
+                    "Disattivato di default."
                 },
                 checked = settings.parentalControlEnabled,
                 switchEnabled = !isParentalAuthInProgress,

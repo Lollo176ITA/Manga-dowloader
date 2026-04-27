@@ -8,8 +8,17 @@ data class ChapterEntry(
     val numberValue: BigDecimal,
     val url: String,
     val slug: String,
+    val volumeText: String? = null,
 ) {
     fun displayNumber(): String = numberValue.stripTrailingZeros().toPlainString()
+
+    fun displayLabel(): String {
+        val chapterLabel = "Capitolo ${displayNumber()}"
+        return volumeText?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?.let { "$it - $chapterLabel" }
+            ?: chapterLabel
+    }
 }
 
 data class DownloadPlan(

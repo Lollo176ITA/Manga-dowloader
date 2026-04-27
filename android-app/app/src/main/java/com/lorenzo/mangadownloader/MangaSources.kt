@@ -29,6 +29,7 @@ data class MangaSearchConfig(
 object MangaSourceIds {
     const val MANGAPILL = "mangapill"
     const val HASTA_TEAM = "hasta_team"
+    const val MANGA_WORLD = "manga_world"
     const val DEFAULT = MANGAPILL
 }
 
@@ -36,6 +37,7 @@ object MangaSourceCatalog {
     val descriptors = listOf(
         MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP"),
         MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT"),
+        MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW"),
     )
 
     fun resolveSourceId(
@@ -59,6 +61,7 @@ object MangaSourceCatalog {
         return when {
             MangapillSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGAPILL
             HastaTeamSource.handlesUrl(normalizedUrl) -> MangaSourceIds.HASTA_TEAM
+            MangaWorldSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGA_WORLD
             else -> null
         }
     }
@@ -117,6 +120,7 @@ object MangaSourceCatalog {
         return when (resolveSourceId(sourceId, normalizedUrl)) {
             MangaSourceIds.MANGAPILL -> MangapillSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.HASTA_TEAM -> HastaTeamSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.MANGA_WORLD -> MangaWorldSource.canonicalSeriesUrl(normalizedUrl)
             else -> normalizedUrl
         } ?: normalizedUrl
     }
@@ -152,6 +156,7 @@ class MangaSourceRegistry(
     private val sources = mapOf(
         MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient),
         MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient),
+        MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient),
     )
 
     val descriptors: List<MangaSourceDescriptor>
@@ -248,6 +253,7 @@ abstract class BaseMangaSource(
                     url = chapter.url,
                     slug = chapter.slug,
                 ),
+                volumeText = chapter.volumeText,
             )
         }
         val metadata = SeriesMetadata(
@@ -417,10 +423,10 @@ abstract class BaseMangaSource(
         left: String,
         right: String,
     ): Boolean {
-        return normalizeUrlForComparison(left) == normalizeUrlForComparison(right)
+        return normalizeChapterUrlForComparison(left) == normalizeChapterUrlForComparison(right)
     }
 
-    private fun normalizeUrlForComparison(url: String): String {
+    protected open fun normalizeChapterUrlForComparison(url: String): String {
         return url.trim().substringBefore('#').removeSuffix("/")
     }
 }

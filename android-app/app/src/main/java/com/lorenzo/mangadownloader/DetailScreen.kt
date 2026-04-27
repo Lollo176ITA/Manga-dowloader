@@ -61,11 +61,12 @@ fun DetailScreen(
     val scope = rememberCoroutineScope()
 
     val chapters = details.chapters
+    val chapterListItems = remember(chapters) { buildChapterListItems(chapters) }
     val hasChapters = chapters.isNotEmpty()
-    val isAtListBottom by remember(chapters.size) {
+    val isAtListBottom by remember(chapterListItems.size) {
         derivedStateOf {
             val visibleItems = listState.layoutInfo.visibleItemsInfo
-            visibleItems.isNotEmpty() && visibleItems.last().index >= chapters.lastIndex
+            visibleItems.isNotEmpty() && visibleItems.last().index >= chapterListItems.lastIndex
         }
     }
 
@@ -103,14 +104,20 @@ fun DetailScreen(
                     contentPadding = PaddingValues(bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    items(chapters, key = { it.url }) { chapter ->
-                        ChapterRow(
-                            chapter = chapter,
-                            isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
-                        ) {
-                            pendingStart = chapter
-                            pendingEnd = chapter
-                            endMenuExpanded = false
+                    items(chapterListItems, key = { it.key }) { item ->
+                        when (item) {
+                            is ChapterListItem.VolumeHeader -> VolumeHeaderRow(item.title)
+                            is ChapterListItem.Chapter -> {
+                                val chapter = item.chapter
+                                ChapterRow(
+                                    chapter = chapter,
+                                    isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
+                                ) {
+                                    pendingStart = chapter
+                                    pendingEnd = chapter
+                                    endMenuExpanded = false
+                                }
+                            }
                         }
                     }
                 }
@@ -173,6 +180,52 @@ fun DetailScreen(
             },
         )
     }
+}
+
+@Composable
+private fun VolumeHeaderRow(title: String) {
+    Text(
+        text = title,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 10.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+private sealed class ChapterListItem {
+    abstract val key: String
+
+    data class VolumeHeader(
+        val title: String,
+        override val key: String,
+    ) : ChapterListItem()
+
+    data class Chapter(
+        val chapter: ChapterEntry,
+    ) : ChapterListItem() {
+        override val key: String = "chapter:${chapter.url}"
+    }
+}
+
+private fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterListItem> {
+    val items = mutableListOf<ChapterListItem>()
+    var currentVolume: String? = null
+    chapters.forEach { chapter ->
+        val volume = chapter.volumeText?.trim()?.takeIf(String::isNotBlank)
+        if (volume != null && volume != currentVolume) {
+            items += ChapterListItem.VolumeHeader(
+                title = volume,
+                key = "volume:${items.size}:$volume",
+            )
+            currentVolume = volume
+        } else if (volume == null) {
+            currentVolume = null
+        }
+        items += ChapterListItem.Chapter(chapter)
+    }
+    return items
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -258,7 +311,7 @@ private fun DownloadRangeDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
-                    value = "Capitolo ${startChapter.displayNumber()}",
+                    value = startChapter.displayLabel(),
                     onValueChange = {},
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Da") },
@@ -271,7 +324,7 @@ private fun DownloadRangeDialog(
                     onExpandedChange = { if (it) onOpenEndMenu() else onDismissEndMenu() },
                 ) {
                     OutlinedTextField(
-                        value = "Capitolo ${endChapter.displayNumber()}",
+                        value = endChapter.displayLabel(),
                         onValueChange = {},
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
@@ -290,7 +343,7 @@ private fun DownloadRangeDialog(
                     ) {
                         endOptions.forEach { candidate ->
                             DropdownMenuItem(
-                                text = { Text("Capitolo ${candidate.displayNumber()}") },
+                                text = { Text(candidate.displayLabel()) },
                                 onClick = { onSelectEnd(candidate) },
                                 contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                             )

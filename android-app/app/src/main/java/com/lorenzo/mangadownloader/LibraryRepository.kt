@@ -25,6 +25,7 @@ data class DownloadedChapter(
     val title: String,
     val numberText: String,
     val numberValue: BigDecimal?,
+    val volumeText: String?,
     val file: File,
     val relativePath: String,
     val chapterId: String,
@@ -58,6 +59,7 @@ data class SeriesMetadataChapter(
     val slug: String?,
     val fileName: String,
     val id: String?,
+    val volumeText: String? = null,
 )
 
 object DownloadStorage {
@@ -161,6 +163,7 @@ object SeriesMetadataJson {
                                 put("numberText", JsonPrimitive(chapter.numberText))
                                 chapter.url?.let { put("url", JsonPrimitive(it)) }
                                 chapter.slug?.let { put("slug", JsonPrimitive(it)) }
+                                chapter.volumeText?.let { put("volumeText", JsonPrimitive(it)) }
                                 put("fileName", JsonPrimitive(chapter.fileName))
                                 chapter.id?.let { put("id", JsonPrimitive(it)) }
                             },
@@ -226,6 +229,7 @@ object SeriesMetadataJson {
             slug = jsonObject["slug"]?.jsonPrimitive?.contentOrNull,
             fileName = fileName,
             id = jsonObject["id"]?.jsonPrimitive?.contentOrNull,
+            volumeText = jsonObject["volumeText"]?.jsonPrimitive?.contentOrNull,
         )
     }
 }
@@ -274,10 +278,12 @@ object LibraryScanner {
                         slug = chapterMeta?.slug,
                     )
                 val chapterIsRead = isRead(relativePath) || chapterId in persistedReadIds
+                val volumeText = chapterMeta?.volumeText?.trim()?.takeIf(String::isNotBlank)
                 DownloadedChapter(
-                    title = "Capitolo $normalized",
+                    title = volumeText?.let { "$it - Capitolo $normalized" } ?: "Capitolo $normalized",
                     numberText = normalized,
                     numberValue = DownloadStorage.parseChapterValueOrNull(normalized),
+                    volumeText = volumeText,
                     file = file,
                     relativePath = relativePath,
                     chapterId = chapterId,
@@ -498,6 +504,7 @@ class LibraryRepository(
                     slug = null,
                     fileName = chapter.file.name,
                     id = chapter.chapterId,
+                    volumeText = chapter.volumeText,
                 )
             },
         )
@@ -541,6 +548,7 @@ class LibraryRepository(
                         url = preserved?.url,
                         slug = preserved?.slug,
                     ),
+                    volumeText = preserved?.volumeText,
                 )
             },
         )

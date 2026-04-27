@@ -298,8 +298,10 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
                     autoReaderSpeed = state.settings.autoReaderSpeed,
+                    initialPageIndex = state.readerInitialPageIndex,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
+                    onPageVisible = viewModel::saveReaderPagePosition,
                 )
             }
             state.showSettings -> {

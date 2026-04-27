@@ -124,6 +124,7 @@ data class MangaUiState(
     val readerPreviousChapter: DownloadedChapter? = null,
     val readerNextChapter: DownloadedChapter? = null,
     val readerPages: List<File> = emptyList(),
+    val readerInitialPageIndex: Int = 0,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
     val isCheckingUpdate: Boolean = false,
@@ -784,25 +785,57 @@ class MangaViewModel internal constructor(
 
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
+        val initialPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
+            ?: chapter.readerPageIndex
+            ?: 0
         libraryRepository.markChapterRead(chapter)
+        libraryRepository.saveReaderPagePosition(
+            relativePath = chapter.relativePath,
+            pageIndex = initialPageIndex,
+            pageCount = chapter.readerPageCount,
+        )
         _state.value = _state.value.copy(
-            readerChapter = chapter.copy(isRead = true),
+            readerChapter = chapter.copy(
+                isRead = true,
+                readerPageIndex = initialPageIndex,
+            ),
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
+            readerInitialPageIndex = initialPageIndex,
             isLoadingReader = true,
             errorMessage = null,
         ).withReadChapter(chapter.relativePath)
+            .withReaderPosition(
+                relativePath = chapter.relativePath,
+                pageIndex = initialPageIndex,
+                pageCount = chapter.readerPageCount,
+            )
             .withReaderAdjacency(chapter.relativePath)
 
         readerJob = viewModelScope.launch {
             try {
                 val pages = libraryRepository.extractReaderPages(chapter)
-                val updated = _state.value.readerChapter?.copy(isRead = true) ?: chapter.copy(isRead = true)
+                val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex.coerceAtLeast(0))
+                libraryRepository.saveReaderPagePosition(
+                    relativePath = chapter.relativePath,
+                    pageIndex = restoredPageIndex,
+                    pageCount = pages.size,
+                )
+                val updated = (_state.value.readerChapter ?: chapter).copy(
+                    isRead = true,
+                    readerPageIndex = restoredPageIndex,
+                    readerPageCount = pages.size,
+                )
                 _state.value = _state.value.copy(
                     readerChapter = updated,
                     readerPages = pages,
+                    readerInitialPageIndex = restoredPageIndex,
                     isLoadingReader = false,
+                ).withReaderPosition(
+                    relativePath = updated.relativePath,
+                    pageIndex = restoredPageIndex,
+                    pageCount = pages.size,
                 ).withReaderAdjacency(updated.relativePath)
             } catch (e: CancellationException) {
                 throw e
@@ -816,6 +849,31 @@ class MangaViewModel internal constructor(
 
         maybeTriggerAutoDownload(chapter)
         maybePerformSmartCleanup(chapter)
+    }
+
+    fun saveReaderPagePosition(pageIndex: Int, pageCount: Int) {
+        val chapter = _state.value.readerChapter ?: return
+        val safePageCount = pageCount.coerceAtLeast(1)
+        val safePageIndex = pageIndex.coerceIn(0, safePageCount - 1)
+        if (
+            chapter.readerPageIndex == safePageIndex &&
+            chapter.readerPageCount == safePageCount
+        ) {
+            return
+        }
+
+        libraryRepository.saveReaderPagePosition(
+            relativePath = chapter.relativePath,
+            pageIndex = safePageIndex,
+            pageCount = safePageCount,
+        )
+        updateState {
+            withReaderPosition(
+                relativePath = chapter.relativePath,
+                pageIndex = safePageIndex,
+                pageCount = safePageCount,
+            )
+        }
     }
 
     private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
@@ -1254,6 +1312,36 @@ class MangaViewModel internal constructor(
         ).withReaderAdjacency(updatedReader?.relativePath)
     }
 
+    private fun MangaUiState.withReaderPosition(
+        relativePath: String,
+        pageIndex: Int,
+        pageCount: Int?,
+    ): MangaUiState {
+        fun DownloadedChapter.updateIfSame(): DownloadedChapter {
+            return if (this.relativePath == relativePath) {
+                copy(
+                    readerPageIndex = pageIndex,
+                    readerPageCount = pageCount ?: readerPageCount,
+                )
+            } else {
+                this
+            }
+        }
+
+        val updatedLibrary = library.map { series ->
+            series.copy(chapters = series.chapters.map { chapter -> chapter.updateIfSame() })
+        }
+        val updatedSelected = selectedDownloadedSeries?.let { series ->
+            series.copy(chapters = series.chapters.map { chapter -> chapter.updateIfSame() })
+        }
+        val updatedReader = readerChapter?.updateIfSame()
+        return copy(
+            library = updatedLibrary,
+            selectedDownloadedSeries = updatedSelected,
+            readerChapter = updatedReader,
+        )
+    }
+
     private fun MangaUiState.withReaderAdjacency(relativePath: String?): MangaUiState {
         val chapters = selectedDownloadedSeries?.chapters.orEmpty()
         val currentIndex = relativePath?.let { path ->
@@ -1406,6 +1494,7 @@ class MangaViewModel internal constructor(
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
+            readerInitialPageIndex = 0,
             isLoadingReader = false,
         )
     }

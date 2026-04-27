@@ -36,7 +36,7 @@ fun DownloadedSeriesScreen(
             coverModel = series.coverFile,
             title = series.title,
             subtitle = "${series.chapters.size} capitoli scaricati",
-            status = if (isFullyRead) "Letto" else null,
+            status = if (isFullyRead) "Completato" else null,
             statusColor = ReadGreen,
         )
 

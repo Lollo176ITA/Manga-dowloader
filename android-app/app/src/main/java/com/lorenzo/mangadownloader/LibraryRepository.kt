@@ -31,6 +31,13 @@ data class DownloadedChapter(
     val relativePath: String,
     val chapterId: String,
     val isRead: Boolean,
+    val readerPageIndex: Int?,
+    val readerPageCount: Int?,
+)
+
+data class ReaderPagePosition(
+    val pageIndex: Int,
+    val pageCount: Int?,
 )
 
 data class DownloadedSeries(
@@ -242,13 +249,17 @@ object SeriesMetadataJson {
 }
 
 object LibraryScanner {
-    fun scan(root: File, isRead: (String) -> Boolean): List<DownloadedSeries> {
+    fun scan(
+        root: File,
+        isRead: (String) -> Boolean,
+        readerPagePosition: (String) -> ReaderPagePosition? = { null },
+    ): List<DownloadedSeries> {
         if (!root.exists()) return emptyList()
 
         return root.listFiles()
             ?.filter { it.isDirectory }
             .orEmpty()
-            .mapNotNull { directory -> scanSeriesDirectory(root, directory, isRead) }
+            .mapNotNull { directory -> scanSeriesDirectory(root, directory, isRead, readerPagePosition) }
             .sortedBy { it.title.lowercase(Locale.US) }
     }
 
@@ -256,6 +267,7 @@ object LibraryScanner {
         root: File,
         directory: File,
         isRead: (String) -> Boolean,
+        readerPagePosition: (String) -> ReaderPagePosition? = { null },
     ): DownloadedSeries? {
         if (!directory.isDirectory) return null
 
@@ -278,6 +290,7 @@ object LibraryScanner {
                     ?: return@mapNotNull null
                 val normalized = DownloadStorage.normalizedChapterLabel(numberText)
                 val relativePath = DownloadStorage.relativePath(root, file)
+                val pagePosition = readerPagePosition(relativePath)
                 val chapterId = chapterMeta?.id
                     ?: DownloadStorage.stableChapterId(
                         numberText = normalized,
@@ -300,6 +313,8 @@ object LibraryScanner {
                     relativePath = relativePath,
                     chapterId = chapterId,
                     isRead = chapterIsRead,
+                    readerPageIndex = pagePosition?.pageIndex,
+                    readerPageCount = pagePosition?.pageCount,
                 )
             }
             .sortedWith(DownloadStorage.chapterComparator())
@@ -358,7 +373,7 @@ class LibraryRepository(
 
     fun scanLibrary(): List<DownloadedSeries> {
         val root = DownloadStorage.libraryRoot(context)
-        val series = LibraryScanner.scan(root, ::isChapterRead)
+        val series = LibraryScanner.scan(root, ::isChapterRead, ::readerPagePosition)
         series.forEach(::backfillMetadata)
         return series
     }
@@ -437,6 +452,35 @@ class LibraryRepository(
 
     fun isChapterRead(relativePath: String): Boolean {
         return prefs.getBoolean(readPrefKey(relativePath), false)
+    }
+
+    fun readerPagePosition(relativePath: String): ReaderPagePosition? {
+        if (!prefs.contains(readerPageIndexPrefKey(relativePath))) {
+            return null
+        }
+        val pageIndex = prefs.getInt(readerPageIndexPrefKey(relativePath), 0).coerceAtLeast(0)
+        val pageCount = prefs
+            .getInt(readerPageCountPrefKey(relativePath), -1)
+            .takeIf { it > 0 }
+        return ReaderPagePosition(
+            pageIndex = pageIndex,
+            pageCount = pageCount,
+        )
+    }
+
+    fun saveReaderPagePosition(
+        relativePath: String,
+        pageIndex: Int,
+        pageCount: Int?,
+    ) {
+        prefs.edit()
+            .putInt(readerPageIndexPrefKey(relativePath), pageIndex.coerceAtLeast(0))
+            .apply {
+                if (pageCount != null && pageCount > 0) {
+                    putInt(readerPageCountPrefKey(relativePath), pageCount)
+                }
+            }
+            .apply()
     }
 
     suspend fun extractReaderPages(chapter: DownloadedChapter): List<File> = withContext(Dispatchers.IO) {
@@ -582,6 +626,13 @@ class LibraryRepository(
         if (clearReadState) {
             prefs.edit()
                 .remove(readPrefKey(relativePath))
+                .remove(readerPageIndexPrefKey(relativePath))
+                .remove(readerPageCountPrefKey(relativePath))
+                .apply()
+        } else {
+            prefs.edit()
+                .remove(readerPageIndexPrefKey(relativePath))
+                .remove(readerPageCountPrefKey(relativePath))
                 .apply()
         }
         val cacheDir = File(
@@ -594,6 +645,8 @@ class LibraryRepository(
     }
 
     private fun readPrefKey(relativePath: String): String = "read::$relativePath"
+    private fun readerPageIndexPrefKey(relativePath: String): String = "reader_page_index::$relativePath"
+    private fun readerPageCountPrefKey(relativePath: String): String = "reader_page_count::$relativePath"
 
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"

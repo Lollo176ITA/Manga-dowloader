@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.io.File
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun ReaderScreen(
@@ -62,8 +64,10 @@ fun ReaderScreen(
     isLoading: Boolean,
     padding: PaddingValues,
     autoReaderSpeed: AutoReaderSpeed,
+    initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int) -> Unit,
 ) {
     val view = LocalView.current
 
@@ -102,8 +106,10 @@ fun ReaderScreen(
             isLoading = isLoading,
             padding = padding,
             autoReaderSpeed = autoReaderSpeed,
+            initialPageIndex = initialPageIndex,
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
+            onPageVisible = onPageVisible,
         )
     }
 }
@@ -118,8 +124,10 @@ private fun ReaderContent(
     isLoading: Boolean,
     padding: PaddingValues,
     autoReaderSpeed: AutoReaderSpeed,
+    initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int) -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -128,6 +136,22 @@ private fun ReaderContent(
     var readerOffsetY by remember(chapterKey) { mutableStateOf(0f) }
     var viewportSize by remember(chapterKey) { mutableStateOf(IntSize.Zero) }
     val listState = rememberLazyListState()
+
+    LaunchedEffect(chapterKey, pages.size, initialPageIndex) {
+        if (chapter == null || pages.isEmpty()) return@LaunchedEffect
+
+        val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex)
+        listState.scrollToItem(restoredPageIndex + ReaderPageItemOffset)
+
+        snapshotFlow {
+            listState.firstVisibleItemIndex - ReaderPageItemOffset
+        }
+            .distinctUntilChanged()
+            .collect { visiblePageIndex ->
+                val pageIndex = visiblePageIndex.coerceIn(0, pages.lastIndex)
+                onPageVisible(pageIndex, pages.size)
+            }
+    }
 
     LaunchedEffect(autoReaderSpeed, chapterKey) {
         if (autoReaderSpeed == AutoReaderSpeed.OFF || chapter == null) return@LaunchedEffect
@@ -353,3 +377,5 @@ private fun ReaderContent(
         }
     }
 }
+
+private const val ReaderPageItemOffset = 1

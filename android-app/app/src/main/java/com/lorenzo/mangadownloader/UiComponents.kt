@@ -527,7 +527,7 @@ fun DownloadedSeriesActionBar(
                 text = when {
                     totalCount == 0 -> "Nessun capitolo disponibile"
                     readCount == 0 -> "$totalCount capitoli scaricati"
-                    readCount >= totalCount -> "Hai letto tutti i $totalCount capitoli"
+                    readCount >= totalCount -> "Completato · $readCount / $totalCount capitoli"
                     else -> "$readCount / $totalCount capitoli letti"
                 },
                 style = MaterialTheme.typography.bodyMedium,

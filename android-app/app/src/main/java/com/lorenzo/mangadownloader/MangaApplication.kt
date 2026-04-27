@@ -12,7 +12,9 @@ class MangaApplication : Application(), ImageLoaderFactory {
     }
 
     override fun newImageLoader(): ImageLoader {
-        val okHttpClient = OkHttpClient.Builder()
+        // newBuilder() preserves the parent connection pool and HTTP cache,
+        // so image requests reuse the same pool as the rest of the app.
+        val okHttpClient = SharedHttpClient.get(this).newBuilder()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
                     .header("User-Agent", COIL_USER_AGENT)

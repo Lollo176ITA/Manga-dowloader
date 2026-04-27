@@ -152,7 +152,7 @@ interface MangaSource {
 class MangaSourceRegistry(
     context: Context,
 ) {
-    private val networkClient = MangaNetworkClient()
+    private val networkClient = MangaNetworkClient(SharedHttpClient.get(context))
     private val sources = mapOf(
         MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient),
         MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient),

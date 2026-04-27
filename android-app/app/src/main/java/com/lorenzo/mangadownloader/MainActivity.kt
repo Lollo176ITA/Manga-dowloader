@@ -77,8 +77,10 @@ private fun MangaDownloaderAppContent(
     val activeWorkInfos = remember(workInfos) { workInfos.filter { it.isActiveDownload() } }
     val runningOrQueuedWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
         ?: activeWorkInfos.firstOrNull()
-    val latestMessage = runningOrQueuedWork?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
     val latestDone = runningOrQueuedWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
+    val anyTerminalWork = remember(workInfos) {
+        workInfos.any { it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED }
+    }
     val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -87,14 +89,18 @@ private fun MangaDownloaderAppContent(
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
 
+    // Refresh the library only on coarse, infrequent transitions: when a chapter
+    // completes (latestDone changes), when a worker terminates, or when the set
+    // of active downloads grows/shrinks. Per-page progress no longer triggers a
+    // disk scan; the LibraryRepository TTL cache absorbs accidental duplicates.
     LaunchedEffect(
         runningOrQueuedWork?.id,
         runningOrQueuedWork?.state,
         latestDone,
-        latestMessage,
+        anyTerminalWork,
         activeWorkInfos.size,
     ) {
-        viewModel.refreshLibrary()
+        viewModel.refreshLibrary(forceRefresh = anyTerminalWork)
     }
 
     LaunchedEffect(state.errorMessage) {

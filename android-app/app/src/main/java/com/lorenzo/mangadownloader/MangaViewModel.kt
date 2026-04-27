@@ -243,9 +243,7 @@ class MangaViewModel internal constructor(
 
     fun selectTab(tab: AppTab) {
         if (tab == _state.value.currentTab) {
-            if (tab == AppTab.LIBRARY) {
-                refreshLibrary()
-            }
+            // Same tab: don't trigger another disk scan; the cached snapshot is current.
             return
         }
         if (tab == AppTab.SEARCH && _state.value.settings.parentalControlEnabled) {
@@ -744,12 +742,12 @@ class MangaViewModel internal constructor(
         )
     }
 
-    fun refreshLibrary() {
+    fun refreshLibrary(forceRefresh: Boolean = false) {
         libraryJob?.cancel()
         updateState { copy(isLoadingLibrary = true) }
         libraryJob = viewModelScope.launch {
             try {
-                val snapshot = scanLibrarySnapshot()
+                val snapshot = scanLibrarySnapshot(forceRefresh)
                 _state.value = _state.value.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
             } catch (e: CancellationException) {
                 throw e
@@ -1051,11 +1049,25 @@ class MangaViewModel internal constructor(
             return
         }
 
+        val includePreview = _state.value.settings.downloadDevUpdates
+        // Stable channel: throttle cold-start checks to once per day to avoid
+        // hammering GitHub on every app open. Preview channel and explicit
+        // user-triggered checks always run, since previews ship more often and
+        // users hitting "controlla aggiornamenti" expect immediate feedback.
+        if (!force && !includePreview) {
+            val lastCheck = prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
+            if (lastCheck > 0L &&
+                System.currentTimeMillis() - lastCheck < UPDATE_CHECK_COOLDOWN_MS
+            ) {
+                return
+            }
+        }
+
         _state.value = _state.value.copy(isCheckingUpdate = true)
         updateJob = viewModelScope.launch {
             try {
                 val update = appUpdateRepository.checkForUpdate(
-                    includePreview = _state.value.settings.downloadDevUpdates,
+                    includePreview = includePreview,
                 )
                 _state.value = _state.value.copy(
                     availableUpdate = update,
@@ -1071,6 +1083,12 @@ class MangaViewModel internal constructor(
                     )
                 } else {
                     _state.value.copy(isCheckingUpdate = false)
+                }
+            } finally {
+                if (!force && !includePreview) {
+                    prefs.edit()
+                        .putLong(KEY_LAST_UPDATE_CHECK_AT, System.currentTimeMillis())
+                        .apply()
                 }
             }
         }
@@ -1431,8 +1449,8 @@ class MangaViewModel internal constructor(
         _state.value = _state.value.transform()
     }
 
-    private suspend fun scanLibrarySnapshot(): List<DownloadedSeries> {
-        return withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+    private suspend fun scanLibrarySnapshot(forceRefresh: Boolean = false): List<DownloadedSeries> {
+        return withContext(Dispatchers.IO) { libraryRepository.scanLibrary(forceRefresh) }
     }
 
     private fun readSettings(): AppSettings {
@@ -1531,7 +1549,9 @@ class MangaViewModel internal constructor(
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
+        private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
+        private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
     }
 }

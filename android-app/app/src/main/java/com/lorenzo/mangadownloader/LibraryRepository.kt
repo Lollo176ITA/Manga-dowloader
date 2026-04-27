@@ -371,11 +371,38 @@ class LibraryRepository(
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun scanLibrary(): List<DownloadedSeries> {
+    @Volatile
+    private var cachedSnapshot: List<DownloadedSeries>? = null
+
+    @Volatile
+    private var cachedSnapshotAtMs: Long = 0L
+
+    /**
+     * Returns the list of downloaded series, reusing a recent snapshot when
+     * possible to avoid hitting the filesystem on every UI refresh during a
+     * download. Mutating operations (delete, markRead, downloads completing)
+     * call [invalidateCache] so the next scan reflects the change.
+     */
+    fun scanLibrary(forceRefresh: Boolean = false): List<DownloadedSeries> {
+        if (!forceRefresh) {
+            val snapshot = cachedSnapshot
+            if (snapshot != null &&
+                System.currentTimeMillis() - cachedSnapshotAtMs < CACHE_TTL_MS
+            ) {
+                return snapshot
+            }
+        }
         val root = DownloadStorage.libraryRoot(context)
         val series = LibraryScanner.scan(root, ::isChapterRead, ::readerPagePosition)
         series.forEach(::backfillMetadata)
+        cachedSnapshot = series
+        cachedSnapshotAtMs = System.currentTimeMillis()
         return series
+    }
+
+    fun invalidateCache() {
+        cachedSnapshot = null
+        cachedSnapshotAtMs = 0L
     }
 
     fun markChapterRead(chapter: DownloadedChapter) {
@@ -391,6 +418,7 @@ class LibraryRepository(
                 readChapterIds = updatedReadIds,
             )
         }
+        invalidateCache()
     }
 
     suspend fun deleteChapters(
@@ -424,6 +452,8 @@ class LibraryRepository(
             clearChapterState(chapter.relativePath, clearReadState = false)
         }
 
+        invalidateCache()
+
         val remainingChapterFiles = series.directory.listFiles()
             ?.filter { it.isFile && it.extension.equals("cbz", ignoreCase = true) }
             .orEmpty()
@@ -448,6 +478,7 @@ class LibraryRepository(
         if (series.directory.exists()) {
             series.directory.deleteRecursively()
         }
+        invalidateCache()
     }
 
     fun isChapterRead(relativePath: String): Boolean {
@@ -650,5 +681,6 @@ class LibraryRepository(
 
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"
+        private const val CACHE_TTL_MS = 5_000L
     }
 }

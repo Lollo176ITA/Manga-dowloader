@@ -20,6 +20,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,6 +73,7 @@ class DownloadWorker(
             val completedChapters = AtomicInteger(0)
             val statusMutex = Mutex()
             val chapterSemaphore = Semaphore(CHAPTER_CONCURRENCY)
+            val lastPageEmitMs = AtomicLong(0L)
 
             coroutineScope {
                 plan.chapters.map { chapter ->
@@ -94,6 +96,22 @@ class DownloadWorker(
                                 outputDir = plan.outputDir,
                                 pageConcurrency = PAGE_CONCURRENCY,
                             ) { pageDone, pageTotal ->
+                                // Skip per-page emits except the final one or boundaries:
+                                // a chapter of 50 pages would otherwise produce 50 setProgress
+                                // round-trips, each waking the UI observer.
+                                val isFinalPage = pageDone >= pageTotal
+                                val isBatchBoundary = pageDone % PAGE_PROGRESS_STRIDE == 0
+                                val now = System.currentTimeMillis()
+                                val previousEmitMs = lastPageEmitMs.get()
+                                val timedOut = now - previousEmitMs >= PAGE_PROGRESS_MIN_INTERVAL_MS
+                                if (
+                                    !isFinalPage &&
+                                    !isBatchBoundary &&
+                                    !timedOut
+                                ) {
+                                    return@downloadChapterAsCbz
+                                }
+                                lastPageEmitMs.set(now)
                                 emitStatus(
                                     mutex = statusMutex,
                                     sourceId = plan.sourceId,
@@ -288,6 +306,8 @@ class DownloadWorker(
         private const val NOTIFICATION_ID = 1001
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
+        private const val PAGE_PROGRESS_STRIDE = 5
+        private const val PAGE_PROGRESS_MIN_INTERVAL_MS = 1_500L
 
         fun enqueue(
             context: Context,

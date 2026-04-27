@@ -16,7 +16,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -215,13 +215,13 @@ private fun ReaderContent(
                         }
                     }
                     .pointerInput(chapterKey) {
-                        detectDragGestures(
-                            onDrag = { change, dragAmount ->
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { change, dragAmount ->
                                 if (readerScale > minScale) {
                                     val (clampedX, clampedY) = clampOffsets(
                                         scale = readerScale,
-                                        offsetX = readerOffsetX + dragAmount.x,
-                                        offsetY = readerOffsetY + dragAmount.y,
+                                        offsetX = readerOffsetX + dragAmount,
+                                        offsetY = readerOffsetY,
                                     )
                                     readerOffsetX = clampedX
                                     readerOffsetY = clampedY

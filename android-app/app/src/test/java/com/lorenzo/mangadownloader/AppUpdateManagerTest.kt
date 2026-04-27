@@ -74,20 +74,20 @@ class AppUpdateManagerTest {
     }
 
     @Test
-    fun parseCommitMessage_returnsTrimmedCommitMessage() {
+    fun parseCommitMessage_returnsCleanReleaseNotes() {
         val message = parseCommitMessage(
             """
                 {
                   "sha": "abc123",
                   "commit": {
-                    "message": "feat: add swipe navigation\n\n- Tap edges to turn page\n- Respect RTL reading"
+                    "message": "feat(reader): add swipe navigation\n\n- fix: Tap edges to turn page\n- chore!: Respect RTL reading"
                   }
                 }
             """.trimIndent(),
         )
 
         assertEquals(
-            "feat: add swipe navigation\n\n- Tap edges to turn page\n- Respect RTL reading",
+            "add swipe navigation\nTap edges to turn page\nRespect RTL reading",
             message,
         )
     }

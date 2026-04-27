@@ -318,7 +318,20 @@ internal fun parseCommitMessage(raw: String): String? {
         ?.jsonPrimitive
         ?.contentOrNull
         ?.trim()
-    return message?.takeIf(String::isNotBlank)
+    return message
+        ?.lines()
+        ?.map { it.trim().removeConventionalCommitPrefix() }
+        ?.filter { it.isNotBlank() }
+        ?.joinToString("\n")
+        ?.takeIf(String::isNotBlank)
+}
+
+private fun String.removeConventionalCommitPrefix(): String {
+    val withoutBullet = removePrefix("-").trim()
+    return withoutBullet.replace(
+        Regex("""^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(?:\([^)]+\))?!?:\s*"""),
+        "",
+    ).trim()
 }
 
 private fun extractVersionNameFromRelease(

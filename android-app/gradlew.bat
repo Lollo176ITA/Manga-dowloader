@@ -36,7 +36,15 @@ set APP_HOME=%DIRNAME%
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
+@rem Give the wrapper JVM more breathing room so Android builds don't bottleneck during startup.
+set DEFAULT_JVM_OPTS="-Xms256m" "-Xmx1024m"
+
+@rem Push Gradle to use the local machine more aggressively unless the user already configured it.
+if not defined NUMBER_OF_PROCESSORS set NUMBER_OF_PROCESSORS=4
+set "LOCAL_GRADLE_WORKERS=%NUMBER_OF_PROCESSORS%"
+
+echo %GRADLE_OPTS% | findstr /I /C:"org.gradle.workers.max" >NUL
+if errorlevel 1 set "GRADLE_OPTS=%GRADLE_OPTS% -Dorg.gradle.workers.max=%LOCAL_GRADLE_WORKERS%"
 
 @rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome

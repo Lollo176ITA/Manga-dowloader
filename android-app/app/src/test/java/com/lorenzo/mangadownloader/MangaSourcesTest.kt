@@ -17,6 +17,30 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangapillCanonicalSeriesUrl_stripsMangaSlugForStableIdentity() {
+        val normalized = MangapillSource.canonicalSeriesUrl(
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertEquals("https://mangapill.com/manga/12345", normalized)
+    }
+
+    @Test
+    fun sourceCatalog_mangapillIdentityKeyMatchesSluggedAndChapterUrls() {
+        val sluggedKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = "https://mangapill.com/manga/12345/berserk",
+        )
+        val chapterKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = "https://mangapill.com/chapters/12345/berserk-chapter-10",
+        )
+
+        assertEquals("mangapill::https://mangapill.com/manga/12345", sluggedKey)
+        assertEquals(sluggedKey, chapterKey)
+    }
+
+    @Test
     fun hastaSearchResponse_mapsAbsoluteUrlsAndSourceId() {
         val results = HastaTeamSource.parseSearchResponse(
             """

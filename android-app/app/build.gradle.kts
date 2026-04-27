@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val versionProperties = Properties().apply {
@@ -145,10 +146,6 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -158,10 +155,21 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+
+    lint {
+        // Work around known lint detector crashes with the current Kotlin/Compose toolchain mix.
+        // Release CI still builds, signs, shrinks and uploads the APK; lint can run separately when the toolchain is stable.
+        checkReleaseBuilds = false
+        disable += setOf(
+            "FrequentlyChangingValue",
+            "NullSafeMutableLiveData",
+            "RememberInComposition",
+        )
+    }
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    val composeBom = platform("androidx.compose:compose-bom:2025.10.00")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -171,7 +179,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha18")
+    implementation("androidx.compose.material3:material3-window-size-class:1.5.0-alpha18")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.compose.material:material-icons-extended")

@@ -42,9 +42,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MangaDownloaderTheme {
-                MangaDownloaderApp()
-            }
+            MangaDownloaderApp()
         }
     }
 }
@@ -53,6 +51,20 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
+    MangaDownloaderTheme(
+        themeMode = state.settings.themeMode,
+        useDynamicColor = state.settings.useDynamicColor,
+    ) {
+        MangaDownloaderAppContent(state = state, viewModel = viewModel)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun MangaDownloaderAppContent(
+    state: MangaUiState,
+    viewModel: MangaViewModel,
+) {
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val appContext = remember(context) { context.applicationContext }
@@ -287,6 +299,8 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     isBiometricAvailable = state.isBiometricAvailable,
                     isParentalAuthInProgress = state.isParentalAuthInProgress,
                     padding = innerPadding,
+                    onSelectThemeMode = viewModel::setThemeMode,
+                    onToggleDynamicColor = viewModel::setUseDynamicColor,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -301,10 +315,14 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 )
             }
             selectedManga != null -> {
+                val downloadedChapterKeys = remember(selectedManga, state.library) {
+                    downloadedChapterKeysFor(selectedManga, state.library)
+                }
                 DetailScreen(
                     details = selectedManga,
                     isLoading = state.isLoadingDetails,
                     padding = innerPadding,
+                    downloadedChapterKeys = downloadedChapterKeys,
                     onStart = onStartDownload,
                 )
             }
@@ -321,13 +339,13 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = showPager,
-                    beyondBoundsPageCount = 1,
                 ) { page ->
                     when (AppTab.entries[page]) {
                         AppTab.SEARCH -> SearchScreen(
                             state = state,
                             padding = innerPadding,
                             onQueryChange = viewModel::onQueryChange,
+                            onRefresh = viewModel::submitSearch,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                         )
@@ -408,6 +426,42 @@ private fun WorkInfo.isActiveDownload(): Boolean {
     return state == WorkInfo.State.RUNNING ||
         state == WorkInfo.State.ENQUEUED ||
         state == WorkInfo.State.BLOCKED
+}
+
+private fun downloadedChapterKeysFor(
+    details: MangaDetails,
+    library: List<DownloadedSeries>,
+): Set<String> {
+    val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
+    val detailsTitleKey = MangaSourceCatalog.identityKeyOrNull(
+        sourceId = details.sourceId,
+        mangaUrl = null,
+        title = details.title,
+    )
+    val detailsKeys = buildSet {
+        add(detailsKey)
+        detailsTitleKey?.let(::add)
+    }
+    val matchingSeries = library.firstOrNull { series ->
+        val seriesKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = series.mangaUrl,
+            title = series.title,
+        )
+        val seriesTitleKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = null,
+            title = series.title,
+        )
+        seriesKey in detailsKeys || seriesTitleKey in detailsKeys
+    } ?: return emptySet()
+
+    return buildSet {
+        matchingSeries.chapters.forEach { chapter ->
+            add(chapter.chapterId)
+            add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
+        }
+    }
 }
 
 private fun MangaUiState.canHandleBack(): Boolean {

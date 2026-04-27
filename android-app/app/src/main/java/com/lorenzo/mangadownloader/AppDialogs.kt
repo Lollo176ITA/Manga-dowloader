@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +51,7 @@ fun CrashReportDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ultimo crash rilevato") },
+        shape = MaterialTheme.shapes.extraLarge,
         text = {
             Text(
                 text = buildString {
@@ -91,6 +91,7 @@ fun AvailableUpdateDialog(
             }
         },
         title = { Text("Aggiornamento disponibile") },
+        shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -124,12 +125,9 @@ fun AvailableUpdateDialog(
                 }
                 if (isInstalling) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        AppLoadingIndicator(modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Scaricamento e apertura installer...")
+                        Text("Scaricamento installer...")
                     }
                 }
             }
@@ -170,6 +168,7 @@ fun ParentalPinSetupDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
+        shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Scegli un PIN numerico di 6 cifre per proteggere Cerca.")
@@ -219,6 +218,7 @@ fun ParentalPinEntryDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Inserisci PIN") },
+        shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Inserisci il PIN parental di 6 cifre.")
@@ -261,6 +261,7 @@ private fun ConfirmationDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
+        shape = MaterialTheme.shapes.extraLarge,
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(confirmLabel)

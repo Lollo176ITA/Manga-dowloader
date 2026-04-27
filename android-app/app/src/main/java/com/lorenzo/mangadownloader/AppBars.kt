@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,15 +18,18 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -38,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Column
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,31 +85,23 @@ fun AppTopBar(
 
     val inDetail = selectedManga != null
     val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
-    val showOverflow = state.readerChapter == null &&
+    val showOverflow = readerChapter == null &&
         !state.showSettings &&
         !inDetail &&
         !inSeries
 
     CenterAlignedTopAppBar(
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
+                    style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (showOverflow) {
-                    Text(
-                        text = selectedSourceShortName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         },
         navigationIcon = {
@@ -120,18 +115,15 @@ fun AppTopBar(
             }
         },
         actions = {
-            if (inDetail && selectedManga != null) {
+            if (selectedManga != null) {
                 val isFavorite = MangaSourceCatalog.identityKey(
                     selectedManga.sourceId,
                     selectedManga.mangaUrl,
                 ) in state.favoriteMangaKeys
-                IconButton(onClick = onToggleFavorite) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
-                        tint = if (isFavorite) FavoriteYellow else MaterialTheme.colorScheme.onSurface,
-                    )
-                }
+                FavoriteToggleAction(
+                    isFavorite = isFavorite,
+                    onToggle = onToggleFavorite,
+                )
             }
 
             if (showOverflow) {
@@ -180,6 +172,7 @@ fun AppTopBar(
                 showServerDialog = false
             },
             title = { Text("Seleziona server") },
+            shape = MaterialTheme.shapes.extraLarge,
             text = {
                 ExposedDropdownMenuBox(
                     expanded = serverSelectorExpanded,
@@ -192,7 +185,7 @@ fun AppTopBar(
                         value = selectedSourceName,
                         onValueChange = {},
                         modifier = Modifier
-                            .menuAnchor()
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth(),
                         readOnly = true,
                         singleLine = true,
@@ -236,28 +229,72 @@ fun AppTopBar(
 }
 
 @Composable
+private fun FavoriteToggleAction(
+    isFavorite: Boolean,
+    onToggle: () -> Unit,
+) {
+    FilledIconToggleButton(
+        checked = isFavorite,
+        onCheckedChange = { onToggle() },
+        shape = if (isFavorite) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraLarge,
+        colors = IconButtonDefaults.filledIconToggleButtonColors(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            checkedContentColor = FavoriteYellow,
+        ),
+    ) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+            contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
+        )
+    }
+}
+
+@Composable
 fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
 ) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-        NavigationBarItem(
+    ShortNavigationBar(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        AppTabEntry(
+            tab = AppTab.SEARCH,
             selected = currentTab == AppTab.SEARCH,
-            onClick = { onSelect(AppTab.SEARCH) },
-            icon = { Icon(Icons.Default.Search, contentDescription = null) },
-            label = { Text("Cerca") },
+            icon = Icons.Default.Search,
+            label = "Cerca",
+            onSelect = onSelect,
         )
-        NavigationBarItem(
+        AppTabEntry(
+            tab = AppTab.FAVORITES,
             selected = currentTab == AppTab.FAVORITES,
-            onClick = { onSelect(AppTab.FAVORITES) },
-            icon = { Icon(Icons.Default.Star, contentDescription = null) },
-            label = { Text("Preferiti") },
+            icon = Icons.Default.Star,
+            label = "Preferiti",
+            onSelect = onSelect,
         )
-        NavigationBarItem(
+        AppTabEntry(
+            tab = AppTab.LIBRARY,
             selected = currentTab == AppTab.LIBRARY,
-            onClick = { onSelect(AppTab.LIBRARY) },
-            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
-            label = { Text("Libreria") },
+            icon = Icons.AutoMirrored.Filled.LibraryBooks,
+            label = "Libreria",
+            onSelect = onSelect,
         )
     }
+}
+
+@Composable
+private fun AppTabEntry(
+    tab: AppTab,
+    selected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onSelect: (AppTab) -> Unit,
+) {
+    ShortNavigationBarItem(
+        selected = selected,
+        onClick = { onSelect(tab) },
+        icon = { Icon(icon, contentDescription = null) },
+        label = { Text(label) },
+    )
 }

@@ -67,7 +67,7 @@ fun ReaderScreen(
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
-    onPageVisible: (pageIndex: Int, pageCount: Int) -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
 ) {
     val view = LocalView.current
 
@@ -127,7 +127,7 @@ private fun ReaderContent(
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
-    onPageVisible: (pageIndex: Int, pageCount: Int) -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -135,13 +135,28 @@ private fun ReaderContent(
     var readerOffsetX by remember(chapterKey) { mutableStateOf(0f) }
     var readerOffsetY by remember(chapterKey) { mutableStateOf(0f) }
     var viewportSize by remember(chapterKey) { mutableStateOf(IntSize.Zero) }
+    var restoreComplete by remember(chapterKey) { mutableStateOf(false) }
+    var hasReaderMovedAfterRestore by remember(chapterKey) { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    LaunchedEffect(chapterKey, pages.size) {
+        if (chapter == null || pages.isEmpty()) return@LaunchedEffect
+
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (restoreComplete && scrolling) {
+                    hasReaderMovedAfterRestore = true
+                }
+            }
+    }
 
     LaunchedEffect(chapterKey, pages.size, initialPageIndex) {
         if (chapter == null || pages.isEmpty()) return@LaunchedEffect
 
         val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex)
         listState.scrollToItem(restoredPageIndex + ReaderPageItemOffset)
+        restoreComplete = true
 
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
@@ -154,18 +169,27 @@ private fun ReaderContent(
                         minOf(item.offset + item.size, layoutInfo.viewportEndOffset) -
                             maxOf(item.offset, layoutInfo.viewportStartOffset)
                         ).coerceAtLeast(0)
-                    pageIndex to visiblePixels
+                    if (visiblePixels > 0) {
+                        Triple(pageIndex, visiblePixels, item.size)
+                    } else {
+                        null
+                    }
                 }
             }
-            if (visiblePages.any { (pageIndex, _) -> pageIndex == pages.lastIndex }) {
-                pages.lastIndex
-            } else {
-                visiblePages.maxByOrNull { (_, visiblePixels) -> visiblePixels }?.first ?: restoredPageIndex
-            }
+            val furthestMostlyVisiblePage = visiblePages
+                .filter { (_, visiblePixels, itemSize) -> itemSize > 0 && visiblePixels * 2 >= itemSize }
+                .maxOfOrNull { (pageIndex, _, _) -> pageIndex }
+            val dominantVisiblePage = visiblePages
+                .maxByOrNull { (_, visiblePixels) -> visiblePixels }
+                ?.first
+            val reachedPageIndex = furthestMostlyVisiblePage
+                ?: dominantVisiblePage
+                ?: restoredPageIndex
+            reachedPageIndex to hasReaderMovedAfterRestore
         }
             .distinctUntilChanged()
-            .collect { reachedPageIndex ->
-                onPageVisible(reachedPageIndex, pages.size)
+            .collect { (reachedPageIndex, allowCompletion) ->
+                onPageVisible(reachedPageIndex, pages.size, allowCompletion)
             }
     }
 

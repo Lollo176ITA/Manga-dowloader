@@ -817,12 +817,8 @@ class MangaViewModel internal constructor(
                     pageIndex = restoredPageIndex,
                     pageCount = pages.size,
                 )
-                val completed = restoredPageIndex >= pages.lastIndex
-                if (completed) {
-                    libraryRepository.markChapterRead(chapter)
-                }
                 val updated = (_state.value.readerChapter ?: chapter).copy(
-                    isRead = (_state.value.readerChapter ?: chapter).isRead || completed,
+                    isRead = (_state.value.readerChapter ?: chapter).isRead,
                     readerPageIndex = restoredPageIndex,
                     readerPageCount = pages.size,
                 )
@@ -835,9 +831,7 @@ class MangaViewModel internal constructor(
                     relativePath = updated.relativePath,
                     pageIndex = restoredPageIndex,
                     pageCount = pages.size,
-                ).let { state ->
-                    if (completed) state.withReadChapter(updated.relativePath) else state
-                }.withReaderAdjacency(updated.relativePath)
+                ).withReaderAdjacency(updated.relativePath)
                 _state.value = nextState
             } catch (e: CancellationException) {
                 throw e
@@ -853,12 +847,16 @@ class MangaViewModel internal constructor(
         maybePerformSmartCleanup(chapter)
     }
 
-    fun saveReaderPagePosition(pageIndex: Int, pageCount: Int) {
+    fun saveReaderPagePosition(pageIndex: Int, pageCount: Int, allowCompletion: Boolean) {
         val chapter = _state.value.readerChapter ?: return
         val safePageCount = pageCount.coerceAtLeast(1)
         val safePageIndex = pageIndex.coerceIn(0, safePageCount - 1)
         val currentPageIndex = chapter.readerPageIndex ?: -1
-        val nextPageIndex = maxOf(currentPageIndex, safePageIndex)
+        val nextPageIndex = if (allowCompletion) {
+            maxOf(currentPageIndex, safePageIndex)
+        } else {
+            currentPageIndex.coerceAtLeast(0).coerceIn(0, safePageCount - 1)
+        }
         if (
             chapter.readerPageIndex == nextPageIndex &&
             chapter.readerPageCount == safePageCount
@@ -871,7 +869,7 @@ class MangaViewModel internal constructor(
             pageIndex = nextPageIndex,
             pageCount = safePageCount,
         )
-        val completed = nextPageIndex >= safePageCount - 1
+        val completed = allowCompletion && nextPageIndex >= safePageCount - 1
         if (completed && !chapter.isRead) {
             libraryRepository.markChapterRead(chapter)
         }

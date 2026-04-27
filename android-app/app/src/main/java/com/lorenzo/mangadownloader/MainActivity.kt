@@ -289,6 +289,9 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
                     autoReaderSpeed = state.settings.autoReaderSpeed,
+                    privacyBrightnessEnabled = state.settings.privacyBrightnessEnabled,
+                    readerBrightness = state.settings.readerBrightness,
+                    onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                 )
@@ -311,6 +314,7 @@ private fun MangaDownloaderAppContent(
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
+                    onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onSelectAutoReaderSpeed = viewModel::setAutoReaderSpeed,
                 )
             }

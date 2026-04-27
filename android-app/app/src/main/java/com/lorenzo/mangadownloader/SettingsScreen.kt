@@ -59,6 +59,7 @@ fun SettingsScreen(
     onToggleParentalBiometric: (Boolean) -> Unit,
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
+    onTogglePrivacyBrightness: (Boolean) -> Unit,
     onSelectAutoReaderSpeed: (AutoReaderSpeed) -> Unit,
 ) {
     Column(
@@ -193,6 +194,13 @@ fun SettingsScreen(
                     description = "Include le preview pubblicate dal branch dev quando controlli gli aggiornamenti.",
                     checked = settings.downloadDevUpdates,
                     onCheckedChange = onToggleDownloadDevUpdates,
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = "Privacy luce",
+                    description = "Mostra nel reader un controllo sole per ridurre la luminosità, anche sotto il minimo pratico dello schermo.",
+                    checked = settings.privacyBrightnessEnabled,
+                    onCheckedChange = onTogglePrivacyBrightness,
                 )
                 SettingsDivider()
                 AutoReaderSettings(

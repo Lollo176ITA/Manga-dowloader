@@ -57,6 +57,8 @@ data class AppSettings(
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
     val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
+    val privacyBrightnessEnabled: Boolean = false,
+    val readerBrightness: Float = 1f,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
 )
@@ -567,6 +569,8 @@ class MangaViewModel internal constructor(
                 labsEnabled = false,
                 downloadDevUpdates = false,
                 autoReaderSpeed = AutoReaderSpeed.OFF,
+                privacyBrightnessEnabled = false,
+                readerBrightness = 1f,
             )
         }
     }
@@ -580,6 +584,14 @@ class MangaViewModel internal constructor(
 
     fun setAutoReaderSpeed(speed: AutoReaderSpeed) {
         updateSettings { it.copy(autoReaderSpeed = speed) }
+    }
+
+    fun setPrivacyBrightnessEnabled(enabled: Boolean) {
+        updateSettings { it.copy(privacyBrightnessEnabled = enabled) }
+    }
+
+    fun setReaderBrightness(brightness: Float) {
+        updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -1292,6 +1304,8 @@ class MangaViewModel internal constructor(
                         ?: AutoReaderSpeed.OFF.name,
                 )
             }.getOrDefault(AutoReaderSpeed.OFF),
+            privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
+            readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
             themeMode = runCatching {
                 ThemeMode.valueOf(
                     prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
@@ -1318,6 +1332,8 @@ class MangaViewModel internal constructor(
             .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
             .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
             .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
+            .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
+            .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             .apply()
@@ -1350,6 +1366,8 @@ class MangaViewModel internal constructor(
         private const val KEY_LABS_ENABLED = "labs_enabled"
         private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
         private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
+        private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
+        private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         private const val PARENTAL_PIN_LENGTH = 6

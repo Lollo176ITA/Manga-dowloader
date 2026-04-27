@@ -68,6 +68,7 @@ fun ReaderScreen(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleTitle: () -> Unit,
 ) {
     val view = LocalView.current
 
@@ -110,6 +111,7 @@ fun ReaderScreen(
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
             onPageVisible = onPageVisible,
+            onToggleTitle = onToggleTitle,
         )
     }
 }
@@ -128,6 +130,7 @@ private fun ReaderContent(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleTitle: () -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -335,6 +338,9 @@ private fun ReaderContent(
                     }
                     .pointerInput(chapterKey) {
                         detectTapGestures(
+                            onTap = {
+                                onToggleTitle()
+                            },
                             onDoubleTap = { tapOffset ->
                                 if (readerScale > minScale) {
                                     readerScale = minScale

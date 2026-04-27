@@ -251,6 +251,7 @@ private fun MangaDownloaderAppContent(
         enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
         brightness = state.settings.readerBrightness,
     )
+    var showReaderTitle by remember(state.readerChapter?.relativePath) { mutableStateOf(true) }
 
     BackHandler(enabled = canHandleBack) {
         state.handleBack(viewModel)
@@ -286,6 +287,7 @@ private fun MangaDownloaderAppContent(
             AppTopBar(
                 state = state,
                 visibleTab = visiblePagerTab,
+                showReaderTitle = showReaderTitle,
                 onBack = { state.handleBack(viewModel) },
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
@@ -330,6 +332,7 @@ private fun MangaDownloaderAppContent(
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                     onPageVisible = viewModel::saveReaderPagePosition,
+                    onToggleTitle = { showReaderTitle = !showReaderTitle },
                 )
             }
             state.showSettings -> {

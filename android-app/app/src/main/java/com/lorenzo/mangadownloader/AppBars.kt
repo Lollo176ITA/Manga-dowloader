@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 fun AppTopBar(
     state: MangaUiState,
     visibleTab: AppTab,
+    showReaderTitle: Boolean,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -75,7 +76,7 @@ fun AppTopBar(
         (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
         state.showSettings -> "Impostazioni"
-        readerChapter != null -> readerChapter.title
+        readerChapter != null -> if (showReaderTitle) readerChapter.title else ""
         selectedManga != null -> selectedManga.title
         state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
         visibleTab == AppTab.SEARCH -> "Cerca"

@@ -11,7 +11,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -216,6 +220,10 @@ private fun MangaDownloaderAppContent(
         else -> AppTab.entries[pagerState.currentPage]
     }
     val canHandleBack = state.canHandleBack()
+    val privacyDimAlpha = readerPrivacyDimAlpha(
+        enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
+        brightness = state.settings.readerBrightness,
+    )
 
     BackHandler(enabled = canHandleBack) {
         state.handleBack(viewModel)
@@ -245,7 +253,8 @@ private fun MangaDownloaderAppContent(
         }
     }
 
-    Scaffold(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
             AppTopBar(
                 state = state,
@@ -254,6 +263,7 @@ private fun MangaDownloaderAppContent(
                 onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                 onOpenSettings = viewModel::openSettings,
                 onSelectSource = viewModel::selectSearchSource,
+                onReaderBrightnessChange = viewModel::setReaderBrightness,
             )
         },
         bottomBar = {
@@ -289,9 +299,6 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
                     autoReaderSpeed = state.settings.autoReaderSpeed,
-                    privacyBrightnessEnabled = state.settings.privacyBrightnessEnabled,
-                    readerBrightness = state.settings.readerBrightness,
-                    onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                 )
@@ -384,6 +391,13 @@ private fun MangaDownloaderAppContent(
                 }
             }
         }
+        if (privacyDimAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = privacyDimAlpha)),
+            )
+        }
     }
 
     lastCrashReport?.let { report ->
@@ -431,6 +445,13 @@ private fun WorkInfo.isActiveDownload(): Boolean {
         state == WorkInfo.State.ENQUEUED ||
         state == WorkInfo.State.BLOCKED
 }
+
+private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
+    if (!enabled) return 0f
+    return (1f - brightness.coerceIn(0f, 1f)) * ReaderPrivacyMaxDimAlpha
+}
+
+private const val ReaderPrivacyMaxDimAlpha = 0.86f
 
 private fun downloadedChapterKeysFor(
     details: MangaDetails,

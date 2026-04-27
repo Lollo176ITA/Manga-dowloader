@@ -26,6 +26,7 @@ data class DownloadedChapter(
     val numberText: String,
     val numberValue: BigDecimal?,
     val volumeText: String?,
+    val labelPrefix: String,
     val file: File,
     val relativePath: String,
     val chapterId: String,
@@ -60,6 +61,7 @@ data class SeriesMetadataChapter(
     val fileName: String,
     val id: String?,
     val volumeText: String? = null,
+    val labelPrefix: String = "Capitolo",
 )
 
 object DownloadStorage {
@@ -164,6 +166,7 @@ object SeriesMetadataJson {
                                 chapter.url?.let { put("url", JsonPrimitive(it)) }
                                 chapter.slug?.let { put("slug", JsonPrimitive(it)) }
                                 chapter.volumeText?.let { put("volumeText", JsonPrimitive(it)) }
+                                put("labelPrefix", JsonPrimitive(chapter.labelPrefix))
                                 put("fileName", JsonPrimitive(chapter.fileName))
                                 chapter.id?.let { put("id", JsonPrimitive(it)) }
                             },
@@ -230,6 +233,10 @@ object SeriesMetadataJson {
             fileName = fileName,
             id = jsonObject["id"]?.jsonPrimitive?.contentOrNull,
             volumeText = jsonObject["volumeText"]?.jsonPrimitive?.contentOrNull,
+            labelPrefix = jsonObject["labelPrefix"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: "Capitolo",
         )
     }
 }
@@ -279,11 +286,16 @@ object LibraryScanner {
                     )
                 val chapterIsRead = isRead(relativePath) || chapterId in persistedReadIds
                 val volumeText = chapterMeta?.volumeText?.trim()?.takeIf(String::isNotBlank)
+                val labelPrefix = chapterMeta?.labelPrefix
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+                    ?: "Capitolo"
                 DownloadedChapter(
-                    title = volumeText?.let { "$it - Capitolo $normalized" } ?: "Capitolo $normalized",
+                    title = volumeText?.let { "$it - $labelPrefix $normalized" } ?: "$labelPrefix $normalized",
                     numberText = normalized,
                     numberValue = DownloadStorage.parseChapterValueOrNull(normalized),
                     volumeText = volumeText,
+                    labelPrefix = labelPrefix,
                     file = file,
                     relativePath = relativePath,
                     chapterId = chapterId,
@@ -505,6 +517,7 @@ class LibraryRepository(
                     fileName = chapter.file.name,
                     id = chapter.chapterId,
                     volumeText = chapter.volumeText,
+                    labelPrefix = chapter.labelPrefix,
                 )
             },
         )
@@ -549,6 +562,7 @@ class LibraryRepository(
                         slug = preserved?.slug,
                     ),
                     volumeText = preserved?.volumeText,
+                    labelPrefix = preserved?.labelPrefix ?: "Capitolo",
                 )
             },
         )

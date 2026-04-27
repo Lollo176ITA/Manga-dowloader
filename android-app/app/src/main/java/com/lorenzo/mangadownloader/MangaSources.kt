@@ -228,8 +228,8 @@ abstract class BaseMangaSource(
             outputDir = outputDir,
             chapters = selected,
             totalChapterCount = details.chapters.size,
-            startChapterLabel = selected.first().displayNumber(),
-            endChapterLabel = selected.last().displayNumber(),
+            startChapterLabel = selected.first().displayLabel(),
+            endChapterLabel = selected.last().displayLabel(),
         )
     }
 
@@ -254,6 +254,7 @@ abstract class BaseMangaSource(
                     slug = chapter.slug,
                 ),
                 volumeText = chapter.volumeText,
+                labelPrefix = chapter.labelPrefix,
             )
         }
         val metadata = SeriesMetadata(

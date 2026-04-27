@@ -141,8 +141,6 @@ fun SettingsScreen(
                     } else {
                         "Attivo ma PIN non ancora configurato."
                     }
-                } else {
-                    "Disattivato di default. Preferiti e Libreria restano sempre liberi."
                 },
                 checked = settings.parentalControlEnabled,
                 switchEnabled = !isParentalAuthInProgress,
@@ -197,7 +195,7 @@ fun SettingsScreen(
                 )
                 SettingsDivider()
                 SettingsSwitchRow(
-                    title = "Privacy luce",
+                    title = "Luminosità",
                     description = "Mostra nel reader un controllo sole per ridurre la luminosità, anche sotto il minimo pratico dello schermo.",
                     checked = settings.privacyBrightnessEnabled,
                     onCheckedChange = onTogglePrivacyBrightness,

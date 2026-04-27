@@ -243,6 +243,39 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangaWorldMangaDetails_readsVolumeOnlyEntries() {
+        val details = MangaWorldSource.parseMangaDetails(
+            """
+            <section id="manga-page">
+              <h1 class="name bigger">20th Century Boys</h1>
+              <div id="chapterList">
+                <div class="chapters-wrapper py-2 pl-0">
+                  <div class="volume-element pl-2">
+                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 02</p></div>
+                    <div class="volume-chapters pl-2">
+                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2726/20th-century-boys/read/volume-2" title="20th Century Boys Volume 02 Scan ITA"><span>Volume 02</span></a></div>
+                    </div>
+                  </div>
+                  <div class="volume-element pl-2">
+                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 01</p></div>
+                    <div class="volume-chapters pl-2">
+                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2726/20th-century-boys/read/volume-1" title="20th Century Boys Volume 01 Scan ITA"><span>Volume 01</span></a></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            """.trimIndent(),
+            "https://www.mangaworld.mx/manga/2726/20th-century-boys",
+        )
+
+        assertEquals(listOf("01", "02"), details.chapters.map { it.numberText })
+        assertEquals(listOf("Volume", "Volume"), details.chapters.map { it.labelPrefix })
+        assertTrue(details.chapters.none { it.volumeText != null })
+        assertEquals("Volume 1", details.chapters.first().displayLabel())
+    }
+
+    @Test
     fun mangaWorldChapterPages_readsListReaderImages() {
         val pages = MangaWorldSource.parsePageImageUrls(
             """

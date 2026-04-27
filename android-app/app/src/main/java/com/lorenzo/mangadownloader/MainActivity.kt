@@ -175,7 +175,7 @@ private fun MangaDownloaderAppContent(
         val lastUrl = endChapter.url.trim()
         if (firstUrl.isBlank()) {
             scope.launch {
-                snackbarHostState.showSnackbar("URL capitolo non valido")
+                snackbarHostState.showSnackbar("URL non valido")
             }
         } else {
             try {
@@ -191,9 +191,9 @@ private fun MangaDownloaderAppContent(
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         if (startChapter.url == endChapter.url) {
-                            "Download aggiunto in coda: capitolo ${startChapter.displayNumber()}"
+                            "Download aggiunto in coda: ${startChapter.displayLabel()}"
                         } else {
-                            "Download aggiunto in coda: ${startChapter.displayNumber()}-${endChapter.displayNumber()}"
+                            "Download aggiunto in coda: ${startChapter.displayLabel()} - ${endChapter.displayLabel()}"
                         },
                     )
                 }

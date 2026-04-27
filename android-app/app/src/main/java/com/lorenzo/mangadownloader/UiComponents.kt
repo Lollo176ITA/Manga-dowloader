@@ -380,7 +380,7 @@ fun ChapterRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Capitolo ${chapter.displayNumber()}",
+                text = chapter.displayShortLabel(),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,

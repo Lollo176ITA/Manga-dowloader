@@ -70,8 +70,8 @@ class MangaWorldSource(
                 """^https?://(?:www\.)?mangaworld\.mx/manga/(\d+)(?:/([^/?#]+))?/read/([^/?#]+)(?:/\d+)?""",
                 RegexOption.IGNORE_CASE,
             )
-        private val chapterNumberRegex =
-            Regex("""capitolo\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        private val readingEntryRegex =
+            Regex("""(capitolo|volume)\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
 
         fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null || chapterReaderUrl(url) != null
@@ -191,20 +191,22 @@ class MangaWorldSource(
                     anchor.attr("title"),
                     anchor.text(),
                 ) ?: continue
-                val numberText = chapterNumberRegex.find(title)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.trim()
-                    ?: continue
+                val entryMatch = readingEntryRegex.find(title) ?: continue
+                val labelPrefix = entryMatch.groupValues[1]
+                    .lowercase(Locale.US)
+                    .replaceFirstChar { it.titlecase(Locale.US) }
+                val numberText = entryMatch.groupValues[2].trim()
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
                     ?: numberText.toBigDecimalOrNull()
                     ?: BigDecimal(numberText)
+                val normalizedVolumeText = volumeText?.takeIf(String::isNotBlank)
                 target[chapterUrl] = ChapterEntry(
                     numberText = numberText,
                     numberValue = numberValue,
                     url = chapterUrl,
                     slug = chapterSlug(chapterUrl, numberText),
-                    volumeText = volumeText?.takeIf(String::isNotBlank),
+                    volumeText = normalizedVolumeText.takeUnless { labelPrefix == "Volume" },
+                    labelPrefix = labelPrefix,
                 )
             }
         }

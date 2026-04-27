@@ -276,7 +276,7 @@ private fun ReaderBrightnessAction(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 Text(
-                    text = "Privacy luce",
+                    text = "Luminosità",
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(

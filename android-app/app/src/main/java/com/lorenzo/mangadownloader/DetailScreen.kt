@@ -90,7 +90,7 @@ fun DetailScreen(
             SeriesHeader(
                 coverModel = details.coverUrl,
                 title = details.title,
-                subtitle = "${chapters.size} capitoli disponibili",
+                subtitle = "${chapters.size} ${readingUnitPlural(chapters)} disponibili",
             )
 
             if (isLoading && chapters.isEmpty()) {

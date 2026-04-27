@@ -425,15 +425,26 @@ fun DownloadedChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
-            if (chapter.isRead) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Letto",
-                    tint = ReadGreen,
-                    modifier = Modifier.size(22.dp),
-                )
-            } else {
-                Spacer(modifier = Modifier.width(22.dp))
+            Box(
+                modifier = Modifier.width(32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    chapter.isReaderCompleted() -> {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Completato",
+                            tint = ReadGreen,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    chapter.hasReaderProgress() -> {
+                        ChapterReadProgressRing(
+                            pageIndex = chapter.readerPageIndex,
+                            pageCount = chapter.readerPageCount,
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(onClick = onDelete) {

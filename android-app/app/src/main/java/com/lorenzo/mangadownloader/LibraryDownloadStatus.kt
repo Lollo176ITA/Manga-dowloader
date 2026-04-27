@@ -153,7 +153,7 @@ fun DownloadedSeries.isFullyRead(): Boolean {
 }
 
 fun DownloadedSeries.resumeChapter(): DownloadedChapter? {
-    return chapters.lastOrNull { it.hasUnfinishedReaderPosition() }
+    return chapters.lastOrNull { it.hasReaderProgress() && !it.isReaderCompleted() }
         ?: chapters.firstOrNull { !it.isRead }
         ?: chapters.lastOrNull()
 }
@@ -176,8 +176,13 @@ fun DownloadedSeries.readProgressLabel(): String {
     }
 }
 
-private fun DownloadedChapter.hasUnfinishedReaderPosition(): Boolean {
-    val pageIndex = readerPageIndex ?: return false
-    val pageCount = readerPageCount ?: return true
-    return pageCount <= 0 || pageIndex < pageCount - 1
+fun DownloadedChapter.hasReaderProgress(): Boolean {
+    return readerPageIndex != null
+}
+
+fun DownloadedChapter.isReaderCompleted(): Boolean {
+    if (!isRead) return false
+    val pageIndex = readerPageIndex ?: return true
+    val pageCount = readerPageCount ?: return false
+    return pageCount > 0 && pageIndex >= pageCount - 1
 }

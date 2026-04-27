@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -100,36 +99,24 @@ fun LibrarySeriesCard(
                     )
                 }
             }
-            Column(
-                modifier = Modifier.width(56.dp),
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Box(
+                modifier = Modifier.width(48.dp),
+                contentAlignment = Alignment.TopEnd,
             ) {
                 if (series != null) {
-                    LibraryReadProgressRing(
-                        readCount = series.readChapterCount(),
-                        totalCount = series.totalChapterCount,
+                    SeriesActionsMenu(
+                        expanded = menuExpanded,
+                        onExpand = { menuExpanded = true },
+                        onDismiss = { menuExpanded = false },
+                        onShowInfo = {
+                            menuExpanded = false
+                            showInfoDialog = true
+                        },
+                        onDelete = {
+                            menuExpanded = false
+                            showDeleteDialog = true
+                        },
                     )
-                }
-                if (series != null) {
-                    Box(
-                        modifier = Modifier.width(48.dp),
-                        contentAlignment = Alignment.TopEnd,
-                    ) {
-                        SeriesActionsMenu(
-                            expanded = menuExpanded,
-                            onExpand = { menuExpanded = true },
-                            onDismiss = { menuExpanded = false },
-                            onShowInfo = {
-                                menuExpanded = false
-                                showInfoDialog = true
-                            },
-                            onDelete = {
-                                menuExpanded = false
-                                showDeleteDialog = true
-                            },
-                        )
-                    }
                 }
             }
         }

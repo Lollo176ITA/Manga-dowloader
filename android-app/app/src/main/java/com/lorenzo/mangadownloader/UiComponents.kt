@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -439,9 +440,11 @@ fun DownloadedChapterRow(
                         )
                     }
                     chapter.hasReaderProgress() -> {
-                        ChapterReadProgressRing(
-                            pageIndex = chapter.readerPageIndex,
-                            pageCount = chapter.readerPageCount,
+                        Icon(
+                            imageVector = Icons.Default.Bookmark,
+                            contentDescription = chapter.readerProgressDescription(),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }

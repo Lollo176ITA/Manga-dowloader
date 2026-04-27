@@ -144,12 +144,28 @@ private fun ReaderContent(
         listState.scrollToItem(restoredPageIndex + ReaderPageItemOffset)
 
         snapshotFlow {
-            listState.firstVisibleItemIndex - ReaderPageItemOffset
+            val layoutInfo = listState.layoutInfo
+            val visiblePages = layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                val pageIndex = item.index - ReaderPageItemOffset
+                if (pageIndex !in pages.indices) {
+                    null
+                } else {
+                    val visiblePixels = (
+                        minOf(item.offset + item.size, layoutInfo.viewportEndOffset) -
+                            maxOf(item.offset, layoutInfo.viewportStartOffset)
+                        ).coerceAtLeast(0)
+                    pageIndex to visiblePixels
+                }
+            }
+            if (visiblePages.any { (pageIndex, _) -> pageIndex == pages.lastIndex }) {
+                pages.lastIndex
+            } else {
+                visiblePages.maxByOrNull { (_, visiblePixels) -> visiblePixels }?.first ?: restoredPageIndex
+            }
         }
             .distinctUntilChanged()
-            .collect { visiblePageIndex ->
-                val pageIndex = visiblePageIndex.coerceIn(0, pages.lastIndex)
-                onPageVisible(pageIndex, pages.size)
+            .collect { reachedPageIndex ->
+                onPageVisible(reachedPageIndex, pages.size)
             }
     }
 

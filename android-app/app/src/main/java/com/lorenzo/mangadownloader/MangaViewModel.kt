@@ -788,7 +788,6 @@ class MangaViewModel internal constructor(
         val initialPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
             ?: chapter.readerPageIndex
             ?: 0
-        libraryRepository.markChapterRead(chapter)
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
             pageIndex = initialPageIndex,
@@ -796,7 +795,6 @@ class MangaViewModel internal constructor(
         )
         _state.value = _state.value.copy(
             readerChapter = chapter.copy(
-                isRead = true,
                 readerPageIndex = initialPageIndex,
             ),
             readerPreviousChapter = null,
@@ -805,12 +803,11 @@ class MangaViewModel internal constructor(
             readerInitialPageIndex = initialPageIndex,
             isLoadingReader = true,
             errorMessage = null,
-        ).withReadChapter(chapter.relativePath)
-            .withReaderPosition(
-                relativePath = chapter.relativePath,
-                pageIndex = initialPageIndex,
-                pageCount = chapter.readerPageCount,
-            )
+        ).withReaderPosition(
+            relativePath = chapter.relativePath,
+            pageIndex = initialPageIndex,
+            pageCount = chapter.readerPageCount,
+        )
             .withReaderAdjacency(chapter.relativePath)
 
         readerJob = viewModelScope.launch {
@@ -822,12 +819,16 @@ class MangaViewModel internal constructor(
                     pageIndex = restoredPageIndex,
                     pageCount = pages.size,
                 )
+                val completed = restoredPageIndex >= pages.lastIndex
+                if (completed) {
+                    libraryRepository.markChapterRead(chapter)
+                }
                 val updated = (_state.value.readerChapter ?: chapter).copy(
-                    isRead = true,
+                    isRead = (_state.value.readerChapter ?: chapter).isRead || completed,
                     readerPageIndex = restoredPageIndex,
                     readerPageCount = pages.size,
                 )
-                _state.value = _state.value.copy(
+                val nextState = _state.value.copy(
                     readerChapter = updated,
                     readerPages = pages,
                     readerInitialPageIndex = restoredPageIndex,
@@ -836,7 +837,10 @@ class MangaViewModel internal constructor(
                     relativePath = updated.relativePath,
                     pageIndex = restoredPageIndex,
                     pageCount = pages.size,
-                ).withReaderAdjacency(updated.relativePath)
+                ).let { state ->
+                    if (completed) state.withReadChapter(updated.relativePath) else state
+                }.withReaderAdjacency(updated.relativePath)
+                _state.value = nextState
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -855,8 +859,10 @@ class MangaViewModel internal constructor(
         val chapter = _state.value.readerChapter ?: return
         val safePageCount = pageCount.coerceAtLeast(1)
         val safePageIndex = pageIndex.coerceIn(0, safePageCount - 1)
+        val currentPageIndex = chapter.readerPageIndex ?: -1
+        val nextPageIndex = maxOf(currentPageIndex, safePageIndex)
         if (
-            chapter.readerPageIndex == safePageIndex &&
+            chapter.readerPageIndex == nextPageIndex &&
             chapter.readerPageCount == safePageCount
         ) {
             return
@@ -864,15 +870,20 @@ class MangaViewModel internal constructor(
 
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
-            pageIndex = safePageIndex,
+            pageIndex = nextPageIndex,
             pageCount = safePageCount,
         )
+        val completed = nextPageIndex >= safePageCount - 1
+        if (completed && !chapter.isRead) {
+            libraryRepository.markChapterRead(chapter)
+        }
         updateState {
-            withReaderPosition(
+            val positionedState = withReaderPosition(
                 relativePath = chapter.relativePath,
-                pageIndex = safePageIndex,
+                pageIndex = nextPageIndex,
                 pageCount = safePageCount,
             )
+            if (completed) positionedState.withReadChapter(chapter.relativePath) else positionedState
         }
     }
 

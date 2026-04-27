@@ -180,6 +180,16 @@ fun DownloadedChapter.hasReaderProgress(): Boolean {
     return readerPageIndex != null
 }
 
+fun DownloadedChapter.readerProgressDescription(): String {
+    val pageIndex = readerPageIndex ?: return "Lettura in corso"
+    val pageCount = readerPageCount
+    return if (pageCount != null && pageCount > 0) {
+        "Riprendi da pagina ${pageIndex + 1} di $pageCount"
+    } else {
+        "Lettura in corso"
+    }
+}
+
 fun DownloadedChapter.isReaderCompleted(): Boolean {
     if (!isRead) return false
     val pageIndex = readerPageIndex ?: return true

@@ -185,6 +185,10 @@ class MangaSourcesTest {
                 <div class="thumb"><img src="https://cdn.mangaworld.mx/mangas/cover.png"></div>
                 <h1 class="name bigger">Return of the Mount Hua Sect</h1>
               </div>
+              <div class="has-shadow comic-description px-3 mt-4">
+                <div class="heading pt-3">TRAMA</div>
+                <div id="noidungm" class="mb-3">Una seconda vita piena di magia e mostri.</div>
+              </div>
               <div id="chapterList">
                 <div class="chapters-wrapper">
                   <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/chapter-2?style=list" title="Return Capitolo 02 Scan ITA"><span>Capitolo 02</span></a></div>
@@ -203,6 +207,7 @@ class MangaSourcesTest {
             "https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/chapter-1?style=list",
             details.chapters.first().url,
         )
+        assertEquals("Una seconda vita piena di magia e mostri.", details.description)
     }
 
     @Test

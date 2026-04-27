@@ -358,6 +358,8 @@ private fun MangaDownloaderAppContent(
                             onRefresh = viewModel::submitSearch,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
+                            onShowInfo = viewModel::showMangaInfo,
+                            onDismissInfo = viewModel::dismissMangaInfo,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,

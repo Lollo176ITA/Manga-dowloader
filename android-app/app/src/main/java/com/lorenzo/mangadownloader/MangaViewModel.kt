@@ -116,6 +116,7 @@ data class MangaUiState(
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val isLoadingDetails: Boolean = false,
+    val mangaInfoDialog: MangaInfoDialogState? = null,
     val library: List<DownloadedSeries> = emptyList(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
@@ -134,6 +135,16 @@ data class MangaUiState(
     val parentalPinSetupState: ParentalPinSetupState? = null,
     val parentalPinEntryState: ParentalPinEntryState? = null,
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
+    val errorMessage: String? = null,
+)
+
+data class MangaInfoDialogState(
+    val sourceId: String,
+    val title: String,
+    val mangaUrl: String,
+    val coverUrl: String?,
+    val description: String? = null,
+    val isLoading: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -166,6 +177,7 @@ class MangaViewModel internal constructor(
 
     private var searchJob: Job? = null
     private var detailJob: Job? = null
+    private var infoJob: Job? = null
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
     private var updateJob: Job? = null
@@ -641,6 +653,55 @@ class MangaViewModel internal constructor(
                 )
             }
         }
+    }
+
+    fun showMangaInfo(result: MangaSearchResult) {
+        infoJob?.cancel()
+        _state.value = _state.value.copy(
+            mangaInfoDialog = MangaInfoDialogState(
+                sourceId = result.sourceId,
+                title = result.title,
+                mangaUrl = result.mangaUrl,
+                coverUrl = result.coverUrl,
+                isLoading = true,
+            ),
+            errorMessage = null,
+        )
+        infoJob = viewModelScope.launch {
+            try {
+                val details = withContext(Dispatchers.IO) {
+                    sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
+                }
+                _state.value = _state.value.copy(
+                    mangaInfoDialog = MangaInfoDialogState(
+                        sourceId = details.sourceId,
+                        title = details.title,
+                        mangaUrl = details.mangaUrl,
+                        coverUrl = details.coverUrl,
+                        description = details.description,
+                        isLoading = false,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    mangaInfoDialog = MangaInfoDialogState(
+                        sourceId = result.sourceId,
+                        title = result.title,
+                        mangaUrl = result.mangaUrl,
+                        coverUrl = result.coverUrl,
+                        isLoading = false,
+                        errorMessage = exc.message ?: "Errore caricamento trama",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun dismissMangaInfo() {
+        infoJob?.cancel()
+        _state.value = _state.value.copy(mangaInfoDialog = null)
     }
 
     fun clearSelection() {

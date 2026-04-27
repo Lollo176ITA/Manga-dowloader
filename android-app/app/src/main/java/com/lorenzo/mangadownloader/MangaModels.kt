@@ -46,6 +46,7 @@ data class MangaDetails(
     val coverUrl: String?,
     val mangaUrl: String,
     val chapters: List<ChapterEntry>,
+    val description: String? = null,
 )
 
 enum class DownloadResult {

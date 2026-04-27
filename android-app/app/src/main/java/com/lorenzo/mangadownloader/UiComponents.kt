@@ -202,6 +202,7 @@ fun ResultCard(
     isFavorite: Boolean,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShowInfo: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -222,6 +223,12 @@ fun ResultCard(
                         .aspectRatio(2f / 3f)
                         .clip(MaterialTheme.shapes.extraLarge),
                 )
+                InfoBadge(
+                    onClick = onShowInfo,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                )
                 FavoriteToggleBadge(
                     isFavorite = isFavorite,
                     onClick = onToggleFavorite,
@@ -239,6 +246,28 @@ fun ResultCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun InfoBadge(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        modifier = modifier.size(36.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = Color.Black.copy(alpha = 0.45f),
+            contentColor = Color.White,
+        ),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Info,
+            contentDescription = "Informazioni manga",
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 

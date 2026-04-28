@@ -75,6 +75,8 @@ fun LibraryScreen(
                     )
                 }
                 else -> {
+                    val anchorFor = LocalTutorialAnchor.current
+                    val firstKey = rows.first().key
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
@@ -86,12 +88,19 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(rows, key = { it.key }) { row ->
-                            LibrarySeriesCard(
-                                row = row,
-                                onClick = { row.series?.let(onOpenSeries) },
-                                onDelete = { row.series?.let(onDeleteSeries) },
-                                onStopDownloads = onStopDownloads,
-                            )
+                            val rowModifier = if (row.key == firstKey) {
+                                anchorFor(TutorialAnchor.LIBRARY_SERIES_FIRST)
+                            } else {
+                                Modifier
+                            }
+                            Box(modifier = rowModifier) {
+                                LibrarySeriesCard(
+                                    row = row,
+                                    onClick = { row.series?.let(onOpenSeries) },
+                                    onDelete = { row.series?.let(onDeleteSeries) },
+                                    onStopDownloads = onStopDownloads,
+                                )
+                            }
                         }
                     }
                 }

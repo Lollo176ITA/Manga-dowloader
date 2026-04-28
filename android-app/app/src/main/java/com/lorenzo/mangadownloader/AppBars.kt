@@ -58,8 +58,8 @@ fun AppTopBar(
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onEnterReaderFullscreen: () -> Unit,
-    overflowAnchorModifier: Modifier = Modifier,
 ) {
+    val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
         MangaSourceCatalog.resolveSourceId(state.settings.searchSourceId)
     }
@@ -149,6 +149,7 @@ fun AppTopBar(
                 FavoriteToggleAction(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
+                    modifier = anchorFor(TutorialAnchor.DETAIL_FAVORITE),
                 )
             }
 
@@ -156,7 +157,7 @@ fun AppTopBar(
                 Box {
                     IconButton(
                         onClick = { overflowExpanded = true },
-                        modifier = overflowAnchorModifier,
+                        modifier = anchorFor(TutorialAnchor.OVERFLOW),
                     ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -315,10 +316,12 @@ private fun ReaderBrightnessAction(
 private fun FavoriteToggleAction(
     isFavorite: Boolean,
     onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     FilledIconToggleButton(
         checked = isFavorite,
         onCheckedChange = { onToggle() },
+        modifier = modifier,
         shape = if (isFavorite) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraLarge,
         colors = IconButtonDefaults.filledIconToggleButtonColors(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -338,10 +341,8 @@ private fun FavoriteToggleAction(
 fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
-    searchAnchorModifier: Modifier = Modifier,
-    favoritesAnchorModifier: Modifier = Modifier,
-    libraryAnchorModifier: Modifier = Modifier,
 ) {
+    val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
@@ -351,7 +352,7 @@ fun AppBottomBar(
             icon = Icons.Default.Search,
             label = "Cerca",
             onSelect = onSelect,
-            anchorModifier = searchAnchorModifier,
+            anchorModifier = anchorFor(TutorialAnchor.SEARCH_TAB),
         )
         AppTabEntry(
             tab = AppTab.FAVORITES,
@@ -359,7 +360,7 @@ fun AppBottomBar(
             icon = Icons.Default.Star,
             label = "Preferiti",
             onSelect = onSelect,
-            anchorModifier = favoritesAnchorModifier,
+            anchorModifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
         )
         AppTabEntry(
             tab = AppTab.LIBRARY,
@@ -367,7 +368,7 @@ fun AppBottomBar(
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             label = "Libreria",
             onSelect = onSelect,
-            anchorModifier = libraryAnchorModifier,
+            anchorModifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
         )
     }
 }

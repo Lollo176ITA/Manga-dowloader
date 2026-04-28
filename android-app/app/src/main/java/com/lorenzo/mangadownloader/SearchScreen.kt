@@ -67,6 +67,11 @@ fun SearchScreen(
                         )
                     }
                     state.results.isNotEmpty() -> {
+                        val anchorFor = LocalTutorialAnchor.current
+                        val firstKey = MangaSourceCatalog.identityKey(
+                            state.results.first().sourceId,
+                            state.results.first().mangaUrl,
+                        )
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
                             modifier = Modifier.fillMaxSize(),
@@ -78,16 +83,24 @@ fun SearchScreen(
                                 state.results,
                                 key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
                             ) { result ->
-                                ResultCard(
-                                    result = result,
-                                    isFavorite = MangaSourceCatalog.identityKey(
-                                        result.sourceId,
-                                        result.mangaUrl,
-                                    ) in state.favoriteMangaKeys,
-                                    onClick = { onSelect(result) },
-                                    onToggleFavorite = { onToggleFavorite(result) },
-                                    onShowInfo = { onShowInfo(result) },
+                                val resultKey = MangaSourceCatalog.identityKey(
+                                    result.sourceId,
+                                    result.mangaUrl,
                                 )
+                                val cardModifier = if (resultKey == firstKey) {
+                                    anchorFor(TutorialAnchor.SEARCH_RESULT_FIRST)
+                                } else {
+                                    Modifier
+                                }
+                                Box(modifier = cardModifier) {
+                                    ResultCard(
+                                        result = result,
+                                        isFavorite = resultKey in state.favoriteMangaKeys,
+                                        onClick = { onSelect(result) },
+                                        onToggleFavorite = { onToggleFavorite(result) },
+                                        onShowInfo = { onShowInfo(result) },
+                                    )
+                                }
                             }
                         }
                     }

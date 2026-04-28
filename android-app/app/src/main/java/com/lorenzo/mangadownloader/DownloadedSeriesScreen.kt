@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,17 +41,26 @@ fun DownloadedSeriesScreen(
             statusColor = ReadGreen,
         )
 
+        val anchorFor = LocalTutorialAnchor.current
+        val firstChapterPath = series.chapters.firstOrNull()?.relativePath
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(series.chapters, key = { it.relativePath }) { chapter ->
-                DownloadedChapterRow(
-                    chapter = chapter,
-                    onOpen = { onOpenChapter(chapter) },
-                    onDelete = { chapterPendingDelete = chapter },
-                )
+                val chapterModifier = if (chapter.relativePath == firstChapterPath) {
+                    anchorFor(TutorialAnchor.DOWNLOADED_CHAPTER_FIRST)
+                } else {
+                    Modifier
+                }
+                Box(modifier = chapterModifier) {
+                    DownloadedChapterRow(
+                        chapter = chapter,
+                        onOpen = { onOpenChapter(chapter) },
+                        onDelete = { chapterPendingDelete = chapter },
+                    )
+                }
             }
         }
 

@@ -105,6 +105,34 @@ data class ParentalBiometricPromptRequest(
     val subtitle: String,
 )
 
+enum class TutorialPhase {
+    Idle,
+    Welcome,
+    Preloading,
+    AwaitingResultTap,
+    AwaitingFavorite,
+    AwaitingLibraryTab,
+    AwaitingSeriesTap,
+    AwaitingChapterTap,
+    InReader,
+    Closing,
+    FallbackShowcase,
+    FallbackClosing,
+}
+
+data class TutorialSample(
+    val sourceId: String,
+    val mangaUrl: String,
+    val title: String,
+    val coverUrl: String?,
+    val chapterUrl: String,
+)
+
+data class TutorialUiState(
+    val phase: TutorialPhase = TutorialPhase.Idle,
+    val sample: TutorialSample? = null,
+)
+
 data class MangaUiState(
     val currentTab: AppTab = AppTab.SEARCH,
     val pendingSearchAccessReturnTab: AppTab? = null,
@@ -137,6 +165,7 @@ data class MangaUiState(
     val parentalPinSetupState: ParentalPinSetupState? = null,
     val parentalPinEntryState: ParentalPinEntryState? = null,
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
+    val tutorialState: TutorialUiState = TutorialUiState(),
     val errorMessage: String? = null,
 )
 
@@ -173,6 +202,11 @@ class MangaViewModel internal constructor(
             },
             settings = initialSettings,
             isBiometricAvailable = isBiometricAvailable(application),
+            tutorialState = if (!initialSettings.tutorialCompleted) {
+                TutorialUiState(phase = TutorialPhase.Welcome)
+            } else {
+                TutorialUiState()
+            },
         ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
@@ -616,10 +650,135 @@ class MangaViewModel internal constructor(
 
     fun markTutorialCompleted() {
         updateSettings { it.copy(tutorialCompleted = true) }
+        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
     }
 
     fun restartTutorial() {
         updateSettings { it.copy(tutorialCompleted = false) }
+        updateState {
+            copy(tutorialState = TutorialUiState(phase = TutorialPhase.Welcome))
+        }
+    }
+
+    fun onTutorialWelcomeStart() {
+        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
+        updateState {
+            copy(tutorialState = tutorialState.copy(phase = TutorialPhase.Preloading))
+        }
+        runTutorialPreload()
+    }
+
+    fun onTutorialWelcomeSkip() {
+        markTutorialCompleted()
+    }
+
+    fun onTutorialFallbackCompleted() {
+        markTutorialCompleted()
+    }
+
+    fun onTutorialFinish(keepSample: Boolean) {
+        val sample = _state.value.tutorialState.sample
+        if (!keepSample && sample != null) {
+            cleanupTutorialSample(sample)
+        }
+        markTutorialCompleted()
+    }
+
+    fun advanceTutorialPhase(from: TutorialPhase, to: TutorialPhase) {
+        val current = _state.value.tutorialState.phase
+        if (current != from) return
+        updateState {
+            copy(tutorialState = tutorialState.copy(phase = to))
+        }
+    }
+
+    private fun runTutorialPreload() {
+        viewModelScope.launch {
+            try {
+                val sourceId = _state.value.settings.searchSourceId
+                val source = sourceRegistry.requireById(sourceId)
+                val results = withContext(Dispatchers.IO) { source.searchManga("One Piece") }
+                val match = results.firstOrNull { it.title.contains("One Piece", ignoreCase = true) }
+                    ?: results.firstOrNull()
+                    ?: throw NoSuchElementException("Nessun risultato")
+                val details = withContext(Dispatchers.IO) {
+                    source.fetchMangaDetails(match.mangaUrl)
+                }
+                val chapter = details.chapters.lastOrNull()
+                    ?: throw NoSuchElementException("Nessun capitolo")
+                val sample = TutorialSample(
+                    sourceId = match.sourceId,
+                    mangaUrl = match.mangaUrl,
+                    title = match.title,
+                    coverUrl = match.coverUrl,
+                    chapterUrl = chapter.url,
+                )
+                DownloadWorker.enqueue(
+                    context = getApplication(),
+                    firstUrl = chapter.url,
+                    lastUrl = chapter.url,
+                    sourceId = match.sourceId,
+                    seriesTitle = match.title,
+                    mangaUrl = match.mangaUrl,
+                    coverUrl = match.coverUrl,
+                )
+                _state.value = _state.value.copy(
+                    query = "One Piece",
+                    tutorialState = _state.value.tutorialState.copy(
+                        phase = TutorialPhase.AwaitingResultTap,
+                        sample = sample,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateState {
+                    copy(
+                        tutorialState = tutorialState.copy(
+                            phase = TutorialPhase.FallbackShowcase,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun cleanupTutorialSample(sample: TutorialSample) {
+        val targetKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
+        val current = _state.value.favorites.toMutableList()
+        val removed = current.removeAll {
+            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+        }
+        if (removed) {
+            persistFavorites(current)
+            updateState {
+                copy(
+                    favorites = current,
+                    favoriteMangaKeys = current.mapTo(linkedSetOf()) {
+                        MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
+                    },
+                )
+            }
+        }
+        viewModelScope.launch {
+            try {
+                val snapshot = withContext(Dispatchers.IO) {
+                    libraryRepository.scanLibrary(forceRefresh = true)
+                }
+                val series = snapshot.firstOrNull {
+                    MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl ?: "") == targetKey ||
+                        it.title.equals(sample.title, ignoreCase = true)
+                } ?: return@launch
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteSeries(series)
+                }
+                refreshLibrary(forceRefresh = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Silent — cleanup is best-effort.
+            }
+        }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {

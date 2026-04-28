@@ -285,12 +285,14 @@ private fun MangaDownloaderAppContent(
         }
     }
 
-    val tutorialActive = !state.settings.tutorialCompleted && showPager
     TutorialOverlay(
-        isActive = tutorialActive,
-        resetKey = state.settings.tutorialCompleted,
-        onCompleted = viewModel::markTutorialCompleted,
-    ) { anchorFor ->
+        state = state,
+        onWelcomeStart = viewModel::onTutorialWelcomeStart,
+        onWelcomeSkip = viewModel::onTutorialWelcomeSkip,
+        onFallbackCompleted = viewModel::onTutorialFallbackCompleted,
+        onAdvancePhase = viewModel::advanceTutorialPhase,
+        onFinish = viewModel::onTutorialFinish,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
         topBar = {
@@ -304,7 +306,6 @@ private fun MangaDownloaderAppContent(
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onEnterReaderFullscreen = { isReaderFullscreen = true },
-                    overflowAnchorModifier = anchorFor(TutorialAnchor.OVERFLOW),
                 )
             }
         },
@@ -323,9 +324,6 @@ private fun MangaDownloaderAppContent(
                             }
                         }
                     },
-                    searchAnchorModifier = anchorFor(TutorialAnchor.SEARCH_TAB),
-                    favoritesAnchorModifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
-                    libraryAnchorModifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
                 )
             }
         },

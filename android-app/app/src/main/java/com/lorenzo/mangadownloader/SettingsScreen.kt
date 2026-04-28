@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -61,6 +62,7 @@ fun SettingsScreen(
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onSelectAutoReaderSpeed: (AutoReaderSpeed) -> Unit,
+    onRestartTutorial: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -181,6 +183,13 @@ fun SettingsScreen(
             title = "Labs",
             icon = Icons.Default.Science,
         ) {
+            SettingsActionRow(
+                title = "Rispiega tutorial",
+                description = "Mostra di nuovo il giro guidato delle sezioni alla prossima apertura della schermata principale.",
+                icon = Icons.Default.School,
+                onClick = onRestartTutorial,
+            )
+            SettingsDivider()
             SettingsSwitchRow(
                 title = "Funzionalità in sviluppo",
                 description = "Mostra opzioni sperimentali. Possono cambiare o sparire nelle prossime versioni.",

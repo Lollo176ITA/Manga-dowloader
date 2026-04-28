@@ -58,6 +58,7 @@ fun AppTopBar(
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onEnterReaderFullscreen: () -> Unit,
+    overflowAnchorModifier: Modifier = Modifier,
 ) {
     val resolvedSourceId = remember(state.settings.searchSourceId) {
         MangaSourceCatalog.resolveSourceId(state.settings.searchSourceId)
@@ -153,7 +154,10 @@ fun AppTopBar(
 
             if (showOverflow) {
                 Box {
-                    IconButton(onClick = { overflowExpanded = true }) {
+                    IconButton(
+                        onClick = { overflowExpanded = true },
+                        modifier = overflowAnchorModifier,
+                    ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Altre azioni",
@@ -334,6 +338,9 @@ private fun FavoriteToggleAction(
 fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
+    searchAnchorModifier: Modifier = Modifier,
+    favoritesAnchorModifier: Modifier = Modifier,
+    libraryAnchorModifier: Modifier = Modifier,
 ) {
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -344,6 +351,7 @@ fun AppBottomBar(
             icon = Icons.Default.Search,
             label = "Cerca",
             onSelect = onSelect,
+            anchorModifier = searchAnchorModifier,
         )
         AppTabEntry(
             tab = AppTab.FAVORITES,
@@ -351,6 +359,7 @@ fun AppBottomBar(
             icon = Icons.Default.Star,
             label = "Preferiti",
             onSelect = onSelect,
+            anchorModifier = favoritesAnchorModifier,
         )
         AppTabEntry(
             tab = AppTab.LIBRARY,
@@ -358,6 +367,7 @@ fun AppBottomBar(
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             label = "Libreria",
             onSelect = onSelect,
+            anchorModifier = libraryAnchorModifier,
         )
     }
 }
@@ -369,8 +379,10 @@ private fun AppTabEntry(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onSelect: (AppTab) -> Unit,
+    anchorModifier: Modifier = Modifier,
 ) {
     ShortNavigationBarItem(
+        modifier = anchorModifier,
         selected = selected,
         onClick = { onSelect(tab) },
         icon = { Icon(icon, contentDescription = null) },

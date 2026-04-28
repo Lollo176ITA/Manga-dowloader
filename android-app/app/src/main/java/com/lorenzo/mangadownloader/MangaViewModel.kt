@@ -61,6 +61,7 @@ data class AppSettings(
     val readerBrightness: Float = 1f,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
+    val tutorialCompleted: Boolean = false,
 )
 
 enum class AutoReaderSpeed(val pauseSeconds: Int) {
@@ -611,6 +612,14 @@ class MangaViewModel internal constructor(
 
     fun setUseDynamicColor(enabled: Boolean) {
         updateSettings { it.copy(useDynamicColor = enabled) }
+    }
+
+    fun markTutorialCompleted() {
+        updateSettings { it.copy(tutorialCompleted = true) }
+    }
+
+    fun restartTutorial() {
+        updateSettings { it.copy(tutorialCompleted = false) }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -1492,6 +1501,7 @@ class MangaViewModel internal constructor(
                 )
             }.getOrDefault(ThemeMode.AUTO),
             useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
+            tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
         )
     }
 
@@ -1515,6 +1525,7 @@ class MangaViewModel internal constructor(
             .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
+            .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             .apply()
     }
 
@@ -1550,6 +1561,7 @@ class MangaViewModel internal constructor(
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
+        private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L

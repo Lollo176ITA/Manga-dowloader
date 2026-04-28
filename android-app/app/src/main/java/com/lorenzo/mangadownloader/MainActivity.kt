@@ -285,6 +285,12 @@ private fun MangaDownloaderAppContent(
         }
     }
 
+    val tutorialActive = !state.settings.tutorialCompleted && showPager
+    TutorialOverlay(
+        isActive = tutorialActive,
+        resetKey = state.settings.tutorialCompleted,
+        onCompleted = viewModel::markTutorialCompleted,
+    ) { anchorFor ->
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
         topBar = {
@@ -298,6 +304,7 @@ private fun MangaDownloaderAppContent(
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onEnterReaderFullscreen = { isReaderFullscreen = true },
+                    overflowAnchorModifier = anchorFor(TutorialAnchor.OVERFLOW),
                 )
             }
         },
@@ -316,6 +323,9 @@ private fun MangaDownloaderAppContent(
                             }
                         }
                     },
+                    searchAnchorModifier = anchorFor(TutorialAnchor.SEARCH_TAB),
+                    favoritesAnchorModifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
+                    libraryAnchorModifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
                 )
             }
         },
@@ -360,6 +370,10 @@ private fun MangaDownloaderAppContent(
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onSelectAutoReaderSpeed = viewModel::setAutoReaderSpeed,
+                    onRestartTutorial = {
+                        viewModel.restartTutorial()
+                        viewModel.closeSettings()
+                    },
                 )
             }
             selectedManga != null -> {
@@ -438,6 +452,7 @@ private fun MangaDownloaderAppContent(
                     .background(Color.Black.copy(alpha = privacyDimAlpha)),
             )
         }
+    }
     }
 
     lastCrashReport?.let { report ->

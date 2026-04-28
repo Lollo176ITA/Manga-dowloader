@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -51,12 +52,12 @@ import androidx.compose.ui.unit.dp
 fun AppTopBar(
     state: MangaUiState,
     visibleTab: AppTab,
-    showReaderTitle: Boolean,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
+    onEnterReaderFullscreen: () -> Unit,
 ) {
     val resolvedSourceId = remember(state.settings.searchSourceId) {
         MangaSourceCatalog.resolveSourceId(state.settings.searchSourceId)
@@ -76,7 +77,7 @@ fun AppTopBar(
         (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
         state.showSettings -> "Impostazioni"
-        readerChapter != null -> if (showReaderTitle) readerChapter.title else ""
+        readerChapter != null -> readerChapter.title
         selectedManga != null -> selectedManga.title
         state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
         visibleTab == AppTab.SEARCH -> "Cerca"
@@ -128,6 +129,15 @@ fun AppTopBar(
                     onExpandedChange = { brightnessExpanded = it },
                     onBrightnessChange = onReaderBrightnessChange,
                 )
+            }
+
+            if (readerChapter != null) {
+                IconButton(onClick = onEnterReaderFullscreen) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Schermo intero",
+                    )
+                }
             }
 
             if (selectedManga != null) {

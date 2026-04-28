@@ -251,10 +251,14 @@ private fun MangaDownloaderAppContent(
         enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
         brightness = state.settings.readerBrightness,
     )
-    var showReaderTitle by remember(state.readerChapter?.relativePath) { mutableStateOf(true) }
+    var isReaderFullscreen by remember(state.readerChapter?.relativePath) { mutableStateOf(false) }
 
     BackHandler(enabled = canHandleBack) {
-        state.handleBack(viewModel)
+        if (isReaderFullscreen) {
+            isReaderFullscreen = false
+        } else {
+            state.handleBack(viewModel)
+        }
     }
 
     LaunchedEffect(
@@ -284,16 +288,18 @@ private fun MangaDownloaderAppContent(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
         topBar = {
-            AppTopBar(
-                state = state,
-                visibleTab = visiblePagerTab,
-                showReaderTitle = showReaderTitle,
-                onBack = { state.handleBack(viewModel) },
-                onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
-                onOpenSettings = viewModel::openSettings,
-                onSelectSource = viewModel::selectSearchSource,
-                onReaderBrightnessChange = viewModel::setReaderBrightness,
-            )
+            if (!(state.readerChapter != null && isReaderFullscreen)) {
+                AppTopBar(
+                    state = state,
+                    visibleTab = visiblePagerTab,
+                    onBack = { state.handleBack(viewModel) },
+                    onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
+                    onOpenSettings = viewModel::openSettings,
+                    onSelectSource = viewModel::selectSearchSource,
+                    onReaderBrightnessChange = viewModel::setReaderBrightness,
+                    onEnterReaderFullscreen = { isReaderFullscreen = true },
+                )
+            }
         },
         bottomBar = {
             if (showPager) {
@@ -332,7 +338,6 @@ private fun MangaDownloaderAppContent(
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                     onPageVisible = viewModel::saveReaderPagePosition,
-                    onToggleTitle = { showReaderTitle = !showReaderTitle },
                 )
             }
             state.showSettings -> {

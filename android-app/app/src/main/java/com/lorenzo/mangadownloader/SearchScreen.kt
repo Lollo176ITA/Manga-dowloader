@@ -40,6 +40,7 @@ fun SearchScreen(
     val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
     val pullState = rememberPullToRefreshState()
 
+    val tutorialAnchorFor = LocalTutorialAnchor.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -49,6 +50,7 @@ fun SearchScreen(
             value = state.query,
             placeholder = "Cerca manga",
             onValueChange = onQueryChange,
+            modifier = tutorialAnchorFor(TutorialAnchor.SEARCH_BAR),
         )
 
         PullToRefreshBox(

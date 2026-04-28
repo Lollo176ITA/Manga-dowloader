@@ -125,6 +125,7 @@ fun DetailScreen(
         }
 
         if (hasChapters) {
+            val tutorialAnchorFor = LocalTutorialAnchor.current
             DetailFabMenu(
                 expanded = fabMenuExpanded,
                 onExpandedChange = { fabMenuExpanded = it },
@@ -145,7 +146,8 @@ fun DetailScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .then(tutorialAnchorFor(TutorialAnchor.DETAIL_DOWNLOAD)),
             )
         }
     }

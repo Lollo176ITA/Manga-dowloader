@@ -728,6 +728,8 @@ class MangaViewModel internal constructor(
                 )
                 _state.value = _state.value.copy(
                     query = "One Piece",
+                    results = results,
+                    isSearching = false,
                     tutorialState = _state.value.tutorialState.copy(
                         phase = TutorialPhase.AwaitingResultTap,
                         sample = sample,

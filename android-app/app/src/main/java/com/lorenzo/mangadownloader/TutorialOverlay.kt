@@ -1,24 +1,14 @@
 package com.lorenzo.mangadownloader
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.School
@@ -26,10 +16,7 @@ import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.SwipeVertical
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,15 +31,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.luminos.BackPressBehavior
+import io.luminos.CoachmarkConfig
+import io.luminos.CoachmarkHost
+import io.luminos.CoachmarkTarget
+import io.luminos.ConnectorEndStyle
+import io.luminos.ConnectorStyle
+import io.luminos.CutoutShape
+import io.luminos.HighlightAnimation
+import io.luminos.ScrimTapBehavior
+import io.luminos.TargetTapBehavior
+import io.luminos.TooltipPosition
+import io.luminos.coachmarkTarget
+import io.luminos.rememberCoachmarkController
+import kotlinx.coroutines.delay
 
 enum class TutorialAnchor {
     SEARCH_TAB,
@@ -76,51 +70,71 @@ fun TutorialOverlay(
     onWelcomeSkip: () -> Unit,
     onFallbackCompleted: () -> Unit,
     onAdvancePhase: (from: TutorialPhase, to: TutorialPhase) -> Unit,
+    onTargetTap: (TutorialAnchor) -> Unit,
     onFinish: (keepSample: Boolean) -> Unit,
     content: @Composable () -> Unit,
 ) {
     val phase = state.tutorialState.phase
-    val activeBubble = remember(phase) { activeInteractiveBubble(phase) }
-    val isOverlayActive = activeBubble != null && shouldShowSpotlight(phase, state)
+    val activeTarget = remember(phase) { activeInteractiveTarget(phase) }
+    val isCoachmarkActive = activeTarget != null && shouldShowSpotlight(phase, state)
+    val controller = rememberCoachmarkController()
 
-    val targetBoundsState = remember { mutableStateOf<Rect?>(null) }
-    val anchorRecorder = remember(activeBubble?.anchor) {
-        { anchor: TutorialAnchor ->
-            if (anchor == activeBubble?.anchor) {
-                Modifier.onGloballyPositioned { coords ->
-                    targetBoundsState.value = coords.boundsInRoot()
-                }
-            } else {
-                Modifier
-            }
+    var handledTargetActionKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(phase) {
+        handledTargetActionKey = null
+    }
+
+    fun handleTargetAction(targetId: String) {
+        val target = activeTarget ?: return
+        if (!target.handlesTargetTap || target.anchor.coachmarkId != targetId) return
+
+        val actionKey = "${phase.name}:$targetId"
+        if (handledTargetActionKey == actionKey) return
+        handledTargetActionKey = actionKey
+        onTargetTap(target.anchor)
+    }
+
+    LaunchedEffect(phase, isCoachmarkActive) {
+        if (!isCoachmarkActive) {
+            controller.dismiss()
+            return@LaunchedEffect
         }
-    }
-    LaunchedEffect(activeBubble?.anchor) {
-        targetBoundsState.value = null
+        val target = requireNotNull(activeTarget)
+
+        // Give Compose one frame to publish the target bounds registered by Modifier.coachmarkTarget.
+        delay(120)
+        controller.show(target.toCoachmarkTarget())
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val anchorRecorder: (TutorialAnchor) -> Modifier = remember(controller) {
+        { anchor -> Modifier.coachmarkTarget(controller, anchor.coachmarkId) }
+    }
+
+    CoachmarkHost(
+        controller = controller,
+        config = CoachmarkConfig(
+            scrimTapBehavior = ScrimTapBehavior.NONE,
+            backPressBehavior = BackPressBehavior.DISMISS,
+            showProgressIndicator = false,
+            showTooltipCard = true,
+            showSkipButton = false,
+            highlightAnimation = HighlightAnimation.PULSE,
+            tooltipCornerRadius = 20.dp,
+            ctaMinHeight = 44.dp,
+        ),
+        onStepCompleted = { _, targetId ->
+            handleTargetAction(targetId)
+            val next = activeTarget?.advanceOnCompleted
+            if (next != null) {
+                onAdvancePhase(phase, next)
+            }
+        },
+        onTargetTap = { targetId ->
+            handleTargetAction(targetId)
+        },
+    ) {
         CompositionLocalProvider(LocalTutorialAnchor provides anchorRecorder) {
             content()
-        }
-
-        val bubbleToShow = if (isOverlayActive) activeBubble else null
-        if (bubbleToShow != null) {
-            val bounds = targetBoundsState.value
-            if (bounds != null) {
-                TutorialSpotlight(
-                    targetBounds = bounds,
-                    bubble = bubbleToShow,
-                    onAdvance = nextPhaseAdvance(phase, onAdvancePhase),
-                    onSkip = { onFinish(false) },
-                )
-            } else {
-                TutorialFullscreenBubble(
-                    bubble = bubbleToShow,
-                    onAdvance = nextPhaseAdvance(phase, onAdvancePhase),
-                    onSkip = { onFinish(false) },
-                )
-            }
         }
     }
 
@@ -143,92 +157,135 @@ fun TutorialOverlay(
     }
 }
 
-private data class TutorialBubbleContent(
+private data class TutorialTargetContent(
     val anchor: TutorialAnchor,
     val title: String,
     val description: String,
-    val showAdvanceButton: Boolean,
+    val ctaText: String,
+    val shape: CutoutShape,
+    val targetTapBehavior: TargetTapBehavior,
+    val handlesTargetTap: Boolean,
+    val advanceOnCompleted: TutorialPhase? = null,
 )
 
-private fun activeInteractiveBubble(phase: TutorialPhase): TutorialBubbleContent? {
+private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent? {
     return when (phase) {
-        TutorialPhase.AwaitingSearchBar -> TutorialBubbleContent(
+        TutorialPhase.AwaitingSearchBar -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_BAR,
-            title = "La barra di ricerca",
-            description = "Da qui cerchi i manga sui server supportati. Per il tutorial ho già scritto 'One Piece' per te.",
-            showAdvanceButton = true,
+            title = "La ricerca",
+            description = "Qui cerchi i manga sui server supportati. Per il tutorial ho gia preparato One Piece.",
+            ctaText = "Continua",
+            shape = CutoutShape.RoundedRect(cornerRadius = 16.dp, padding = 8.dp),
+            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
+            handlesTargetTap = false,
+            advanceOnCompleted = TutorialPhase.AwaitingResultTap,
         )
-        TutorialPhase.AwaitingResultTap -> TutorialBubbleContent(
+        TutorialPhase.AwaitingResultTap -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_RESULT_FIRST,
             title = "Apri One Piece",
-            description = "Tocca la copertina evidenziata per vedere capitoli e dettagli.",
-            showAdvanceButton = false,
+            description = "Tocca la copertina evidenziata per vedere dettagli e capitoli.",
+            ctaText = "Apri",
+            shape = CutoutShape.RoundedRect(cornerRadius = 16.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingFavorite -> TutorialBubbleContent(
+        TutorialPhase.AwaitingFavorite -> TutorialTargetContent(
             anchor = TutorialAnchor.DETAIL_FAVORITE,
             title = "Salvalo nei preferiti",
-            description = "Tocca la stella per aggiungerlo alla lista dei tuoi preferiti.",
-            showAdvanceButton = false,
+            description = "Aggiungilo alla tua lista, cosi lo ritrovi subito dopo.",
+            ctaText = "Aggiungi",
+            shape = CutoutShape.Circle(radiusPadding = 10.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingDownload -> TutorialBubbleContent(
+        TutorialPhase.AwaitingDownload -> TutorialTargetContent(
             anchor = TutorialAnchor.DETAIL_DOWNLOAD,
-            title = "Da qui si scarica",
-            description = "Questo pulsante apre il menu di download (tutto, oppure un range di capitoli). Il primo capitolo è già pronto in background.",
-            showAdvanceButton = true,
+            title = "Download",
+            description = "Da questo pulsante scegli se scaricare tutto o solo un range di capitoli. Il primo capitolo demo e gia in preparazione.",
+            ctaText = "Ho capito",
+            shape = CutoutShape.Circle(radiusPadding = 12.dp),
+            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
+            handlesTargetTap = false,
+            advanceOnCompleted = TutorialPhase.AwaitingFavoritesTab,
         )
-        TutorialPhase.AwaitingFavoritesTab -> TutorialBubbleContent(
+        TutorialPhase.AwaitingFavoritesTab -> TutorialTargetContent(
             anchor = TutorialAnchor.FAVORITES_TAB,
-            title = "Tab Preferiti",
-            description = "Qui ritrovi tutti i manga che hai salvato. Tocca per visitare la sezione.",
-            showAdvanceButton = false,
+            title = "Preferiti",
+            description = "Qui trovi i manga salvati. Tocca il tab per aprire la sezione.",
+            ctaText = "Apri Preferiti",
+            shape = CutoutShape.RoundedRect(cornerRadius = 18.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingLibraryTab -> TutorialBubbleContent(
+        TutorialPhase.AwaitingLibraryTab -> TutorialTargetContent(
             anchor = TutorialAnchor.LIBRARY_TAB,
-            title = "Tab Libreria",
-            description = "Qui trovi i manga che hai scaricato, leggibili offline. Tocca per aprirla.",
-            showAdvanceButton = false,
+            title = "Libreria",
+            description = "Qui trovi i manga scaricati e leggibili offline.",
+            ctaText = "Apri Libreria",
+            shape = CutoutShape.RoundedRect(cornerRadius = 18.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingSeriesTap -> TutorialBubbleContent(
+        TutorialPhase.AwaitingSeriesTap -> TutorialTargetContent(
             anchor = TutorialAnchor.LIBRARY_SERIES_FIRST,
-            title = "Ecco One Piece scaricato",
-            description = "Tocca la card per vedere i capitoli scaricati.",
-            showAdvanceButton = false,
+            title = "Manga scaricato",
+            description = "Apri la scheda per vedere i capitoli disponibili offline.",
+            ctaText = "Apri",
+            shape = CutoutShape.RoundedRect(cornerRadius = 16.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingChapterTap -> TutorialBubbleContent(
+        TutorialPhase.AwaitingChapterTap -> TutorialTargetContent(
             anchor = TutorialAnchor.DOWNLOADED_CHAPTER_FIRST,
             title = "Apri il capitolo",
-            description = "Tocca per leggerlo nel Reader. Quando hai finito, torna indietro per concludere il tutorial.",
-            showAdvanceButton = false,
+            description = "Tocca il capitolo per leggerlo. Quando hai finito, torna indietro per concludere il tutorial.",
+            ctaText = "Leggi",
+            shape = CutoutShape.RoundedRect(cornerRadius = 12.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
         )
-        TutorialPhase.AwaitingOverflow -> TutorialBubbleContent(
+        TutorialPhase.AwaitingOverflow -> TutorialTargetContent(
             anchor = TutorialAnchor.OVERFLOW,
-            title = "Server e Impostazioni",
-            description = "Da qui cambi sorgente (Mangapill, Hasta Team, Manga World) e apri le Impostazioni.",
-            showAdvanceButton = true,
+            title = "Server e impostazioni",
+            description = "Da qui cambi sorgente e apri le impostazioni. Il tutorial e quasi finito.",
+            ctaText = "Finisci",
+            shape = CutoutShape.Circle(radiusPadding = 10.dp),
+            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
+            handlesTargetTap = false,
+            advanceOnCompleted = TutorialPhase.Closing,
         )
-        TutorialPhase.FallbackShowcase -> TutorialBubbleContent(
+        TutorialPhase.FallbackShowcase -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_TAB,
-            title = "Tutorial semplificato",
-            description = "Le funzioni di rete non sono disponibili. Comunque, ecco le sezioni principali: Cerca, Preferiti e Libreria sono i tre tab in basso. Da Impostazioni → Labs puoi rivedere il tutorial.",
-            showAdvanceButton = true,
+            title = "Tour rapido",
+            description = "La rete non e disponibile. Le sezioni principali sono Cerca, Preferiti e Libreria; puoi rivedere il tutorial da Impostazioni, Labs.",
+            ctaText = "Chiudi",
+            shape = CutoutShape.RoundedRect(cornerRadius = 18.dp, padding = 6.dp),
+            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
+            handlesTargetTap = false,
+            advanceOnCompleted = TutorialPhase.FallbackClosing,
         )
         else -> null
     }
 }
 
-private fun nextPhaseAdvance(
-    phase: TutorialPhase,
-    onAdvancePhase: (TutorialPhase, TutorialPhase) -> Unit,
-): (() -> Unit)? {
-    val next = when (phase) {
-        TutorialPhase.AwaitingSearchBar -> TutorialPhase.AwaitingResultTap
-        TutorialPhase.AwaitingDownload -> TutorialPhase.AwaitingFavoritesTab
-        TutorialPhase.AwaitingOverflow -> TutorialPhase.Closing
-        TutorialPhase.FallbackShowcase -> TutorialPhase.FallbackClosing
-        else -> null
-    }
-    return next?.let { target -> { onAdvancePhase(phase, target) } }
+private fun TutorialTargetContent.toCoachmarkTarget(): CoachmarkTarget {
+    return CoachmarkTarget(
+        id = anchor.coachmarkId,
+        title = title,
+        description = description,
+        shape = shape,
+        tooltipPosition = TooltipPosition.AUTO,
+        connectorStyle = ConnectorStyle.AUTO,
+        connectorEndStyle = ConnectorEndStyle.DOT,
+        ctaText = ctaText,
+        showProgressIndicator = false,
+        highlightAnimation = HighlightAnimation.PULSE,
+        targetTapBehavior = targetTapBehavior,
+    )
 }
+
+private val TutorialAnchor.coachmarkId: String
+    get() = name.lowercase()
 
 private fun shouldShowSpotlight(phase: TutorialPhase, state: MangaUiState): Boolean {
     val onMainPager = state.selected == null &&
@@ -241,7 +298,7 @@ private fun shouldShowSpotlight(phase: TutorialPhase, state: MangaUiState): Bool
         TutorialPhase.AwaitingResultTap ->
             onMainPager && state.currentTab == AppTab.SEARCH && state.results.isNotEmpty()
         TutorialPhase.AwaitingFavorite -> state.selected != null
-        TutorialPhase.AwaitingDownload -> state.selected != null
+        TutorialPhase.AwaitingDownload -> state.selected?.chapters?.isNotEmpty() == true
         TutorialPhase.AwaitingFavoritesTab -> onMainPager
         TutorialPhase.AwaitingLibraryTab -> onMainPager
         TutorialPhase.AwaitingSeriesTap ->
@@ -302,180 +359,6 @@ private fun InteractivePhaseObservers(
     LaunchedEffect(phase, state.readerChapter) {
         if (phase == TutorialPhase.InReader && state.readerChapter == null) {
             onAdvancePhase(TutorialPhase.InReader, TutorialPhase.AwaitingOverflow)
-        }
-    }
-}
-
-@Composable
-private fun TutorialSpotlight(
-    targetBounds: Rect,
-    bubble: TutorialBubbleContent,
-    onAdvance: (() -> Unit)?,
-    onSkip: () -> Unit,
-) {
-    val density = LocalDensity.current
-    val scrim = Color.Black.copy(alpha = 0.85f)
-    val padPx = with(density) { 6.dp.toPx() }
-    val cornerRadius = 12.dp
-
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val parentWidthPx = constraints.maxWidth.toFloat()
-        val parentHeightPx = constraints.maxHeight.toFloat()
-        val left = (targetBounds.left - padPx).coerceAtLeast(0f)
-        val top = (targetBounds.top - padPx).coerceAtLeast(0f)
-        val right = (targetBounds.right + padPx).coerceAtMost(parentWidthPx)
-        val bottom = (targetBounds.bottom + padPx).coerceAtMost(parentHeightPx)
-        val leftDp = with(density) { left.toDp() }
-        val topDp = with(density) { top.toDp() }
-        val rightDp = with(density) { right.toDp() }
-        val bottomDp = with(density) { bottom.toDp() }
-        val maxWidthDp = maxWidth
-        val maxHeightDp = maxHeight
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(topDp)
-                .background(scrim)
-                .pointerInput(Unit) { detectTapGestures { } },
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(maxHeightDp - bottomDp)
-                .offset(y = bottomDp)
-                .background(scrim)
-                .pointerInput(Unit) { detectTapGestures { } },
-        )
-        Box(
-            modifier = Modifier
-                .width(leftDp)
-                .height(bottomDp - topDp)
-                .offset(y = topDp)
-                .background(scrim)
-                .pointerInput(Unit) { detectTapGestures { } },
-        )
-        Box(
-            modifier = Modifier
-                .width(maxWidthDp - rightDp)
-                .height(bottomDp - topDp)
-                .offset(x = rightDp, y = topDp)
-                .background(scrim)
-                .pointerInput(Unit) { detectTapGestures { } },
-        )
-
-        Box(
-            modifier = Modifier
-                .width(rightDp - leftDp)
-                .height(bottomDp - topDp)
-                .offset(x = leftDp, y = topDp)
-                .border(
-                    width = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(cornerRadius),
-                ),
-        )
-        if (bubble.showAdvanceButton) {
-            Box(
-                modifier = Modifier
-                    .width(rightDp - leftDp)
-                    .height(bottomDp - topDp)
-                    .offset(x = leftDp, y = topDp)
-                    .pointerInput(Unit) { detectTapGestures { } },
-            )
-        }
-
-        val bubbleBelow = targetBounds.center.y < parentHeightPx / 2f
-        val bubbleAlign = if (bubbleBelow) Alignment.TopStart else Alignment.BottomStart
-        val bubbleOffsetY = if (bubbleBelow) {
-            bottomDp + 12.dp
-        } else {
-            -(maxHeightDp - topDp + 12.dp)
-        }
-        Box(
-            modifier = Modifier
-                .align(bubbleAlign)
-                .offset(y = bubbleOffsetY)
-                .padding(horizontal = 16.dp)
-                .fillMaxWidth(),
-        ) {
-            TutorialBubbleCard(
-                bubble = bubble,
-                onAdvance = onAdvance,
-                onSkip = onSkip,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TutorialFullscreenBubble(
-    bubble: TutorialBubbleContent,
-    onAdvance: (() -> Unit)?,
-    onSkip: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
-            .pointerInput(Unit) { detectTapGestures { } },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .widthIn(max = 480.dp),
-        ) {
-            TutorialBubbleCard(
-                bubble = bubble,
-                onAdvance = onAdvance,
-                onSkip = onSkip,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TutorialBubbleCard(
-    bubble: TutorialBubbleContent,
-    onAdvance: (() -> Unit)?,
-    onSkip: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = bubble.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = bubble.description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onSkip) {
-                    Text("Esci dal tutorial")
-                }
-                if (bubble.showAdvanceButton && onAdvance != null) {
-                    FilledTonalButton(onClick = onAdvance) {
-                        Text("Avanti")
-                    }
-                } else {
-                    Spacer(modifier = Modifier.size(0.dp))
-                }
-            }
         }
     }
 }
@@ -602,8 +485,8 @@ private fun FallbackClosingTutorialDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Quando vorrai rifarlo con la modalità interattiva (con One Piece), riprovalo da " +
-                        "Impostazioni → Labs → Rispiega tutorial.",
+                    "Quando vorrai rifarlo con la modalita interattiva, riprovalo da " +
+                        "Impostazioni, Labs, Rispiega tutorial.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(12.dp))

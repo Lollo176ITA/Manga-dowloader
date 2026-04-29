@@ -395,9 +395,7 @@ private fun WelcomeTutorialDialog(onSkip: () -> Unit, onStart: () -> Unit) {
         title = { Text("Benvenuto in Manga Downloader") },
         text = {
             Text(
-                "Ti accompagno in un giro guidato. Cerchiamo One Piece, lo metti nei preferiti, " +
-                    "vediamo come si scarica, visitiamo Preferiti e Libreria, apriamo il Reader " +
-                    "e finiamo dal cambio server. Il primo capitolo lo scarico io in background.",
+                "Questo tour ti mostra le funzionalita principali dell'app, guidandoti passo passo. "
             )
         },
         confirmButton = {
@@ -444,37 +442,10 @@ private fun ClosingTutorialDialog(onKeep: () -> Unit, onDelete: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Bonus: nel Reader hai a disposizione questi gesti.",
+                    "Hai finito il tour! Se vuoi puoi tenere One Piece in libreria, " +
+                        "altrimenti lo elimino io dato che era solo un esempio.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                ReaderHintRow(
-                    icon = Icons.Default.ZoomIn,
-                    text = "Pinch con due dita per zoomare e fare panning sulle pagine.",
-                )
-                ReaderHintRow(
-                    icon = Icons.Default.SwipeVertical,
-                    text = "Scroll verticale per sfogliare le pagine in continuo.",
-                )
-                ReaderHintRow(
-                    icon = Icons.Default.Fullscreen,
-                    text = "Tocca l'icona schermo intero per nascondere le barre.",
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(
-                        imageVector = Icons.Default.Science,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(modifier = Modifier.heightIn(min = 0.dp))
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(
-                        text = "Vuoi tenere One Piece in libreria, o eliminarlo dato che era solo di prova?",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
             }
         },
         confirmButton = {

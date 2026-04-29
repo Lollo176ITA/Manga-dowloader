@@ -119,6 +119,7 @@ enum class TutorialPhase {
     AwaitingChapterTap,
     InReader,
     AwaitingOverflow,
+    AwaitingServerSelector,
     Closing,
     FallbackShowcase,
     FallbackClosing,
@@ -708,7 +709,7 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     source.fetchMangaDetails(match.mangaUrl)
                 }
-                val chapter = details.chapters.lastOrNull()
+                val chapter = details.chapters.firstOrNull()
                     ?: throw NoSuchElementException("Nessun capitolo")
                 val sample = TutorialSample(
                     sourceId = match.sourceId,

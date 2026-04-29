@@ -285,6 +285,9 @@ private fun MangaDownloaderAppContent(
         }
     }
 
+    var tutorialOpenServerDialogRequest by remember { mutableStateOf(0) }
+    var tutorialCloseServerDialogRequest by remember { mutableStateOf(0) }
+
     TutorialOverlay(
         state = state,
         onWelcomeStart = viewModel::onTutorialWelcomeStart,
@@ -320,8 +323,16 @@ private fun MangaDownloaderAppContent(
                         ?.firstOrNull()
                         ?.let(viewModel::openReader)
                 }
+                TutorialAnchor.READER_FULLSCREEN -> {
+                    viewModel.closeReader()
+                }
+                TutorialAnchor.OVERFLOW -> {
+                    tutorialOpenServerDialogRequest += 1
+                }
+                TutorialAnchor.SERVER_SELECTOR -> {
+                    tutorialCloseServerDialogRequest += 1
+                }
                 TutorialAnchor.SEARCH_TAB,
-                TutorialAnchor.OVERFLOW,
                 TutorialAnchor.SEARCH_BAR,
                 TutorialAnchor.DETAIL_DOWNLOAD -> Unit
             }
@@ -341,6 +352,8 @@ private fun MangaDownloaderAppContent(
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onEnterReaderFullscreen = { isReaderFullscreen = true },
+                    tutorialOpenServerDialogRequest = tutorialOpenServerDialogRequest,
+                    tutorialCloseServerDialogRequest = tutorialCloseServerDialogRequest,
                 )
             }
         },

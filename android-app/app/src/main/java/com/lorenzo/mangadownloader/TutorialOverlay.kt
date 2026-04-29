@@ -59,6 +59,8 @@ enum class TutorialAnchor {
     DETAIL_DOWNLOAD,
     LIBRARY_SERIES_FIRST,
     DOWNLOADED_CHAPTER_FIRST,
+    READER_FULLSCREEN,
+    SERVER_SELECTOR,
 }
 
 val LocalTutorialAnchor = compositionLocalOf<(TutorialAnchor) -> Modifier> { { Modifier } }
@@ -104,6 +106,19 @@ fun TutorialOverlay(
         // Give Compose one frame to publish the target bounds registered by Modifier.coachmarkTarget.
         delay(120)
         controller.show(target.toCoachmarkTarget())
+    }
+
+    LaunchedEffect(phase, state.readerChapter?.relativePath) {
+        if (phase != TutorialPhase.InReader || state.readerChapter == null) return@LaunchedEffect
+        delay(4500)
+        onTargetTap(TutorialAnchor.READER_FULLSCREEN)
+    }
+
+    LaunchedEffect(phase) {
+        if (phase != TutorialPhase.AwaitingServerSelector) return@LaunchedEffect
+        delay(4500)
+        onTargetTap(TutorialAnchor.SERVER_SELECTOR)
+        onAdvancePhase(TutorialPhase.AwaitingServerSelector, TutorialPhase.Closing)
     }
 
     val anchorRecorder: (TutorialAnchor) -> Modifier = remember(controller) {
@@ -238,21 +253,30 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.AwaitingChapterTap -> TutorialTargetContent(
             anchor = TutorialAnchor.DOWNLOADED_CHAPTER_FIRST,
             title = "Apri il capitolo",
-            description = "Tocca il capitolo per leggerlo. Quando hai finito, torna indietro per concludere il tutorial.",
+            description = "Tocca il capitolo per entrare nel Reader. Dopo una breve anteprima torno indietro io.",
             ctaText = "Leggi",
             shape = CutoutShape.RoundedRect(cornerRadius = 12.dp, padding = 6.dp),
             targetTapBehavior = TargetTapBehavior.BOTH,
             handlesTargetTap = true,
         )
+        TutorialPhase.InReader -> TutorialTargetContent(
+            anchor = TutorialAnchor.READER_FULLSCREEN,
+            title = "Reader",
+            description = "Qui leggi le pagine offline. Puoi scorrere in verticale, fare pinch per zoomare e usare lo schermo intero.",
+            ctaText = "Torna al tour",
+            shape = CutoutShape.Circle(radiusPadding = 10.dp),
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
+        )
         TutorialPhase.AwaitingOverflow -> TutorialTargetContent(
             anchor = TutorialAnchor.OVERFLOW,
-            title = "Server e impostazioni",
-            description = "Da qui cambi sorgente e apri le impostazioni. Il tutorial e quasi finito.",
-            ctaText = "Finisci",
+            title = "Menu",
+            description = "Da qui puoi aprire il cambio server e le impostazioni. Apriamo il selettore server.",
+            ctaText = "Apri server",
             shape = CutoutShape.Circle(radiusPadding = 10.dp),
-            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
-            handlesTargetTap = false,
-            advanceOnCompleted = TutorialPhase.Closing,
+            targetTapBehavior = TargetTapBehavior.BOTH,
+            handlesTargetTap = true,
+            advanceOnCompleted = TutorialPhase.AwaitingServerSelector,
         )
         TutorialPhase.FallbackShowcase -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_TAB,
@@ -304,6 +328,7 @@ private fun shouldShowSpotlight(phase: TutorialPhase, state: MangaUiState): Bool
         TutorialPhase.AwaitingSeriesTap ->
             onMainPager && state.currentTab == AppTab.LIBRARY && state.library.isNotEmpty()
         TutorialPhase.AwaitingChapterTap -> state.selectedDownloadedSeries != null
+        TutorialPhase.InReader -> state.readerChapter != null
         TutorialPhase.AwaitingOverflow -> onMainPager
         TutorialPhase.FallbackShowcase -> onMainPager
         else -> false
@@ -379,8 +404,8 @@ private fun WelcomeTutorialDialog(onSkip: () -> Unit, onStart: () -> Unit) {
         text = {
             Text(
                 "Ti accompagno in un giro guidato. Cerchiamo One Piece, lo metti nei preferiti, " +
-                    "vediamo come si scarica, visitiamo Preferiti e Libreria, leggiamo un capitolo " +
-                    "e finiamo dal menu Server/Impostazioni. Il primo capitolo lo scarico io in background.",
+                    "vediamo come si scarica, visitiamo Preferiti e Libreria, apriamo il Reader " +
+                    "e finiamo dal cambio server. Il primo capitolo lo scarico io in background.",
             )
         },
         confirmButton = {

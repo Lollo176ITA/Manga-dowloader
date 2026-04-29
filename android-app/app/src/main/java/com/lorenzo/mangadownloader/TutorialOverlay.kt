@@ -60,7 +60,6 @@ enum class TutorialAnchor {
     LIBRARY_SERIES_FIRST,
     DOWNLOADED_CHAPTER_FIRST,
     READER_FULLSCREEN,
-    SERVER_SELECTOR,
 }
 
 val LocalTutorialAnchor = compositionLocalOf<(TutorialAnchor) -> Modifier> { { Modifier } }
@@ -112,13 +111,6 @@ fun TutorialOverlay(
         if (phase != TutorialPhase.InReader || state.readerChapter == null) return@LaunchedEffect
         delay(4500)
         onTargetTap(TutorialAnchor.READER_FULLSCREEN)
-    }
-
-    LaunchedEffect(phase) {
-        if (phase != TutorialPhase.AwaitingServerSelector) return@LaunchedEffect
-        delay(4500)
-        onTargetTap(TutorialAnchor.SERVER_SELECTOR)
-        onAdvancePhase(TutorialPhase.AwaitingServerSelector, TutorialPhase.Closing)
     }
 
     val anchorRecorder: (TutorialAnchor) -> Modifier = remember(controller) {
@@ -270,13 +262,13 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         )
         TutorialPhase.AwaitingOverflow -> TutorialTargetContent(
             anchor = TutorialAnchor.OVERFLOW,
-            title = "Menu",
-            description = "Da qui puoi aprire il cambio server e le impostazioni. Apriamo il selettore server.",
-            ctaText = "Apri server",
+            title = "Menu e server",
+            description = "Da qui puoi cambiare server di ricerca e aprire le impostazioni. Il tutorial termina qui.",
+            ctaText = "Finisci",
             shape = CutoutShape.Circle(radiusPadding = 10.dp),
-            targetTapBehavior = TargetTapBehavior.BOTH,
-            handlesTargetTap = true,
-            advanceOnCompleted = TutorialPhase.AwaitingServerSelector,
+            targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
+            handlesTargetTap = false,
+            advanceOnCompleted = TutorialPhase.Closing,
         )
         TutorialPhase.FallbackShowcase -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_TAB,

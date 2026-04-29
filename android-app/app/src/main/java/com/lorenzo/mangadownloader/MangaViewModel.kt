@@ -119,7 +119,6 @@ enum class TutorialPhase {
     AwaitingChapterTap,
     InReader,
     AwaitingOverflow,
-    AwaitingServerSelector,
     Closing,
     FallbackShowcase,
     FallbackClosing,
@@ -732,7 +731,7 @@ class MangaViewModel internal constructor(
                     results = results,
                     isSearching = false,
                     tutorialState = _state.value.tutorialState.copy(
-                        phase = TutorialPhase.AwaitingResultTap,
+                        phase = TutorialPhase.AwaitingSearchBar,
                         sample = sample,
                     ),
                 )

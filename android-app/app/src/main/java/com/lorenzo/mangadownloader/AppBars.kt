@@ -38,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,8 +58,6 @@ fun AppTopBar(
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onEnterReaderFullscreen: () -> Unit,
-    tutorialOpenServerDialogRequest: Int = 0,
-    tutorialCloseServerDialogRequest: Int = 0,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
@@ -93,19 +90,6 @@ fun AppTopBar(
     var brightnessExpanded by remember(readerChapter?.relativePath) { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var serverSelectorExpanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(tutorialOpenServerDialogRequest) {
-        if (tutorialOpenServerDialogRequest > 0) {
-            overflowExpanded = false
-            showServerDialog = true
-        }
-    }
-    LaunchedEffect(tutorialCloseServerDialogRequest) {
-        if (tutorialCloseServerDialogRequest > 0) {
-            serverSelectorExpanded = false
-            showServerDialog = false
-        }
-    }
 
     val inDetail = selectedManga != null
     val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
@@ -234,7 +218,6 @@ fun AppTopBar(
                         value = selectedSourceName,
                         onValueChange = {},
                         modifier = Modifier
-                            .then(anchorFor(TutorialAnchor.SERVER_SELECTOR))
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                             .fillMaxWidth(),
                         readOnly = true,

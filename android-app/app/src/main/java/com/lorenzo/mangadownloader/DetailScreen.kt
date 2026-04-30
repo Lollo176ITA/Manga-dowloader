@@ -55,6 +55,7 @@ fun DetailScreen(
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
+    var startMenuExpanded by remember { mutableStateOf(false) }
     var endMenuExpanded by remember { mutableStateOf(false) }
     var fabMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -77,6 +78,7 @@ fun DetailScreen(
         if (hasChapters) {
             pendingStart = chapters.first()
             pendingEnd = chapters.last()
+            startMenuExpanded = false
             endMenuExpanded = false
         }
     }
@@ -115,6 +117,7 @@ fun DetailScreen(
                                 ) {
                                     pendingStart = chapter
                                     pendingEnd = chapter
+                                    startMenuExpanded = false
                                     endMenuExpanded = false
                                 }
                             }
@@ -158,18 +161,38 @@ fun DetailScreen(
             if (startIndex >= 0) chapters.subList(startIndex, chapters.size)
             else listOf(startChapter)
         }
+        val selectedEnd = pendingEnd
+            ?.takeIf { endChapter -> endOptions.any { it.url == endChapter.url } }
+            ?: endOptions.lastOrNull()
+            ?: startChapter
         DownloadRangeDialog(
             startChapter = startChapter,
-            endChapter = pendingEnd ?: startChapter,
+            endChapter = selectedEnd,
+            startOptions = chapters,
             endOptions = endOptions,
+            startMenuExpanded = startMenuExpanded,
             endMenuExpanded = endMenuExpanded,
             onDismiss = {
                 pendingStart = null
                 pendingEnd = null
+                startMenuExpanded = false
                 endMenuExpanded = false
             },
+            onOpenStartMenu = { startMenuExpanded = true },
+            onDismissStartMenu = { startMenuExpanded = false },
             onOpenEndMenu = { endMenuExpanded = true },
             onDismissEndMenu = { endMenuExpanded = false },
+            onSelectStart = { chapter ->
+                val startIndex = chapters.indexOfFirst { it.url == chapter.url }
+                val currentEndIndex = pendingEnd?.let { endChapter ->
+                    chapters.indexOfFirst { it.url == endChapter.url }
+                } ?: -1
+                pendingStart = chapter
+                if (currentEndIndex < startIndex) {
+                    pendingEnd = chapter
+                }
+                startMenuExpanded = false
+            },
             onSelectEnd = { chapter ->
                 pendingEnd = chapter
                 endMenuExpanded = false
@@ -177,6 +200,7 @@ fun DetailScreen(
             onConfirm = { endChapter ->
                 pendingStart = null
                 pendingEnd = null
+                startMenuExpanded = false
                 endMenuExpanded = false
                 onStart(details, startChapter, endChapter)
             },
@@ -298,11 +322,16 @@ private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boole
 private fun DownloadRangeDialog(
     startChapter: ChapterEntry,
     endChapter: ChapterEntry,
+    startOptions: List<ChapterEntry>,
     endOptions: List<ChapterEntry>,
+    startMenuExpanded: Boolean,
     endMenuExpanded: Boolean,
     onDismiss: () -> Unit,
+    onOpenStartMenu: () -> Unit,
+    onDismissStartMenu: () -> Unit,
     onOpenEndMenu: () -> Unit,
     onDismissEndMenu: () -> Unit,
+    onSelectStart: (ChapterEntry) -> Unit,
     onSelectEnd: (ChapterEntry) -> Unit,
     onConfirm: (ChapterEntry) -> Unit,
 ) {
@@ -312,15 +341,37 @@ private fun DownloadRangeDialog(
         shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = startChapter.displayLabel(),
-                    onValueChange = {},
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Da") },
-                    readOnly = true,
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.large,
-                )
+                ExposedDropdownMenuBox(
+                    expanded = startMenuExpanded,
+                    onExpandedChange = { if (it) onOpenStartMenu() else onDismissStartMenu() },
+                ) {
+                    OutlinedTextField(
+                        value = startChapter.displayLabel(),
+                        onValueChange = {},
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                            .fillMaxWidth(),
+                        readOnly = true,
+                        singleLine = true,
+                        label = { Text("Da") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = startMenuExpanded)
+                        },
+                        shape = MaterialTheme.shapes.large,
+                    )
+                    ExposedDropdownMenu(
+                        expanded = startMenuExpanded,
+                        onDismissRequest = onDismissStartMenu,
+                    ) {
+                        startOptions.forEach { candidate ->
+                            DropdownMenuItem(
+                                text = { Text(candidate.displayLabel()) },
+                                onClick = { onSelectStart(candidate) },
+                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                            )
+                        }
+                    }
+                }
                 ExposedDropdownMenuBox(
                     expanded = endMenuExpanded,
                     onExpandedChange = { if (it) onOpenEndMenu() else onDismissEndMenu() },

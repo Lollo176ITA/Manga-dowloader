@@ -56,20 +56,12 @@ data class AppSettings(
     val parentalPinHash: String? = null,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
-    val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
     val tutorialCompleted: Boolean = false,
 )
-
-enum class AutoReaderSpeed(val pauseSeconds: Int) {
-    OFF(0),
-    CALM(30),
-    NORMAL(20),
-    FAST(10),
-}
 
 enum class ParentalAction {
     OPEN_SEARCH,
@@ -173,6 +165,14 @@ data class MangaUiState(
     val errorMessage: String? = null,
 )
 
+private fun AppSettings.shouldStartTutorial(favorites: List<FavoriteManga>): Boolean {
+    return !tutorialCompleted && favorites.isEmpty()
+}
+
+private fun AppSettings.shouldAutoCompleteTutorial(favorites: List<FavoriteManga>): Boolean {
+    return !tutorialCompleted && favorites.isNotEmpty()
+}
+
 data class MangaInfoDialogState(
     val sourceId: String,
     val title: String,
@@ -204,9 +204,13 @@ class MangaViewModel internal constructor(
             favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
                 MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
             },
-            settings = initialSettings,
+            settings = if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
+                initialSettings.copy(tutorialCompleted = true)
+            } else {
+                initialSettings
+            },
             isBiometricAvailable = isBiometricAvailable(application),
-            tutorialState = if (!initialSettings.tutorialCompleted) {
+            tutorialState = if (initialSettings.shouldStartTutorial(initialFavorites)) {
                 TutorialUiState(phase = TutorialPhase.Welcome)
             } else {
                 TutorialUiState()
@@ -226,6 +230,9 @@ class MangaViewModel internal constructor(
     private var nextBiometricRequestId = 1L
 
     init {
+        if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
+            persistSettings(initialSettings.copy(tutorialCompleted = true))
+        }
         observeQueryChanges()
         refreshLibrary()
     }
@@ -618,7 +625,6 @@ class MangaViewModel internal constructor(
             else it.copy(
                 labsEnabled = false,
                 downloadDevUpdates = false,
-                autoReaderSpeed = AutoReaderSpeed.OFF,
                 privacyBrightnessEnabled = false,
                 readerBrightness = 1f,
             )
@@ -630,10 +636,6 @@ class MangaViewModel internal constructor(
         if (enabled) {
             checkForAppUpdate(force = true)
         }
-    }
-
-    fun setAutoReaderSpeed(speed: AutoReaderSpeed) {
-        updateSettings { it.copy(autoReaderSpeed = speed) }
     }
 
     fun setPrivacyBrightnessEnabled(enabled: Boolean) {
@@ -655,13 +657,6 @@ class MangaViewModel internal constructor(
     fun markTutorialCompleted() {
         updateSettings { it.copy(tutorialCompleted = true) }
         updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
-    }
-
-    fun restartTutorial() {
-        updateSettings { it.copy(tutorialCompleted = false) }
-        updateState {
-            copy(tutorialState = TutorialUiState(phase = TutorialPhase.Welcome))
-        }
     }
 
     fun onTutorialWelcomeStart() {
@@ -1651,12 +1646,6 @@ class MangaViewModel internal constructor(
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
             labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
             downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
-            autoReaderSpeed = runCatching {
-                AutoReaderSpeed.valueOf(
-                    prefs.getString(KEY_AUTO_READER_SPEED, AutoReaderSpeed.OFF.name)
-                        ?: AutoReaderSpeed.OFF.name,
-                )
-            }.getOrDefault(AutoReaderSpeed.OFF),
             privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
             readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
             themeMode = runCatching {
@@ -1685,7 +1674,6 @@ class MangaViewModel internal constructor(
             .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
             .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
-            .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
             .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
             .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
             .putString(KEY_THEME_MODE, settings.themeMode.name)
@@ -1721,7 +1709,6 @@ class MangaViewModel internal constructor(
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         private const val KEY_LABS_ENABLED = "labs_enabled"
         private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
-        private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
         private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_THEME_MODE = "theme_mode"

@@ -273,7 +273,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.FallbackShowcase -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_TAB,
             title = "Tour rapido",
-            description = "La rete non e disponibile. Le sezioni principali sono Cerca, Preferiti e Libreria; puoi rivedere il tutorial da Impostazioni, Labs.",
+            description = "La rete non e disponibile. Le sezioni principali sono Cerca, Preferiti e Libreria.",
             ctaText = "Chiudi",
             shape = CutoutShape.RoundedRect(cornerRadius = 18.dp, padding = 6.dp),
             targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
@@ -473,8 +473,7 @@ private fun FallbackClosingTutorialDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Quando vorrai rifarlo con la modalita interattiva, riprovalo da " +
-                        "Impostazioni, Labs, Rispiega tutorial.",
+                    "Quando la rete sara disponibile potrai cercare manga, salvarli nei preferiti e scaricare capitoli.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(12.dp))

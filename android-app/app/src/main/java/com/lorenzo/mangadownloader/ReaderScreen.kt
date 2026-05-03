@@ -1,7 +1,5 @@
 package com.lorenzo.mangadownloader
 
-import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.Spring
@@ -51,13 +49,11 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.io.File
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -72,24 +68,11 @@ fun ReaderScreen(
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
-    autoReaderSpeed: AutoReaderSpeed,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
 ) {
-    val view = LocalView.current
-
-    DisposableEffect(autoReaderSpeed) {
-        val window = (view.context as? Activity)?.window
-        if (autoReaderSpeed != AutoReaderSpeed.OFF) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
-    }
-
     AnimatedContent(
         targetState = chapter?.relativePath,
         transitionSpec = {
@@ -114,7 +97,6 @@ fun ReaderScreen(
             pages = pages,
             isLoading = isLoading,
             padding = padding,
-            autoReaderSpeed = autoReaderSpeed,
             initialPageIndex = initialPageIndex,
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
@@ -132,7 +114,6 @@ private fun ReaderContent(
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
-    autoReaderSpeed: AutoReaderSpeed,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
@@ -207,22 +188,6 @@ private fun ReaderContent(
             .collect { (reachedPageIndex, allowCompletion) ->
                 onPageVisible(reachedPageIndex, pages.size, allowCompletion)
             }
-    }
-
-    LaunchedEffect(autoReaderSpeed, chapterKey) {
-        if (autoReaderSpeed == AutoReaderSpeed.OFF || chapter == null) return@LaunchedEffect
-        val pauseMs = autoReaderSpeed.pauseSeconds * 1000L
-        while (true) {
-            delay(pauseMs)
-            val info = listState.layoutInfo
-            val topVisible = info.visibleItemsInfo.firstOrNull { item ->
-                val k = item.key
-                k is String && k != "reader-nav-top" && k != "reader-nav-bottom"
-            } ?: continue
-            val targetIndex = topVisible.index + 1
-            if (targetIndex >= info.totalItemsCount) break
-            listState.animateScrollToItem(targetIndex)
-        }
     }
 
     fun clampOffsets(

@@ -4,9 +4,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -30,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -52,7 +56,10 @@ fun AppTopBar(
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectSource: (String) -> Unit,
+    onReaderBrightnessChange: (Float) -> Unit,
+    onEnterReaderFullscreen: () -> Unit,
 ) {
+    val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
         MangaSourceCatalog.resolveSourceId(state.settings.searchSourceId)
     }
@@ -80,6 +87,7 @@ fun AppTopBar(
         else -> "Manga Downloader"
     }
     var overflowExpanded by remember { mutableStateOf(false) }
+    var brightnessExpanded by remember(readerChapter?.relativePath) { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var serverSelectorExpanded by remember { mutableStateOf(false) }
 
@@ -115,6 +123,27 @@ fun AppTopBar(
             }
         },
         actions = {
+            if (readerChapter != null && state.settings.privacyBrightnessEnabled) {
+                ReaderBrightnessAction(
+                    brightness = state.settings.readerBrightness,
+                    expanded = brightnessExpanded,
+                    onExpandedChange = { brightnessExpanded = it },
+                    onBrightnessChange = onReaderBrightnessChange,
+                )
+            }
+
+            if (readerChapter != null) {
+                IconButton(
+                    onClick = onEnterReaderFullscreen,
+                    modifier = anchorFor(TutorialAnchor.READER_FULLSCREEN),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Schermo intero",
+                    )
+                }
+            }
+
             if (selectedManga != null) {
                 val isFavorite = MangaSourceCatalog.identityKey(
                     selectedManga.sourceId,
@@ -123,12 +152,16 @@ fun AppTopBar(
                 FavoriteToggleAction(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
+                    modifier = anchorFor(TutorialAnchor.DETAIL_FAVORITE),
                 )
             }
 
             if (showOverflow) {
                 Box {
-                    IconButton(onClick = { overflowExpanded = true }) {
+                    IconButton(
+                        onClick = { overflowExpanded = true },
+                        modifier = anchorFor(TutorialAnchor.OVERFLOW),
+                    ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Altre azioni",
@@ -229,13 +262,69 @@ fun AppTopBar(
 }
 
 @Composable
+private fun ReaderBrightnessAction(
+    brightness: Float,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+) {
+    Box {
+        FilledIconToggleButton(
+            checked = expanded,
+            onCheckedChange = onExpandedChange,
+            shape = if (expanded) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraLarge,
+            colors = IconButtonDefaults.filledIconToggleButtonColors(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+        ) {
+            Icon(
+                imageVector = Icons.Default.LightMode,
+                contentDescription = "Regola luminosità",
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(240.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = "Luminosità",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = "${(brightness.coerceIn(0f, 1f) * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Slider(
+                    value = brightness.coerceIn(0f, 1f),
+                    onValueChange = onBrightnessChange,
+                    valueRange = 0f..1f,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun FavoriteToggleAction(
     isFavorite: Boolean,
     onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     FilledIconToggleButton(
         checked = isFavorite,
         onCheckedChange = { onToggle() },
+        modifier = modifier,
         shape = if (isFavorite) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraLarge,
         colors = IconButtonDefaults.filledIconToggleButtonColors(
             containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -256,6 +345,7 @@ fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
 ) {
+    val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
@@ -265,6 +355,7 @@ fun AppBottomBar(
             icon = Icons.Default.Search,
             label = "Cerca",
             onSelect = onSelect,
+            anchorModifier = anchorFor(TutorialAnchor.SEARCH_TAB),
         )
         AppTabEntry(
             tab = AppTab.FAVORITES,
@@ -272,6 +363,7 @@ fun AppBottomBar(
             icon = Icons.Default.Star,
             label = "Preferiti",
             onSelect = onSelect,
+            anchorModifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
         )
         AppTabEntry(
             tab = AppTab.LIBRARY,
@@ -279,6 +371,7 @@ fun AppBottomBar(
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             label = "Libreria",
             onSelect = onSelect,
+            anchorModifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
         )
     }
 }
@@ -290,8 +383,10 @@ private fun AppTabEntry(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onSelect: (AppTab) -> Unit,
+    anchorModifier: Modifier = Modifier,
 ) {
     ShortNavigationBarItem(
+        modifier = anchorModifier,
         selected = selected,
         onClick = { onSelect(tab) },
         icon = { Icon(icon, contentDescription = null) },

@@ -66,9 +66,9 @@ class LibraryScannerTest {
             ),
         )
 
-        val series = LibraryScanner.scan(root) { relativePath ->
+        val series = LibraryScanner.scan(root, isRead = { relativePath ->
             relativePath.endsWith("chapter_011.cbz")
-        }
+        })
 
         assertEquals(1, series.size)
         assertEquals("Berserk", series.first().title)
@@ -86,13 +86,59 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_001.cbz").writeText("chapter1")
         File(seriesDir, "chapter_10.5.cbz").writeText("chapter10.5")
 
-        val series = LibraryScanner.scan(root) { false }
+        val series = LibraryScanner.scan(root, isRead = { false })
 
         assertEquals(1, series.size)
         assertEquals("my series", series.first().title)
         assertEquals(MangaSourceIds.MANGAPILL, series.first().sourceId)
         assertEquals(listOf("1", "10.5"), series.first().chapters.map { it.numberText })
         assertTrue(series.first().chapters.none { it.isRead })
+    }
+
+    @Test
+    fun scan_includesReaderPagePosition_andResumePrefersUnfinishedChapter() {
+        val root = createTempDirectory()
+        val seriesDir = File(root, "my_series").apply { mkdirs() }
+        File(seriesDir, "chapter_001.cbz").writeText("chapter1")
+        File(seriesDir, "chapter_002.cbz").writeText("chapter2")
+
+        val series = LibraryScanner.scan(
+            root = root,
+            isRead = { relativePath -> relativePath.endsWith("chapter_001.cbz") },
+            readerPagePosition = { relativePath ->
+                if (relativePath.endsWith("chapter_001.cbz")) {
+                    ReaderPagePosition(pageIndex = 2, pageCount = 10)
+                } else {
+                    null
+                }
+            },
+        ).first()
+
+        assertEquals(2, series.chapters.first().readerPageIndex)
+        assertEquals(10, series.chapters.first().readerPageCount)
+        assertEquals("1", series.resumeChapter()?.numberText)
+    }
+
+    @Test
+    fun resumeChapter_usesFirstUnreadAfterFinishedReaderPosition() {
+        val root = createTempDirectory()
+        val seriesDir = File(root, "my_series").apply { mkdirs() }
+        File(seriesDir, "chapter_001.cbz").writeText("chapter1")
+        File(seriesDir, "chapter_002.cbz").writeText("chapter2")
+
+        val series = LibraryScanner.scan(
+            root = root,
+            isRead = { relativePath -> relativePath.endsWith("chapter_001.cbz") },
+            readerPagePosition = { relativePath ->
+                if (relativePath.endsWith("chapter_001.cbz")) {
+                    ReaderPagePosition(pageIndex = 9, pageCount = 10)
+                } else {
+                    null
+                }
+            },
+        ).first()
+
+        assertEquals("2", series.resumeChapter()?.numberText)
     }
 
     @Test

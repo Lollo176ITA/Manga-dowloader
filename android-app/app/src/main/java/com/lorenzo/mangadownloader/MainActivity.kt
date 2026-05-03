@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -74,8 +77,14 @@ private fun MangaDownloaderAppContent(
     val activeWorkInfos = remember(workInfos) { workInfos.filter { it.isActiveDownload() } }
     val runningOrQueuedWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
         ?: activeWorkInfos.firstOrNull()
-    val latestMessage = runningOrQueuedWork?.progress?.getString(DownloadWorker.PROGRESS_MESSAGE)
     val latestDone = runningOrQueuedWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
+    val terminalWorkKey = remember(workInfos) {
+        workInfos
+            .filter { it.isTerminalDownload() }
+            .map { "${it.id}:${it.state}" }
+            .sorted()
+            .joinToString("|")
+    }
     val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -83,15 +92,37 @@ private fun MangaDownloaderAppContent(
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
+    var lastForcedChapterProgressKey by remember { mutableStateOf<String?>(null) }
+    var lastForcedTerminalWorkKey by remember { mutableStateOf("") }
 
+    // Refresh the library only on coarse, infrequent transitions: when a chapter
+    // completes (latestDone changes), when a worker terminates, or when the set
+    // of active downloads grows/shrinks. Chapter completion and terminal work
+    // bypass the TTL cache so newly written files are visible immediately.
     LaunchedEffect(
         runningOrQueuedWork?.id,
         runningOrQueuedWork?.state,
         latestDone,
-        latestMessage,
+        terminalWorkKey,
         activeWorkInfos.size,
     ) {
-        viewModel.refreshLibrary()
+        val chapterProgressKey = runningOrQueuedWork
+            ?.id
+            ?.takeIf { latestDone > 0 }
+            ?.let { "$it:$latestDone" }
+        val chapterCompleted = chapterProgressKey != null &&
+            chapterProgressKey != lastForcedChapterProgressKey
+        val workerTerminated = terminalWorkKey.isNotBlank() &&
+            terminalWorkKey != lastForcedTerminalWorkKey
+
+        if (chapterCompleted) {
+            lastForcedChapterProgressKey = chapterProgressKey
+        }
+        if (workerTerminated) {
+            lastForcedTerminalWorkKey = terminalWorkKey
+        }
+
+        viewModel.refreshLibrary(forceRefresh = chapterCompleted || workerTerminated)
     }
 
     LaunchedEffect(state.errorMessage) {
@@ -172,7 +203,7 @@ private fun MangaDownloaderAppContent(
         val lastUrl = endChapter.url.trim()
         if (firstUrl.isBlank()) {
             scope.launch {
-                snackbarHostState.showSnackbar("URL capitolo non valido")
+                snackbarHostState.showSnackbar("URL non valido")
             }
         } else {
             try {
@@ -188,9 +219,9 @@ private fun MangaDownloaderAppContent(
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         if (startChapter.url == endChapter.url) {
-                            "Download aggiunto in coda: capitolo ${startChapter.displayNumber()}"
+                            "Download aggiunto in coda: ${startChapter.displayLabel()}"
                         } else {
-                            "Download aggiunto in coda: ${startChapter.displayNumber()}-${endChapter.displayNumber()}"
+                            "Download aggiunto in coda: ${startChapter.displayLabel()} - ${endChapter.displayLabel()}"
                         },
                     )
                 }
@@ -216,9 +247,18 @@ private fun MangaDownloaderAppContent(
         else -> AppTab.entries[pagerState.currentPage]
     }
     val canHandleBack = state.canHandleBack()
+    val privacyDimAlpha = readerPrivacyDimAlpha(
+        enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
+        brightness = state.settings.readerBrightness,
+    )
+    var isReaderFullscreen by remember(state.readerChapter?.relativePath) { mutableStateOf(false) }
 
     BackHandler(enabled = canHandleBack) {
-        state.handleBack(viewModel)
+        if (isReaderFullscreen) {
+            isReaderFullscreen = false
+        } else {
+            state.handleBack(viewModel)
+        }
     }
 
     LaunchedEffect(
@@ -245,16 +285,67 @@ private fun MangaDownloaderAppContent(
         }
     }
 
-    Scaffold(
+    TutorialOverlay(
+        state = state,
+        onWelcomeStart = viewModel::onTutorialWelcomeStart,
+        onWelcomeSkip = viewModel::onTutorialWelcomeSkip,
+        onFallbackCompleted = viewModel::onTutorialFallbackCompleted,
+        onAdvancePhase = viewModel::advanceTutorialPhase,
+        onTargetTap = { anchor ->
+            when (anchor) {
+                TutorialAnchor.SEARCH_RESULT_FIRST -> {
+                    state.results.firstOrNull()?.let(viewModel::selectManga)
+                }
+                TutorialAnchor.DETAIL_FAVORITE -> {
+                    viewModel.toggleFavoriteSelectedManga()
+                }
+                TutorialAnchor.FAVORITES_TAB -> {
+                    viewModel.selectTab(AppTab.FAVORITES)
+                    scope.launch {
+                        pagerState.animateScrollToPage(AppTab.FAVORITES.ordinal)
+                    }
+                }
+                TutorialAnchor.LIBRARY_TAB -> {
+                    viewModel.selectTab(AppTab.LIBRARY)
+                    scope.launch {
+                        pagerState.animateScrollToPage(AppTab.LIBRARY.ordinal)
+                    }
+                }
+                TutorialAnchor.LIBRARY_SERIES_FIRST -> {
+                    tutorialSampleSeries(state)?.let(viewModel::selectDownloadedSeries)
+                }
+                TutorialAnchor.DOWNLOADED_CHAPTER_FIRST -> {
+                    state.selectedDownloadedSeries
+                        ?.chapters
+                        ?.firstOrNull()
+                        ?.let(viewModel::openReader)
+                }
+                TutorialAnchor.READER_FULLSCREEN -> {
+                    viewModel.closeReader()
+                }
+                TutorialAnchor.SEARCH_TAB,
+                TutorialAnchor.SEARCH_BAR,
+                TutorialAnchor.OVERFLOW,
+                TutorialAnchor.DETAIL_DOWNLOAD -> Unit
+            }
+        },
+        onFinish = viewModel::onTutorialFinish,
+    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
-            AppTopBar(
-                state = state,
-                visibleTab = visiblePagerTab,
-                onBack = { state.handleBack(viewModel) },
-                onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
-                onOpenSettings = viewModel::openSettings,
-                onSelectSource = viewModel::selectSearchSource,
-            )
+            if (!(state.readerChapter != null && isReaderFullscreen)) {
+                AppTopBar(
+                    state = state,
+                    visibleTab = visiblePagerTab,
+                    onBack = { state.handleBack(viewModel) },
+                    onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
+                    onOpenSettings = viewModel::openSettings,
+                    onSelectSource = viewModel::selectSearchSource,
+                    onReaderBrightnessChange = viewModel::setReaderBrightness,
+                    onEnterReaderFullscreen = { isReaderFullscreen = true },
+                )
+            }
         },
         bottomBar = {
             if (showPager) {
@@ -288,9 +379,10 @@ private fun MangaDownloaderAppContent(
                     pages = state.readerPages,
                     isLoading = state.isLoadingReader,
                     padding = innerPadding,
-                    autoReaderSpeed = state.settings.autoReaderSpeed,
+                    initialPageIndex = state.readerInitialPageIndex,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
+                    onPageVisible = viewModel::saveReaderPagePosition,
                 )
             }
             state.showSettings -> {
@@ -311,7 +403,7 @@ private fun MangaDownloaderAppContent(
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
-                    onSelectAutoReaderSpeed = viewModel::setAutoReaderSpeed,
+                    onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                 )
             }
             selectedManga != null -> {
@@ -348,6 +440,8 @@ private fun MangaDownloaderAppContent(
                             onRefresh = viewModel::submitSearch,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
+                            onShowInfo = viewModel::showMangaInfo,
+                            onDismissInfo = viewModel::dismissMangaInfo,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
@@ -380,6 +474,15 @@ private fun MangaDownloaderAppContent(
                 }
             }
         }
+        }
+        if (privacyDimAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = privacyDimAlpha)),
+            )
+        }
+    }
     }
 
     lastCrashReport?.let { report ->
@@ -428,6 +531,19 @@ private fun WorkInfo.isActiveDownload(): Boolean {
         state == WorkInfo.State.BLOCKED
 }
 
+private fun WorkInfo.isTerminalDownload(): Boolean {
+    return state == WorkInfo.State.SUCCEEDED ||
+        state == WorkInfo.State.FAILED ||
+        state == WorkInfo.State.CANCELLED
+}
+
+private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
+    if (!enabled) return 0f
+    return (1f - brightness.coerceIn(0f, 1f)) * ReaderPrivacyMaxDimAlpha
+}
+
+private const val ReaderPrivacyMaxDimAlpha = 0.86f
+
 private fun downloadedChapterKeysFor(
     details: MangaDetails,
     library: List<DownloadedSeries>,
@@ -462,6 +578,29 @@ private fun downloadedChapterKeysFor(
             add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
         }
     }
+}
+
+private fun tutorialSampleSeries(state: MangaUiState): DownloadedSeries? {
+    val sample = state.tutorialState.sample ?: return state.library.firstOrNull()
+    val sampleKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
+    val sampleTitleKey = MangaSourceCatalog.identityKeyOrNull(
+        sourceId = sample.sourceId,
+        mangaUrl = null,
+        title = sample.title,
+    )
+    return state.library.firstOrNull { series ->
+        val seriesKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = series.mangaUrl,
+            title = series.title,
+        )
+        val seriesTitleKey = MangaSourceCatalog.identityKeyOrNull(
+            sourceId = series.sourceId,
+            mangaUrl = null,
+            title = series.title,
+        )
+        seriesKey == sampleKey || seriesTitleKey == sampleTitleKey
+    } ?: state.library.firstOrNull()
 }
 
 private fun MangaUiState.canHandleBack(): Boolean {

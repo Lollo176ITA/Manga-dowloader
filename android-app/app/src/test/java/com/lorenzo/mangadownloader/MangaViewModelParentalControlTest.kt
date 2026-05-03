@@ -175,7 +175,46 @@ class MangaViewModelParentalControlTest {
         val state = viewModel.state.value
         assertFalse(state.settings.labsEnabled)
         assertFalse(state.settings.downloadDevUpdates)
-        assertEquals(AutoReaderSpeed.OFF, state.settings.autoReaderSpeed)
+        assertFalse(state.settings.privacyBrightnessEnabled)
+        assertEquals(1f, state.settings.readerBrightness, 0f)
+    }
+
+    @Test
+    fun existingFavoritesSuppressFirstRunTutorialAndMarkItCompleted() {
+        application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_TUTORIAL_COMPLETED, false)
+            .putString(
+                KEY_FAVORITES_JSON,
+                """
+                [
+                  {
+                    "sourceId": "mangaworld",
+                    "title": "Existing Manga",
+                    "mangaUrl": "https://example.test/manga/existing",
+                    "coverUrl": "https://example.test/cover.jpg"
+                  }
+                ]
+                """.trimIndent(),
+            )
+            .commit()
+
+        val viewModel = createViewModel()
+
+        val state = viewModel.state.value
+        assertEquals(TutorialPhase.Idle, state.tutorialState.phase)
+        assertTrue(state.settings.tutorialCompleted)
+
+        val recreated = createViewModel()
+        assertEquals(TutorialPhase.Idle, recreated.state.value.tutorialState.phase)
+        assertTrue(recreated.state.value.settings.tutorialCompleted)
+    }
+
+    @Test
+    fun appSettingsDoesNotExposeAutoReaderSpeed() {
+        val settingFields = AppSettings::class.java.declaredFields.map { it.name }
+
+        assertFalse(settingFields.contains("autoReaderSpeed"))
     }
 
     private fun createConfiguredViewModel(): MangaViewModel {
@@ -236,6 +275,8 @@ class MangaViewModelParentalControlTest {
 
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
+        private const val KEY_FAVORITES_JSON = "favorites_json"
+        private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         private const val TEST_PIN = "123456"
     }
 }

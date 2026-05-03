@@ -1,15 +1,22 @@
 package com.lorenzo.mangadownloader
 
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -26,11 +33,14 @@ fun SearchScreen(
     onRefresh: () -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
     onToggleFavorite: (MangaSearchResult) -> Unit,
+    onShowInfo: (MangaSearchResult) -> Unit,
+    onDismissInfo: () -> Unit,
 ) {
     val trimmed = state.query.trim()
     val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
     val pullState = rememberPullToRefreshState()
 
+    val tutorialAnchorFor = LocalTutorialAnchor.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -40,6 +50,7 @@ fun SearchScreen(
             value = state.query,
             placeholder = "Cerca manga",
             onValueChange = onQueryChange,
+            modifier = tutorialAnchorFor(TutorialAnchor.SEARCH_BAR),
         )
 
         PullToRefreshBox(
@@ -58,6 +69,11 @@ fun SearchScreen(
                         )
                     }
                     state.results.isNotEmpty() -> {
+                        val anchorFor = LocalTutorialAnchor.current
+                        val firstKey = MangaSourceCatalog.identityKey(
+                            state.results.first().sourceId,
+                            state.results.first().mangaUrl,
+                        )
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(3),
                             modifier = Modifier.fillMaxSize(),
@@ -69,15 +85,24 @@ fun SearchScreen(
                                 state.results,
                                 key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
                             ) { result ->
-                                ResultCard(
-                                    result = result,
-                                    isFavorite = MangaSourceCatalog.identityKey(
-                                        result.sourceId,
-                                        result.mangaUrl,
-                                    ) in state.favoriteMangaKeys,
-                                    onClick = { onSelect(result) },
-                                    onToggleFavorite = { onToggleFavorite(result) },
+                                val resultKey = MangaSourceCatalog.identityKey(
+                                    result.sourceId,
+                                    result.mangaUrl,
                                 )
+                                val cardModifier = if (resultKey == firstKey) {
+                                    anchorFor(TutorialAnchor.SEARCH_RESULT_FIRST)
+                                } else {
+                                    Modifier
+                                }
+                                Box(modifier = cardModifier) {
+                                    ResultCard(
+                                        result = result,
+                                        isFavorite = resultKey in state.favoriteMangaKeys,
+                                        onClick = { onSelect(result) },
+                                        onToggleFavorite = { onToggleFavorite(result) },
+                                        onShowInfo = { onShowInfo(result) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -111,4 +136,51 @@ fun SearchScreen(
             }
         }
     }
+
+    state.mangaInfoDialog?.let { info ->
+        MangaInfoDialog(
+            info = info,
+            onDismiss = onDismissInfo,
+        )
+    }
+}
+
+@Composable
+private fun MangaInfoDialog(
+    info: MangaInfoDialogState,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(info.title) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                when {
+                    info.isLoading -> {
+                        AppLoadingIndicator(modifier = Modifier.padding(vertical = 16.dp))
+                        Text("Caricamento trama...")
+                    }
+                    !info.errorMessage.isNullOrBlank() -> {
+                        Text(info.errorMessage)
+                    }
+                    info.description.isNullOrBlank() -> {
+                        Text("Trama non disponibile.")
+                    }
+                    else -> {
+                        Text(info.description)
+                    }
+                }
+            }
+        },
+        shape = MaterialTheme.shapes.extraLarge,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Chiudi")
+            }
+        },
+    )
 }

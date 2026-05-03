@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.DarkMode
@@ -31,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +56,7 @@ fun SettingsScreen(
     onToggleParentalBiometric: (Boolean) -> Unit,
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
-    onSelectAutoReaderSpeed: (AutoReaderSpeed) -> Unit,
+    onTogglePrivacyBrightness: (Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -141,7 +138,7 @@ fun SettingsScreen(
                         "Attivo ma PIN non ancora configurato."
                     }
                 } else {
-                    "Disattivato di default. Preferiti e Libreria restano sempre liberi."
+                    "Disattivato di default."
                 },
                 checked = settings.parentalControlEnabled,
                 switchEnabled = !isParentalAuthInProgress,
@@ -195,9 +192,11 @@ fun SettingsScreen(
                     onCheckedChange = onToggleDownloadDevUpdates,
                 )
                 SettingsDivider()
-                AutoReaderSettings(
-                    selectedSpeed = settings.autoReaderSpeed,
-                    onSelectSpeed = onSelectAutoReaderSpeed,
+                SettingsSwitchRow(
+                    title = "Luminosità",
+                    description = "Mostra nel reader un controllo sole per ridurre la luminosità, anche sotto il minimo pratico dello schermo.",
+                    checked = settings.privacyBrightnessEnabled,
+                    onCheckedChange = onTogglePrivacyBrightness,
                 )
             }
         }
@@ -282,77 +281,4 @@ private fun DynamicColorRow(
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
-}
-
-@Composable
-private fun AutoReaderSettings(
-    selectedSpeed: AutoReaderSpeed,
-    onSelectSpeed: (AutoReaderSpeed) -> Unit,
-) {
-    val speeds = AutoReaderSpeed.values()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = "Reader automatico",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-        Text(
-            text = "Si ferma su ogni pagina per un po', poi scorre a quella successiva. Tiene lo schermo acceso. Puoi sempre scrollare a mano.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = selectedSpeed.displayLabel(),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = selectedSpeed.pauseLabel(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        val currentIndex = speeds.indexOf(selectedSpeed).coerceAtLeast(0)
-        Slider(
-            value = currentIndex.toFloat(),
-            onValueChange = { v ->
-                val idx = v.toInt().coerceIn(0, speeds.lastIndex)
-                if (speeds[idx] != selectedSpeed) onSelectSpeed(speeds[idx])
-            },
-            valueRange = 0f..speeds.lastIndex.toFloat(),
-            steps = speeds.size - 2,
-        )
-    }
-}
-
-private fun AutoReaderSpeed.displayLabel(): String = when (this) {
-    AutoReaderSpeed.OFF -> "Off"
-    AutoReaderSpeed.CALM -> "Calmo"
-    AutoReaderSpeed.NORMAL -> "Normale"
-    AutoReaderSpeed.FAST -> "Veloce"
-}
-
-private fun AutoReaderSpeed.pauseLabel(): String = when (this) {
-    AutoReaderSpeed.OFF -> "Disattivato"
-    else -> "${pauseSeconds}s per pagina"
 }

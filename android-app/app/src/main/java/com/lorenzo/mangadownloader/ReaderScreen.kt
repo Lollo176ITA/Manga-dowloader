@@ -1,9 +1,10 @@
 package com.lorenzo.mangadownloader
 
-import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -33,7 +34,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -43,15 +46,19 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.io.File
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.hypot
 
 @Composable
 fun ReaderScreen(
@@ -61,22 +68,11 @@ fun ReaderScreen(
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
-    autoReaderSpeed: AutoReaderSpeed,
+    initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
 ) {
-    val view = LocalView.current
-
-    DisposableEffect(autoReaderSpeed) {
-        val window = (view.context as? Activity)?.window
-        if (autoReaderSpeed != AutoReaderSpeed.OFF) {
-            window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
-    }
-
     AnimatedContent(
         targetState = chapter?.relativePath,
         transitionSpec = {
@@ -101,9 +97,10 @@ fun ReaderScreen(
             pages = pages,
             isLoading = isLoading,
             padding = padding,
-            autoReaderSpeed = autoReaderSpeed,
+            initialPageIndex = initialPageIndex,
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
+            onPageVisible = onPageVisible,
         )
     }
 }
@@ -117,9 +114,10 @@ private fun ReaderContent(
     pages: List<File>,
     isLoading: Boolean,
     padding: PaddingValues,
-    autoReaderSpeed: AutoReaderSpeed,
+    initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -127,22 +125,69 @@ private fun ReaderContent(
     var readerOffsetX by remember(chapterKey) { mutableStateOf(0f) }
     var readerOffsetY by remember(chapterKey) { mutableStateOf(0f) }
     var viewportSize by remember(chapterKey) { mutableStateOf(IntSize.Zero) }
+    var restoreComplete by remember(chapterKey) { mutableStateOf(false) }
+    var hasReaderMovedAfterRestore by remember(chapterKey) { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val zoomFlingDecay = remember { exponentialDecay<Float>() }
+    val zoomFlingScope = rememberCoroutineScope()
+    var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
 
-    LaunchedEffect(autoReaderSpeed, chapterKey) {
-        if (autoReaderSpeed == AutoReaderSpeed.OFF || chapter == null) return@LaunchedEffect
-        val pauseMs = autoReaderSpeed.pauseSeconds * 1000L
-        while (true) {
-            delay(pauseMs)
-            val info = listState.layoutInfo
-            val topVisible = info.visibleItemsInfo.firstOrNull { item ->
-                val k = item.key
-                k is String && k != "reader-nav-top" && k != "reader-nav-bottom"
-            } ?: continue
-            val targetIndex = topVisible.index + 1
-            if (targetIndex >= info.totalItemsCount) break
-            listState.animateScrollToItem(targetIndex)
+    DisposableEffect(chapterKey) {
+        onDispose { zoomFlingJob?.cancel() }
+    }
+
+    LaunchedEffect(chapterKey, pages.size) {
+        if (chapter == null || pages.isEmpty()) return@LaunchedEffect
+
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (restoreComplete && scrolling) {
+                    hasReaderMovedAfterRestore = true
+                }
+            }
+    }
+
+    LaunchedEffect(chapterKey, pages.size, initialPageIndex) {
+        if (chapter == null || pages.isEmpty()) return@LaunchedEffect
+
+        val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex)
+        listState.scrollToItem(restoredPageIndex + ReaderPageItemOffset)
+        restoreComplete = true
+
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val visiblePages = layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                val pageIndex = item.index - ReaderPageItemOffset
+                if (pageIndex !in pages.indices) {
+                    null
+                } else {
+                    val visiblePixels = (
+                        minOf(item.offset + item.size, layoutInfo.viewportEndOffset) -
+                            maxOf(item.offset, layoutInfo.viewportStartOffset)
+                        ).coerceAtLeast(0)
+                    if (visiblePixels > 0) {
+                        Triple(pageIndex, visiblePixels, item.size)
+                    } else {
+                        null
+                    }
+                }
+            }
+            val furthestMostlyVisiblePage = visiblePages
+                .filter { (_, visiblePixels, itemSize) -> itemSize > 0 && visiblePixels * 2 >= itemSize }
+                .maxOfOrNull { (pageIndex, _, _) -> pageIndex }
+            val dominantVisiblePage = visiblePages
+                .maxByOrNull { (_, visiblePixels) -> visiblePixels }
+                ?.first
+            val reachedPageIndex = furthestMostlyVisiblePage
+                ?: dominantVisiblePage
+                ?: restoredPageIndex
+            reachedPageIndex to hasReaderMovedAfterRestore
         }
+            .distinctUntilChanged()
+            .collect { (reachedPageIndex, allowCompletion) ->
+                onPageVisible(reachedPageIndex, pages.size, allowCompletion)
+            }
     }
 
     fun clampOffsets(
@@ -169,7 +214,9 @@ private fun ReaderContent(
         readerOffsetY = clampedY
     }
 
-    fun applyOneFingerPan(scale: Float, panChange: Offset) {
+    fun applyZoomPanDelta(scale: Float, panChange: Offset) {
+        if (panChange == Offset.Zero) return
+        hasReaderMovedAfterRestore = true
         val previousOffsetY = readerOffsetY
         val (clampedX, clampedY) = clampOffsets(
             scale = scale,
@@ -184,6 +231,51 @@ private fun ReaderContent(
             val remainingPanY = panChange.y - consumedByViewportPan
             if (remainingPanY != 0f) {
                 listState.dispatchRawDelta(-remainingPanY / scale)
+            }
+        }
+    }
+
+    fun settleToMinScale(offsetY: Float) {
+        if (offsetY != 0f) {
+            listState.dispatchRawDelta(-offsetY)
+            hasReaderMovedAfterRestore = true
+        }
+        readerScale = minScale
+        readerOffsetX = 0f
+        readerOffsetY = 0f
+    }
+
+    fun startZoomFling(scale: Float, velocity: Offset) {
+        zoomFlingJob?.cancel()
+        val velocityMagnitude = hypot(velocity.x, velocity.y)
+        if (scale <= minScale || velocityMagnitude < MinZoomFlingVelocityPxPerSecond) {
+            return
+        }
+
+        zoomFlingJob = zoomFlingScope.launch {
+            val direction = velocity / velocityMagnitude
+            var previousDistance = 0f
+            AnimationState(
+                initialValue = 0f,
+                initialVelocity = velocityMagnitude,
+            ).animateDecay(zoomFlingDecay) {
+                if (readerScale <= minScale) {
+                    cancelAnimation()
+                    return@animateDecay
+                }
+                val distanceDelta = value - previousDistance
+                previousDistance = value
+                applyZoomPanDelta(
+                    scale = readerScale,
+                    panChange = direction * distanceDelta,
+                )
+                val movingHorizontally = abs(velocity.x) >= MinZoomFlingVelocityPxPerSecond &&
+                    readerOffsetX != 0f
+                val movingVertically = abs(velocity.y) >= MinZoomFlingVelocityPxPerSecond ||
+                    readerOffsetY != 0f
+                if (!movingHorizontally && !movingVertically) {
+                    cancelAnimation()
+                }
             }
         }
     }
@@ -216,39 +308,47 @@ private fun ReaderContent(
                     .clipToBounds()
                     .pointerInput(chapterKey) {
                         awaitEachGesture {
-                            awaitFirstDown(
+                            val firstDown = awaitFirstDown(
                                 requireUnconsumed = false,
                                 pass = PointerEventPass.Initial,
                             )
+                            zoomFlingJob?.cancel()
+                            var velocityTracker: VelocityTracker? = if (readerScale > minScale) {
+                                VelocityTracker().apply {
+                                    addPosition(firstDown.uptimeMillis, firstDown.position)
+                                }
+                            } else {
+                                null
+                            }
                             do {
                                 val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                                 val pressedChanges = event.changes.filter { it.pressed }
                                 if (pressedChanges.size >= 2) {
+                                    velocityTracker = null
+                                    zoomFlingJob?.cancel()
                                     val zoomChange = event.calculateZoom()
                                     val panChange = event.calculatePan()
                                     if (zoomChange != 1f || panChange != Offset.Zero) {
                                         val nextScale = (readerScale * zoomChange)
                                             .coerceIn(minScale, maxScale)
                                         val effectiveZoomChange = nextScale / readerScale
+                                        val centroid = event.calculateCentroid()
+                                        val viewportCenter = Offset(
+                                            x = viewportSize.width / 2f,
+                                            y = viewportSize.height / 2f,
+                                        )
+                                        val zoomFocus = centroid - viewportCenter
+                                        val targetOffsetX =
+                                            readerOffsetX * effectiveZoomChange +
+                                                zoomFocus.x * (1f - effectiveZoomChange) +
+                                                panChange.x
+                                        val targetOffsetY =
+                                            readerOffsetY * effectiveZoomChange +
+                                                zoomFocus.y * (1f - effectiveZoomChange) +
+                                                panChange.y
                                         if (nextScale <= minScale) {
-                                            readerScale = minScale
-                                            readerOffsetX = 0f
-                                            readerOffsetY = 0f
+                                            settleToMinScale(targetOffsetY)
                                         } else {
-                                            val centroid = event.calculateCentroid()
-                                            val viewportCenter = Offset(
-                                                x = viewportSize.width / 2f,
-                                                y = viewportSize.height / 2f,
-                                            )
-                                            val zoomFocus = centroid - viewportCenter
-                                            val targetOffsetX =
-                                                readerOffsetX * effectiveZoomChange +
-                                                    zoomFocus.x * (1f - effectiveZoomChange) +
-                                                    panChange.x
-                                            val targetOffsetY =
-                                                readerOffsetY * effectiveZoomChange +
-                                                    zoomFocus.y * (1f - effectiveZoomChange) +
-                                                    panChange.y
                                             readerScale = nextScale
                                             applyZoomedOffset(
                                                 scale = nextScale,
@@ -261,12 +361,24 @@ private fun ReaderContent(
                                 } else if (readerScale > minScale && pressedChanges.size == 1) {
                                     val change = pressedChanges.first()
                                     val panChange = change.positionChange()
+                                    val tracker = velocityTracker ?: VelocityTracker().also {
+                                        velocityTracker = it
+                                    }
+                                    tracker.addPosition(change.uptimeMillis, change.position)
                                     if (panChange != Offset.Zero) {
-                                        applyOneFingerPan(readerScale, panChange)
+                                        applyZoomPanDelta(readerScale, panChange)
                                         change.consume()
                                     }
                                 }
                             } while (event.changes.any { it.pressed })
+                            velocityTracker
+                                ?.calculateVelocity()
+                                ?.let { velocity ->
+                                    startZoomFling(
+                                        scale = readerScale,
+                                        velocity = Offset(velocity.x, velocity.y),
+                                    )
+                                }
                         }
                     }
                     .pointerInput(chapterKey) {
@@ -353,3 +465,6 @@ private fun ReaderContent(
         }
     }
 }
+
+private const val ReaderPageItemOffset = 1
+private const val MinZoomFlingVelocityPxPerSecond = 120f

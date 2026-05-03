@@ -56,17 +56,12 @@ data class AppSettings(
     val parentalPinHash: String? = null,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
-    val autoReaderSpeed: AutoReaderSpeed = AutoReaderSpeed.OFF,
+    val privacyBrightnessEnabled: Boolean = false,
+    val readerBrightness: Float = 1f,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
+    val tutorialCompleted: Boolean = false,
 )
-
-enum class AutoReaderSpeed(val pauseSeconds: Int) {
-    OFF(0),
-    CALM(30),
-    NORMAL(20),
-    FAST(10),
-}
 
 enum class ParentalAction {
     OPEN_SEARCH,
@@ -102,6 +97,38 @@ data class ParentalBiometricPromptRequest(
     val subtitle: String,
 )
 
+enum class TutorialPhase {
+    Idle,
+    Welcome,
+    Preloading,
+    AwaitingSearchBar,
+    AwaitingResultTap,
+    AwaitingFavorite,
+    AwaitingDownload,
+    AwaitingFavoritesTab,
+    AwaitingLibraryTab,
+    AwaitingSeriesTap,
+    AwaitingChapterTap,
+    InReader,
+    AwaitingOverflow,
+    Closing,
+    FallbackShowcase,
+    FallbackClosing,
+}
+
+data class TutorialSample(
+    val sourceId: String,
+    val mangaUrl: String,
+    val title: String,
+    val coverUrl: String?,
+    val chapterUrl: String,
+)
+
+data class TutorialUiState(
+    val phase: TutorialPhase = TutorialPhase.Idle,
+    val sample: TutorialSample? = null,
+)
+
 data class MangaUiState(
     val currentTab: AppTab = AppTab.SEARCH,
     val pendingSearchAccessReturnTab: AppTab? = null,
@@ -114,6 +141,7 @@ data class MangaUiState(
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val isLoadingDetails: Boolean = false,
+    val mangaInfoDialog: MangaInfoDialogState? = null,
     val library: List<DownloadedSeries> = emptyList(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
@@ -121,6 +149,7 @@ data class MangaUiState(
     val readerPreviousChapter: DownloadedChapter? = null,
     val readerNextChapter: DownloadedChapter? = null,
     val readerPages: List<File> = emptyList(),
+    val readerInitialPageIndex: Int = 0,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
     val isCheckingUpdate: Boolean = false,
@@ -132,6 +161,25 @@ data class MangaUiState(
     val parentalPinSetupState: ParentalPinSetupState? = null,
     val parentalPinEntryState: ParentalPinEntryState? = null,
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
+    val tutorialState: TutorialUiState = TutorialUiState(),
+    val errorMessage: String? = null,
+)
+
+private fun AppSettings.shouldStartTutorial(favorites: List<FavoriteManga>): Boolean {
+    return !tutorialCompleted && favorites.isEmpty()
+}
+
+private fun AppSettings.shouldAutoCompleteTutorial(favorites: List<FavoriteManga>): Boolean {
+    return !tutorialCompleted && favorites.isNotEmpty()
+}
+
+data class MangaInfoDialogState(
+    val sourceId: String,
+    val title: String,
+    val mangaUrl: String,
+    val coverUrl: String?,
+    val description: String? = null,
+    val isLoading: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -156,14 +204,24 @@ class MangaViewModel internal constructor(
             favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
                 MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
             },
-            settings = initialSettings,
+            settings = if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
+                initialSettings.copy(tutorialCompleted = true)
+            } else {
+                initialSettings
+            },
             isBiometricAvailable = isBiometricAvailable(application),
+            tutorialState = if (initialSettings.shouldStartTutorial(initialFavorites)) {
+                TutorialUiState(phase = TutorialPhase.Welcome)
+            } else {
+                TutorialUiState()
+            },
         ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
     private var detailJob: Job? = null
+    private var infoJob: Job? = null
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
     private var updateJob: Job? = null
@@ -172,6 +230,9 @@ class MangaViewModel internal constructor(
     private var nextBiometricRequestId = 1L
 
     init {
+        if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
+            persistSettings(initialSettings.copy(tutorialCompleted = true))
+        }
         observeQueryChanges()
         refreshLibrary()
     }
@@ -228,9 +289,7 @@ class MangaViewModel internal constructor(
 
     fun selectTab(tab: AppTab) {
         if (tab == _state.value.currentTab) {
-            if (tab == AppTab.LIBRARY) {
-                refreshLibrary()
-            }
+            // Same tab: don't trigger another disk scan; the cached snapshot is current.
             return
         }
         if (tab == AppTab.SEARCH && _state.value.settings.parentalControlEnabled) {
@@ -566,7 +625,8 @@ class MangaViewModel internal constructor(
             else it.copy(
                 labsEnabled = false,
                 downloadDevUpdates = false,
-                autoReaderSpeed = AutoReaderSpeed.OFF,
+                privacyBrightnessEnabled = false,
+                readerBrightness = 1f,
             )
         }
     }
@@ -578,8 +638,12 @@ class MangaViewModel internal constructor(
         }
     }
 
-    fun setAutoReaderSpeed(speed: AutoReaderSpeed) {
-        updateSettings { it.copy(autoReaderSpeed = speed) }
+    fun setPrivacyBrightnessEnabled(enabled: Boolean) {
+        updateSettings { it.copy(privacyBrightnessEnabled = enabled) }
+    }
+
+    fun setReaderBrightness(brightness: Float) {
+        updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -588,6 +652,134 @@ class MangaViewModel internal constructor(
 
     fun setUseDynamicColor(enabled: Boolean) {
         updateSettings { it.copy(useDynamicColor = enabled) }
+    }
+
+    fun markTutorialCompleted() {
+        updateSettings { it.copy(tutorialCompleted = true) }
+        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
+    }
+
+    fun onTutorialWelcomeStart() {
+        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
+        updateState {
+            copy(tutorialState = tutorialState.copy(phase = TutorialPhase.Preloading))
+        }
+        runTutorialPreload()
+    }
+
+    fun onTutorialWelcomeSkip() {
+        markTutorialCompleted()
+    }
+
+    fun onTutorialFallbackCompleted() {
+        markTutorialCompleted()
+    }
+
+    fun onTutorialFinish(keepSample: Boolean) {
+        val sample = _state.value.tutorialState.sample
+        if (!keepSample && sample != null) {
+            cleanupTutorialSample(sample)
+        }
+        markTutorialCompleted()
+    }
+
+    fun advanceTutorialPhase(from: TutorialPhase, to: TutorialPhase) {
+        val current = _state.value.tutorialState.phase
+        if (current != from) return
+        updateState {
+            copy(tutorialState = tutorialState.copy(phase = to))
+        }
+    }
+
+    private fun runTutorialPreload() {
+        viewModelScope.launch {
+            try {
+                val sourceId = _state.value.settings.searchSourceId
+                val source = sourceRegistry.requireById(sourceId)
+                val results = withContext(Dispatchers.IO) { source.searchManga("One Piece") }
+                val match = results.firstOrNull { it.title.contains("One Piece", ignoreCase = true) }
+                    ?: results.firstOrNull()
+                    ?: throw NoSuchElementException("Nessun risultato")
+                val details = withContext(Dispatchers.IO) {
+                    source.fetchMangaDetails(match.mangaUrl)
+                }
+                val chapter = details.chapters.firstOrNull()
+                    ?: throw NoSuchElementException("Nessun capitolo")
+                val sample = TutorialSample(
+                    sourceId = match.sourceId,
+                    mangaUrl = match.mangaUrl,
+                    title = match.title,
+                    coverUrl = match.coverUrl,
+                    chapterUrl = chapter.url,
+                )
+                DownloadWorker.enqueue(
+                    context = getApplication(),
+                    firstUrl = chapter.url,
+                    lastUrl = chapter.url,
+                    sourceId = match.sourceId,
+                    seriesTitle = match.title,
+                    mangaUrl = match.mangaUrl,
+                    coverUrl = match.coverUrl,
+                )
+                _state.value = _state.value.copy(
+                    query = "One Piece",
+                    results = results,
+                    isSearching = false,
+                    tutorialState = _state.value.tutorialState.copy(
+                        phase = TutorialPhase.AwaitingSearchBar,
+                        sample = sample,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateState {
+                    copy(
+                        tutorialState = tutorialState.copy(
+                            phase = TutorialPhase.FallbackShowcase,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun cleanupTutorialSample(sample: TutorialSample) {
+        val targetKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
+        val current = _state.value.favorites.toMutableList()
+        val removed = current.removeAll {
+            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+        }
+        if (removed) {
+            persistFavorites(current)
+            updateState {
+                copy(
+                    favorites = current,
+                    favoriteMangaKeys = current.mapTo(linkedSetOf()) {
+                        MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
+                    },
+                )
+            }
+        }
+        viewModelScope.launch {
+            try {
+                val snapshot = withContext(Dispatchers.IO) {
+                    libraryRepository.scanLibrary(forceRefresh = true)
+                }
+                val series = snapshot.firstOrNull {
+                    MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl ?: "") == targetKey ||
+                        it.title.equals(sample.title, ignoreCase = true)
+                } ?: return@launch
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteSeries(series)
+                }
+                refreshLibrary(forceRefresh = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Silent — cleanup is best-effort.
+            }
+        }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -631,6 +823,55 @@ class MangaViewModel internal constructor(
         }
     }
 
+    fun showMangaInfo(result: MangaSearchResult) {
+        infoJob?.cancel()
+        _state.value = _state.value.copy(
+            mangaInfoDialog = MangaInfoDialogState(
+                sourceId = result.sourceId,
+                title = result.title,
+                mangaUrl = result.mangaUrl,
+                coverUrl = result.coverUrl,
+                isLoading = true,
+            ),
+            errorMessage = null,
+        )
+        infoJob = viewModelScope.launch {
+            try {
+                val details = withContext(Dispatchers.IO) {
+                    sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
+                }
+                _state.value = _state.value.copy(
+                    mangaInfoDialog = MangaInfoDialogState(
+                        sourceId = details.sourceId,
+                        title = details.title,
+                        mangaUrl = details.mangaUrl,
+                        coverUrl = details.coverUrl,
+                        description = details.description,
+                        isLoading = false,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    mangaInfoDialog = MangaInfoDialogState(
+                        sourceId = result.sourceId,
+                        title = result.title,
+                        mangaUrl = result.mangaUrl,
+                        coverUrl = result.coverUrl,
+                        isLoading = false,
+                        errorMessage = exc.message ?: "Errore caricamento trama",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun dismissMangaInfo() {
+        infoJob?.cancel()
+        _state.value = _state.value.copy(mangaInfoDialog = null)
+    }
+
     fun clearSelection() {
         detailJob?.cancel()
         _state.value = _state.value.copy(selected = null, isLoadingDetails = false, errorMessage = null)
@@ -670,12 +911,12 @@ class MangaViewModel internal constructor(
         )
     }
 
-    fun refreshLibrary() {
+    fun refreshLibrary(forceRefresh: Boolean = false) {
         libraryJob?.cancel()
         updateState { copy(isLoadingLibrary = true) }
         libraryJob = viewModelScope.launch {
             try {
-                val snapshot = scanLibrarySnapshot()
+                val snapshot = scanLibrarySnapshot(forceRefresh)
                 _state.value = _state.value.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
             } catch (e: CancellationException) {
                 throw e
@@ -711,26 +952,56 @@ class MangaViewModel internal constructor(
 
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
-        libraryRepository.markChapterRead(chapter)
+        val initialPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
+            ?: chapter.readerPageIndex
+            ?: 0
+        libraryRepository.saveReaderPagePosition(
+            relativePath = chapter.relativePath,
+            pageIndex = initialPageIndex,
+            pageCount = chapter.readerPageCount,
+        )
         _state.value = _state.value.copy(
-            readerChapter = chapter.copy(isRead = true),
+            readerChapter = chapter.copy(
+                readerPageIndex = initialPageIndex,
+            ),
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
+            readerInitialPageIndex = initialPageIndex,
             isLoadingReader = true,
             errorMessage = null,
-        ).withReadChapter(chapter.relativePath)
+        ).withReaderPosition(
+            relativePath = chapter.relativePath,
+            pageIndex = initialPageIndex,
+            pageCount = chapter.readerPageCount,
+        )
             .withReaderAdjacency(chapter.relativePath)
 
         readerJob = viewModelScope.launch {
             try {
                 val pages = libraryRepository.extractReaderPages(chapter)
-                val updated = _state.value.readerChapter?.copy(isRead = true) ?: chapter.copy(isRead = true)
-                _state.value = _state.value.copy(
+                val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex.coerceAtLeast(0))
+                libraryRepository.saveReaderPagePosition(
+                    relativePath = chapter.relativePath,
+                    pageIndex = restoredPageIndex,
+                    pageCount = pages.size,
+                )
+                val updated = (_state.value.readerChapter ?: chapter).copy(
+                    isRead = (_state.value.readerChapter ?: chapter).isRead,
+                    readerPageIndex = restoredPageIndex,
+                    readerPageCount = pages.size,
+                )
+                val nextState = _state.value.copy(
                     readerChapter = updated,
                     readerPages = pages,
+                    readerInitialPageIndex = restoredPageIndex,
                     isLoadingReader = false,
+                ).withReaderPosition(
+                    relativePath = updated.relativePath,
+                    pageIndex = restoredPageIndex,
+                    pageCount = pages.size,
                 ).withReaderAdjacency(updated.relativePath)
+                _state.value = nextState
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -743,6 +1014,42 @@ class MangaViewModel internal constructor(
 
         maybeTriggerAutoDownload(chapter)
         maybePerformSmartCleanup(chapter)
+    }
+
+    fun saveReaderPagePosition(pageIndex: Int, pageCount: Int, allowCompletion: Boolean) {
+        val chapter = _state.value.readerChapter ?: return
+        val safePageCount = pageCount.coerceAtLeast(1)
+        val safePageIndex = pageIndex.coerceIn(0, safePageCount - 1)
+        val currentPageIndex = chapter.readerPageIndex ?: -1
+        val nextPageIndex = if (allowCompletion) {
+            maxOf(currentPageIndex, safePageIndex)
+        } else {
+            currentPageIndex.coerceAtLeast(0).coerceIn(0, safePageCount - 1)
+        }
+        if (
+            chapter.readerPageIndex == nextPageIndex &&
+            chapter.readerPageCount == safePageCount
+        ) {
+            return
+        }
+
+        libraryRepository.saveReaderPagePosition(
+            relativePath = chapter.relativePath,
+            pageIndex = nextPageIndex,
+            pageCount = safePageCount,
+        )
+        val completed = allowCompletion && nextPageIndex >= safePageCount - 1
+        if (completed && !chapter.isRead) {
+            libraryRepository.markChapterRead(chapter)
+        }
+        updateState {
+            val positionedState = withReaderPosition(
+                relativePath = chapter.relativePath,
+                pageIndex = nextPageIndex,
+                pageCount = safePageCount,
+            )
+            if (completed) positionedState.withReadChapter(chapter.relativePath) else positionedState
+        }
     }
 
     private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
@@ -909,12 +1216,29 @@ class MangaViewModel internal constructor(
             return
         }
 
+        val includePreview = _state.value.settings.downloadDevUpdates
+        // Stable channel: throttle cold-start checks to once per day to avoid
+        // hammering GitHub on every app open. Preview channel and explicit
+        // user-triggered checks always run, since previews ship more often and
+        // users hitting "controlla aggiornamenti" expect immediate feedback.
+        val shouldRecordStableCheck = !force && !includePreview
+        if (shouldRecordStableCheck) {
+            val lastCheck = prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
+            if (lastCheck > 0L &&
+                System.currentTimeMillis() - lastCheck < UPDATE_CHECK_COOLDOWN_MS
+            ) {
+                return
+            }
+        }
+
         _state.value = _state.value.copy(isCheckingUpdate = true)
         updateJob = viewModelScope.launch {
+            var stableCheckCompleted = false
             try {
                 val update = appUpdateRepository.checkForUpdate(
-                    includePreview = _state.value.settings.downloadDevUpdates,
+                    includePreview = includePreview,
                 )
+                stableCheckCompleted = true
                 _state.value = _state.value.copy(
                     availableUpdate = update,
                     isCheckingUpdate = false,
@@ -929,6 +1253,12 @@ class MangaViewModel internal constructor(
                     )
                 } else {
                     _state.value.copy(isCheckingUpdate = false)
+                }
+            } finally {
+                if (shouldRecordStableCheck && stableCheckCompleted) {
+                    prefs.edit()
+                        .putLong(KEY_LAST_UPDATE_CHECK_AT, System.currentTimeMillis())
+                        .apply()
                 }
             }
         }
@@ -1181,6 +1511,36 @@ class MangaViewModel internal constructor(
         ).withReaderAdjacency(updatedReader?.relativePath)
     }
 
+    private fun MangaUiState.withReaderPosition(
+        relativePath: String,
+        pageIndex: Int,
+        pageCount: Int?,
+    ): MangaUiState {
+        fun DownloadedChapter.updateIfSame(): DownloadedChapter {
+            return if (this.relativePath == relativePath) {
+                copy(
+                    readerPageIndex = pageIndex,
+                    readerPageCount = pageCount ?: readerPageCount,
+                )
+            } else {
+                this
+            }
+        }
+
+        val updatedLibrary = library.map { series ->
+            series.copy(chapters = series.chapters.map { chapter -> chapter.updateIfSame() })
+        }
+        val updatedSelected = selectedDownloadedSeries?.let { series ->
+            series.copy(chapters = series.chapters.map { chapter -> chapter.updateIfSame() })
+        }
+        val updatedReader = readerChapter?.updateIfSame()
+        return copy(
+            library = updatedLibrary,
+            selectedDownloadedSeries = updatedSelected,
+            readerChapter = updatedReader,
+        )
+    }
+
     private fun MangaUiState.withReaderAdjacency(relativePath: String?): MangaUiState {
         val chapters = selectedDownloadedSeries?.chapters.orEmpty()
         val currentIndex = relativePath?.let { path ->
@@ -1259,8 +1619,8 @@ class MangaViewModel internal constructor(
         _state.value = _state.value.transform()
     }
 
-    private suspend fun scanLibrarySnapshot(): List<DownloadedSeries> {
-        return withContext(Dispatchers.IO) { libraryRepository.scanLibrary() }
+    private suspend fun scanLibrarySnapshot(forceRefresh: Boolean = false): List<DownloadedSeries> {
+        return withContext(Dispatchers.IO) { libraryRepository.scanLibrary(forceRefresh) }
     }
 
     private fun readSettings(): AppSettings {
@@ -1286,12 +1646,8 @@ class MangaViewModel internal constructor(
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
             labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
             downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
-            autoReaderSpeed = runCatching {
-                AutoReaderSpeed.valueOf(
-                    prefs.getString(KEY_AUTO_READER_SPEED, AutoReaderSpeed.OFF.name)
-                        ?: AutoReaderSpeed.OFF.name,
-                )
-            }.getOrDefault(AutoReaderSpeed.OFF),
+            privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
+            readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
             themeMode = runCatching {
                 ThemeMode.valueOf(
                     prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
@@ -1299,6 +1655,7 @@ class MangaViewModel internal constructor(
                 )
             }.getOrDefault(ThemeMode.AUTO),
             useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
+            tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
         )
     }
 
@@ -1317,9 +1674,11 @@ class MangaViewModel internal constructor(
             .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
             .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
-            .putString(KEY_AUTO_READER_SPEED, settings.autoReaderSpeed.name)
+            .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
+            .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
+            .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             .apply()
     }
 
@@ -1329,6 +1688,7 @@ class MangaViewModel internal constructor(
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
+            readerInitialPageIndex = 0,
             isLoadingReader = false,
         )
     }
@@ -1349,10 +1709,14 @@ class MangaViewModel internal constructor(
         private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         private const val KEY_LABS_ENABLED = "labs_enabled"
         private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
-        private const val KEY_AUTO_READER_SPEED = "auto_reader_speed"
+        private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
+        private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
+        private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
+        private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
+        private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
     }
 }

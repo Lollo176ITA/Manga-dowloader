@@ -8,8 +8,20 @@ data class ChapterEntry(
     val numberValue: BigDecimal,
     val url: String,
     val slug: String,
+    val volumeText: String? = null,
+    val labelPrefix: String = "Capitolo",
 ) {
     fun displayNumber(): String = numberValue.stripTrailingZeros().toPlainString()
+
+    fun displayShortLabel(): String = "$labelPrefix ${displayNumber()}"
+
+    fun displayLabel(): String {
+        val chapterLabel = displayShortLabel()
+        return volumeText?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?.let { "$it - $chapterLabel" }
+            ?: chapterLabel
+    }
 }
 
 data class DownloadPlan(
@@ -37,7 +49,28 @@ data class MangaDetails(
     val coverUrl: String?,
     val mangaUrl: String,
     val chapters: List<ChapterEntry>,
+    val description: String? = null,
 )
+
+fun readingUnitSingular(chapters: List<ChapterEntry>): String {
+    return commonReadingPrefix(chapters)?.lowercase() ?: "elemento"
+}
+
+fun readingUnitPlural(chapters: List<ChapterEntry>): String {
+    return when (commonReadingPrefix(chapters)?.lowercase()) {
+        "volume" -> "volumi"
+        "capitolo" -> "capitoli"
+        else -> "elementi"
+    }
+}
+
+private fun commonReadingPrefix(chapters: List<ChapterEntry>): String? {
+    val prefixes = chapters
+        .map { it.labelPrefix.trim() }
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase() }
+    return prefixes.singleOrNull()
+}
 
 enum class DownloadResult {
     DOWNLOADED,

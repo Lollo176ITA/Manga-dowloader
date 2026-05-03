@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -202,6 +203,7 @@ fun ResultCard(
     isFavorite: Boolean,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShowInfo: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -222,6 +224,12 @@ fun ResultCard(
                         .aspectRatio(2f / 3f)
                         .clip(MaterialTheme.shapes.extraLarge),
                 )
+                InfoBadge(
+                    onClick = onShowInfo,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                )
                 FavoriteToggleBadge(
                     isFavorite = isFavorite,
                     onClick = onToggleFavorite,
@@ -239,6 +247,28 @@ fun ResultCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun InfoBadge(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        modifier = modifier.size(36.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = Color.Black.copy(alpha = 0.45f),
+            contentColor = Color.White,
+        ),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Info,
+            contentDescription = "Informazioni manga",
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -351,7 +381,7 @@ fun ChapterRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Capitolo ${chapter.displayNumber()}",
+                text = chapter.displayShortLabel(),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
@@ -396,15 +426,28 @@ fun DownloadedChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
-            if (chapter.isRead) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Letto",
-                    tint = ReadGreen,
-                    modifier = Modifier.size(22.dp),
-                )
-            } else {
-                Spacer(modifier = Modifier.width(22.dp))
+            Box(
+                modifier = Modifier.width(32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    chapter.isReaderCompleted() -> {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Completato",
+                            tint = ReadGreen,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    chapter.hasReaderProgress() -> {
+                        Icon(
+                            imageVector = Icons.Default.Bookmark,
+                            contentDescription = chapter.readerProgressDescription(),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(onClick = onDelete) {
@@ -498,7 +541,7 @@ fun DownloadedSeriesActionBar(
                 text = when {
                     totalCount == 0 -> "Nessun capitolo disponibile"
                     readCount == 0 -> "$totalCount capitoli scaricati"
-                    readCount >= totalCount -> "Hai letto tutti i $totalCount capitoli"
+                    readCount >= totalCount -> "Completato · $readCount / $totalCount capitoli"
                     else -> "$readCount / $totalCount capitoli letti"
                 },
                 style = MaterialTheme.typography.bodyMedium,

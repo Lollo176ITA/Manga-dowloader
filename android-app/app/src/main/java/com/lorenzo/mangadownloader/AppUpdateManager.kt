@@ -10,7 +10,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
 import java.util.Properties
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -45,12 +44,8 @@ data class AppUpdateInfo(
 
 open class AppUpdateRepository(
     private val context: Context,
+    private val httpClient: OkHttpClient = SharedHttpClient.get(context),
 ) {
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
-        .build()
 
     open suspend fun checkForUpdate(includePreview: Boolean = false): AppUpdateInfo? = withContext(Dispatchers.IO) {
         val latestRelease = runCatching {

@@ -153,7 +153,9 @@ fun DownloadedSeries.isFullyRead(): Boolean {
 }
 
 fun DownloadedSeries.resumeChapter(): DownloadedChapter? {
-    return chapters.firstOrNull { !it.isRead } ?: chapters.lastOrNull()
+    return chapters.lastOrNull { it.hasReaderProgress() && !it.isReaderCompleted() }
+        ?: chapters.firstOrNull { !it.isRead }
+        ?: chapters.lastOrNull()
 }
 
 fun DownloadedSeries.readChapterCount(): Int {
@@ -169,7 +171,28 @@ fun DownloadedSeries.readProgressLabel(): String {
     val readCount = readChapterCount()
     return when {
         totalChapterCount <= 0 -> "$readCount letti"
-        readCount >= totalChapterCount -> "100% letto · $readCount / $totalChapterCount"
+        readCount >= totalChapterCount -> "Completato · $readCount / $totalChapterCount"
         else -> "${readProgressPercent()}% letto · $readCount / $totalChapterCount"
     }
+}
+
+fun DownloadedChapter.hasReaderProgress(): Boolean {
+    return readerPageIndex != null
+}
+
+fun DownloadedChapter.readerProgressDescription(): String {
+    val pageIndex = readerPageIndex ?: return "Lettura in corso"
+    val pageCount = readerPageCount
+    return if (pageCount != null && pageCount > 0) {
+        "Riprendi da pagina ${pageIndex + 1} di $pageCount"
+    } else {
+        "Lettura in corso"
+    }
+}
+
+fun DownloadedChapter.isReaderCompleted(): Boolean {
+    if (!isRead) return false
+    val pageIndex = readerPageIndex ?: return true
+    val pageCount = readerPageCount ?: return false
+    return pageCount > 0 && pageIndex >= pageCount - 1
 }

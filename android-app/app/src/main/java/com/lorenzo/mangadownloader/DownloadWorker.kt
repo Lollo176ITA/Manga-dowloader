@@ -20,6 +20,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -45,22 +46,24 @@ class DownloadWorker(
         val taggedMangaUrl = workTags.tagValue(TAG_MANGA_URL_PREFIX)
         val taggedSourceId = workTags.tagValue(TAG_SOURCE_ID_PREFIX)
         if (firstUrl.isEmpty()) {
-            return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL capitolo iniziale mancante"))
+            return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL iniziale mancante"))
         }
 
         return try {
             safeSetForeground(taggedSeriesTitle ?: "Preparazione download")
             val source = sourceRegistry.resolve(inputSourceId ?: taggedSourceId, firstUrl)
             val plan = source.buildDownloadPlan(firstUrl, lastUrl)
+            val unitSingular = readingUnitSingular(plan.chapters)
+            val unitPlural = readingUnitPlural(plan.chapters)
             source.prepareSeriesStorage(plan)
             updateStatus(
                 sourceId = plan.sourceId,
                 seriesTitle = plan.seriesTitle,
                 mangaUrl = plan.mangaUrl,
                 message = if (plan.startChapterLabel == plan.endChapterLabel) {
-                    "Trovato 1 capitolo: ${plan.startChapterLabel}"
+                    "Trovato 1 $unitSingular: ${plan.startChapterLabel}"
                 } else {
-                    "Trovati ${plan.chapters.size} capitoli da ${plan.startChapterLabel} a ${plan.endChapterLabel}"
+                    "Trovati ${plan.chapters.size} $unitPlural da ${plan.startChapterLabel} a ${plan.endChapterLabel}"
                 },
                 doneChapters = 0,
                 totalChapters = plan.chapters.size,
@@ -70,19 +73,20 @@ class DownloadWorker(
             val completedChapters = AtomicInteger(0)
             val statusMutex = Mutex()
             val chapterSemaphore = Semaphore(CHAPTER_CONCURRENCY)
+            val lastPageEmitMs = AtomicLong(0L)
 
             coroutineScope {
                 plan.chapters.map { chapter ->
                     async(Dispatchers.IO) {
                         chapterSemaphore.withPermit {
                             ensureActiveDownload()
-                            val chapterLabel = chapter.displayNumber()
+                            val chapterLabel = chapter.displayLabel()
                             emitStatus(
                                 mutex = statusMutex,
                                 sourceId = plan.sourceId,
                                 seriesTitle = plan.seriesTitle,
                                 mangaUrl = plan.mangaUrl,
-                                message = "Capitolo $chapterLabel in download",
+                                message = "$chapterLabel in download",
                                 doneChapters = completedChapters.get(),
                                 totalChapters = totalChapters,
                             )
@@ -92,12 +96,28 @@ class DownloadWorker(
                                 outputDir = plan.outputDir,
                                 pageConcurrency = PAGE_CONCURRENCY,
                             ) { pageDone, pageTotal ->
+                                // Skip per-page emits except the final one or boundaries:
+                                // a chapter of 50 pages would otherwise produce 50 setProgress
+                                // round-trips, each waking the UI observer.
+                                val isFinalPage = pageDone >= pageTotal
+                                val isBatchBoundary = pageDone % PAGE_PROGRESS_STRIDE == 0
+                                val now = System.currentTimeMillis()
+                                val previousEmitMs = lastPageEmitMs.get()
+                                val timedOut = now - previousEmitMs >= PAGE_PROGRESS_MIN_INTERVAL_MS
+                                if (
+                                    !isFinalPage &&
+                                    !isBatchBoundary &&
+                                    !timedOut
+                                ) {
+                                    return@downloadChapterAsCbz
+                                }
+                                lastPageEmitMs.set(now)
                                 emitStatus(
                                     mutex = statusMutex,
                                     sourceId = plan.sourceId,
                                     seriesTitle = plan.seriesTitle,
                                     mangaUrl = plan.mangaUrl,
-                                    message = "Capitolo $chapterLabel: pagina $pageDone/$pageTotal",
+                                    message = "$chapterLabel: pagina $pageDone/$pageTotal",
                                     doneChapters = completedChapters.get(),
                                     totalChapters = totalChapters,
                                 )
@@ -106,9 +126,9 @@ class DownloadWorker(
                             val done = completedChapters.incrementAndGet()
                             val message = when (result) {
                                 DownloadResult.DOWNLOADED ->
-                                    "Capitolo $chapterLabel completato"
+                                    "$chapterLabel completato"
                                 DownloadResult.SKIPPED_EXISTING ->
-                                    "Capitolo $chapterLabel già presente"
+                                    "$chapterLabel già presente"
                             }
                             emitStatus(
                                 mutex = statusMutex,
@@ -128,7 +148,7 @@ class DownloadWorker(
                 sourceId = plan.sourceId,
                 seriesTitle = plan.seriesTitle,
                 mangaUrl = plan.mangaUrl,
-                message = "Download completato: $totalChapters capitoli",
+                message = "Download completato: $totalChapters $unitPlural",
                 doneChapters = totalChapters,
                 totalChapters = totalChapters,
             )
@@ -286,6 +306,8 @@ class DownloadWorker(
         private const val NOTIFICATION_ID = 1001
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
+        private const val PAGE_PROGRESS_STRIDE = 5
+        private const val PAGE_PROGRESS_MIN_INTERVAL_MS = 1_500L
 
         fun enqueue(
             context: Context,

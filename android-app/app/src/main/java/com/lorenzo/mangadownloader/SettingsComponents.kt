@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,38 @@ fun SettingsSwitchRow(
                 checked = checked,
                 enabled = switchEnabled,
                 onCheckedChange = onCheckedChange,
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
+}
+
+@Composable
+fun SettingsActionRow(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        leadingContent = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        headlineContent = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
             )
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),

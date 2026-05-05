@@ -22,4 +22,5 @@ android-app/.kotlin/
 !docs/**/*.png
 .claude/
 .vscode/
+.idea/
 AGENTS.md

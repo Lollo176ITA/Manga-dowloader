@@ -2,5 +2,4 @@
 <resources>
     <color name="app_background">#111315</color>
     <color name="app_surface">#181B1F</color>
-    <color name="ic_launcher_background">#999999</color>
 </resources>

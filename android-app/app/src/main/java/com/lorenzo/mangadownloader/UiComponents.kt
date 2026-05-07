@@ -144,7 +144,6 @@ fun SeriesHeader(
     coverModel: Any?,
     title: String,
     subtitle: String,
-    isLoading: Boolean = false,
     status: String? = null,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onDownloadAll: (() -> Unit)? = null,
@@ -172,19 +171,11 @@ fun SeriesHeader(
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isLoading) {
-                    AppLoadingIndicator(modifier = Modifier.size(20.dp))
-                }
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (!status.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(

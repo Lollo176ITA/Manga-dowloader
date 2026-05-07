@@ -95,8 +95,7 @@ fun DetailScreen(
             SeriesHeader(
                 coverModel = details.coverUrl,
                 title = details.title,
-                subtitle = detailSubtitle(chapters, isLoading),
-                isLoading = isLoading,
+                subtitle = "${chapters.size} ${readingUnitPlural(chapters)} disponibili",
             )
 
             if (isLoading && chapters.isEmpty()) {
@@ -324,14 +323,6 @@ private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boole
 
 private fun ChapterEntry.isRead(readChapterIds: Set<String>): Boolean {
     return DownloadStorage.stableChapterId(this) in readChapterIds
-}
-
-internal fun detailSubtitle(chapters: List<ChapterEntry>, isLoading: Boolean): String {
-    return if (isLoading && chapters.isEmpty()) {
-        "Caricamento capitoli..."
-    } else {
-        "${chapters.size} ${readingUnitPlural(chapters)} disponibili"
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

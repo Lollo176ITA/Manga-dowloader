@@ -1200,11 +1200,7 @@ class MangaViewModel internal constructor(
                     chapter = streamingChapter.chapter,
                 )
                 updateState {
-                    withDownloadedReadChapterId(
-                        sourceId = streamingChapter.sourceId,
-                        mangaUrl = streamingChapter.mangaUrl,
-                        chapterId = chapterId,
-                    ).copy(
+                    copy(
                         readerChapter = chapter.copy(
                             isRead = true,
                             readerPageIndex = nextPageIndex,
@@ -1721,46 +1717,6 @@ class MangaViewModel internal constructor(
             selectedDownloadedSeries = updatedSelected,
             readerChapter = updatedReader,
         ).withReaderAdjacency(updatedReader?.relativePath)
-    }
-
-    private fun MangaUiState.withDownloadedReadChapterId(
-        sourceId: String,
-        mangaUrl: String,
-        chapterId: String,
-    ): MangaUiState {
-        fun DownloadedChapter.markIfSame(): DownloadedChapter {
-            return if (this.chapterId == chapterId) copy(isRead = true) else this
-        }
-
-        fun DownloadedSeries.matchesTarget(): Boolean {
-            val targetKey = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
-            val seriesKey = MangaSourceCatalog.identityKeyOrNull(
-                sourceId = this.sourceId,
-                mangaUrl = this.mangaUrl,
-                title = this.title,
-            )
-            return seriesKey == targetKey
-        }
-
-        fun DownloadedSeries.markIfMatching(): DownloadedSeries {
-            if (!matchesTarget()) return this
-            val updatedChapters = chapters.map { it.markIfSame() }
-            return copy(
-                chapters = updatedChapters,
-                readChapterIds = if (updatedChapters.any { it.chapterId == chapterId }) {
-                    readChapterIds + chapterId
-                } else {
-                    readChapterIds
-                },
-            )
-        }
-
-        val updatedLibrary = library.map { it.markIfMatching() }
-        val updatedSelected = selectedDownloadedSeries?.markIfMatching()
-        return copy(
-            library = updatedLibrary,
-            selectedDownloadedSeries = updatedSelected,
-        )
     }
 
     private fun MangaUiState.withReaderPosition(

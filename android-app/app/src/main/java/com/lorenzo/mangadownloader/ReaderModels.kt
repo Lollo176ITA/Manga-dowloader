@@ -48,7 +48,7 @@ fun DownloadedChapter.toReaderChapter(): ReaderChapter {
     )
 }
 
-fun StreamingReaderChapter.toReaderChapter(): ReaderChapter {
+fun StreamingReaderChapter.toReaderChapter(isRead: Boolean = false): ReaderChapter {
     val key = StreamingReaderCacheKey(
         sourceId = sourceId,
         mangaUrl = mangaUrl,
@@ -57,6 +57,7 @@ fun StreamingReaderChapter.toReaderChapter(): ReaderChapter {
     return ReaderChapter(
         title = chapter.displayLabel(),
         relativePath = "streaming:${key.directoryName()}",
+        isRead = isRead,
         streamingChapter = this,
     )
 }

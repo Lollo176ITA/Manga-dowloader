@@ -411,11 +411,15 @@ private fun MangaDownloaderAppContent(
                 val downloadedChapterKeys = remember(selectedManga, state.library) {
                     downloadedChapterKeysFor(selectedManga, state.library)
                 }
+                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds) {
+                    state.selectedMangaReadChapterIds + downloadedReadChapterIdsFor(selectedManga, state.library)
+                }
                 DetailScreen(
                     details = selectedManga,
                     isLoading = state.isLoadingDetails,
                     padding = innerPadding,
                     downloadedChapterKeys = downloadedChapterKeys,
+                    readChapterIds = readChapterIds,
                     streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     onStart = onStartDownload,
                     onOpenStreamingChapter = viewModel::openStreamingReader,
@@ -551,6 +555,34 @@ private fun downloadedChapterKeysFor(
     details: MangaDetails,
     library: List<DownloadedSeries>,
 ): Set<String> {
+    val matchingSeries = matchingDownloadedSeries(details, library) ?: return emptySet()
+
+    return buildSet {
+        matchingSeries.chapters.forEach { chapter ->
+            add(chapter.chapterId)
+            add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
+        }
+    }
+}
+
+private fun downloadedReadChapterIdsFor(
+    details: MangaDetails,
+    library: List<DownloadedSeries>,
+): Set<String> {
+    return matchingDownloadedSeries(details, library)?.let { series ->
+        buildSet {
+            addAll(series.readChapterIds)
+            series.chapters
+                .filter { it.isRead }
+                .mapTo(this) { it.chapterId }
+        }
+    }.orEmpty()
+}
+
+private fun matchingDownloadedSeries(
+    details: MangaDetails,
+    library: List<DownloadedSeries>,
+): DownloadedSeries? {
     val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
     val detailsTitleKey = MangaSourceCatalog.identityKeyOrNull(
         sourceId = details.sourceId,
@@ -561,7 +593,7 @@ private fun downloadedChapterKeysFor(
         add(detailsKey)
         detailsTitleKey?.let(::add)
     }
-    val matchingSeries = library.firstOrNull { series ->
+    return library.firstOrNull { series ->
         val seriesKey = MangaSourceCatalog.identityKeyOrNull(
             sourceId = series.sourceId,
             mangaUrl = series.mangaUrl,
@@ -573,13 +605,6 @@ private fun downloadedChapterKeysFor(
             title = series.title,
         )
         seriesKey in detailsKeys || seriesTitleKey in detailsKeys
-    } ?: return emptySet()
-
-    return buildSet {
-        matchingSeries.chapters.forEach { chapter ->
-            add(chapter.chapterId)
-            add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
-        }
     }
 }
 

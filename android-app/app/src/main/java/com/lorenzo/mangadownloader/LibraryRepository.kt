@@ -123,6 +123,14 @@ object DownloadStorage {
         return "number:${normalizedChapterLabel(numberText)}"
     }
 
+    fun stableChapterId(chapter: ChapterEntry): String {
+        return stableChapterId(
+            numberText = chapter.displayNumber(),
+            url = chapter.url,
+            slug = chapter.slug,
+        )
+    }
+
     fun relativePath(root: File, file: File): String {
         return file.relativeTo(root).invariantSeparatorsPath
     }
@@ -421,6 +429,29 @@ class LibraryRepository(
         invalidateCache()
     }
 
+    fun streamingReadChapterIds(sourceId: String, mangaUrl: String): Set<String> {
+        return prefs.getStringSet(streamingReadPrefKey(sourceId, mangaUrl), emptySet())
+            ?.toSet()
+            .orEmpty()
+    }
+
+    fun streamingReadChapterIds(plan: DownloadPlan): Set<String> {
+        return streamingReadChapterIds(plan.sourceId, plan.mangaUrl)
+    }
+
+    fun markStreamingChapterRead(
+        sourceId: String,
+        mangaUrl: String,
+        chapter: ChapterEntry,
+    ): String {
+        val chapterId = DownloadStorage.stableChapterId(chapter)
+        val updated = streamingReadChapterIds(sourceId, mangaUrl) + chapterId
+        prefs.edit()
+            .putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
+            .apply()
+        return chapterId
+    }
+
     suspend fun deleteChapters(
         series: DownloadedSeries,
         chapters: List<DownloadedChapter>,
@@ -678,6 +709,9 @@ class LibraryRepository(
     private fun readPrefKey(relativePath: String): String = "read::$relativePath"
     private fun readerPageIndexPrefKey(relativePath: String): String = "reader_page_index::$relativePath"
     private fun readerPageCountPrefKey(relativePath: String): String = "reader_page_count::$relativePath"
+    private fun streamingReadPrefKey(sourceId: String, mangaUrl: String): String {
+        return "streaming_read::${MangaSourceCatalog.identityKey(sourceId, mangaUrl)}"
+    }
 
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"

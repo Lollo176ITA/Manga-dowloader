@@ -51,6 +51,7 @@ fun DetailScreen(
     isLoading: Boolean,
     padding: PaddingValues,
     downloadedChapterKeys: Set<String>,
+    readChapterIds: Set<String>,
     streamingReaderEnabled: Boolean,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
     onOpenStreamingChapter: (MangaDetails, ChapterEntry) -> Unit,
@@ -116,6 +117,7 @@ fun DetailScreen(
                                 ChapterRow(
                                     chapter = chapter,
                                     isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
+                                    isRead = chapter.isRead(readChapterIds),
                                 ) {
                                     if (streamingReaderEnabled) {
                                         onOpenStreamingChapter(details, chapter)
@@ -314,13 +316,13 @@ private fun DetailFabMenu(
 }
 
 private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boolean {
-    val stableId = DownloadStorage.stableChapterId(
-        numberText = displayNumber(),
-        url = url,
-        slug = slug,
-    )
+    val stableId = DownloadStorage.stableChapterId(this)
     val numberKey = "number:${DownloadStorage.normalizedChapterLabel(displayNumber())}"
     return stableId in downloadedChapterKeys || numberKey in downloadedChapterKeys
+}
+
+private fun ChapterEntry.isRead(readChapterIds: Set<String>): Boolean {
+    return DownloadStorage.stableChapterId(this) in readChapterIds
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -141,6 +141,7 @@ data class MangaUiState(
     val favoriteMangaKeys: Set<String> = emptySet(),
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
+    val selectedMangaReadChapterIds: Set<String> = emptySet(),
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
     val library: List<DownloadedSeries> = emptyList(),
@@ -805,9 +806,11 @@ class MangaViewModel internal constructor(
 
     fun selectManga(result: MangaSearchResult) {
         detailJob?.cancel()
+        val readChapterIds = libraryRepository.streamingReadChapterIds(result.sourceId, result.mangaUrl)
         _state.value = _state.value.copy(
             isLoadingDetails = true,
             errorMessage = null,
+            selectedMangaReadChapterIds = readChapterIds,
             selected = MangaDetails(
                 sourceId = result.sourceId,
                 title = result.title,
@@ -821,7 +824,14 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                _state.value = _state.value.copy(selected = details, isLoadingDetails = false)
+                _state.value = _state.value.copy(
+                    selected = details,
+                    selectedMangaReadChapterIds = libraryRepository.streamingReadChapterIds(
+                        details.sourceId,
+                        details.mangaUrl,
+                    ),
+                    isLoadingDetails = false,
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -884,7 +894,12 @@ class MangaViewModel internal constructor(
 
     fun clearSelection() {
         detailJob?.cancel()
-        _state.value = _state.value.copy(selected = null, isLoadingDetails = false, errorMessage = null)
+        _state.value = _state.value.copy(
+            selected = null,
+            selectedMangaReadChapterIds = emptySet(),
+            isLoadingDetails = false,
+            errorMessage = null,
+        )
     }
 
     fun toggleFavorite(manga: FavoriteManga) {
@@ -1046,7 +1061,12 @@ class MangaViewModel internal constructor(
         readerJob?.cancel()
         streamingCacheJob?.cancel()
 
-        val readerChapter = streamingChapter.toReaderChapter()
+        val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(
+            streamingChapter.sourceId,
+            streamingChapter.mangaUrl,
+        )
+        val chapterId = DownloadStorage.stableChapterId(streamingChapter.chapter)
+        val readerChapter = streamingChapter.toReaderChapter(isRead = chapterId in streamingReadChapterIds)
         val cacheKey = StreamingReaderCacheKey(
             sourceId = streamingChapter.sourceId,
             mangaUrl = streamingChapter.mangaUrl,
@@ -1060,6 +1080,7 @@ class MangaViewModel internal constructor(
             readerInitialPageIndex = 0,
             isLoadingReader = true,
             errorMessage = null,
+            selectedMangaReadChapterIds = streamingReadChapterIds,
         ).withStreamingReaderAdjacency(streamingChapter)
 
         readerJob = viewModelScope.launch {
@@ -1072,8 +1093,9 @@ class MangaViewModel internal constructor(
                         if (this.readerChapter?.relativePath != readerChapter.relativePath) {
                             this
                         } else {
+                            val currentReaderChapter = this.readerChapter ?: readerChapter
                             copy(
-                                readerChapter = readerChapter.copy(readerPageCount = cached.pages.size),
+                                readerChapter = currentReaderChapter.copy(readerPageCount = cached.pages.size),
                                 readerPages = cached.pages.map(ReaderPage::Local),
                                 readerInitialPageIndex = 0,
                                 isLoadingReader = false,
@@ -1093,14 +1115,15 @@ class MangaViewModel internal constructor(
                 }
 
                 updateState {
-                    if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                        this
-                    } else {
-                        copy(
-                            readerChapter = readerChapter.copy(readerPageCount = pageUrls.size),
-                            readerPages = pageUrls.map { url ->
-                                ReaderPage.Remote(
-                                    url = url,
+                        if (this.readerChapter?.relativePath != readerChapter.relativePath) {
+                            this
+                        } else {
+                            val currentReaderChapter = this.readerChapter ?: readerChapter
+                            copy(
+                                readerChapter = currentReaderChapter.copy(readerPageCount = pageUrls.size),
+                                readerPages = pageUrls.map { url ->
+                                    ReaderPage.Remote(
+                                        url = url,
                                     referer = streamingChapter.chapter.url,
                                 )
                             },
@@ -1124,8 +1147,9 @@ class MangaViewModel internal constructor(
                             if (this.readerChapter?.relativePath != readerChapter.relativePath) {
                                 this
                             } else {
+                                val currentReaderChapter = this.readerChapter ?: readerChapter
                                 copy(
-                                    readerChapter = readerChapter.copy(readerPageCount = completed.pages.size),
+                                    readerChapter = currentReaderChapter.copy(readerPageCount = completed.pages.size),
                                     readerPages = completed.pages.map(ReaderPage::Local),
                                     isLoadingReader = false,
                                 ).withStreamingReaderAdjacency(streamingChapter)
@@ -1167,6 +1191,26 @@ class MangaViewModel internal constructor(
 
         val downloadedChapter = chapter.downloadedChapter
         if (downloadedChapter == null) {
+            val streamingChapter = chapter.streamingChapter
+            val completed = allowCompletion && nextPageIndex >= safePageCount - 1
+            if (streamingChapter != null && completed && !chapter.isRead) {
+                val chapterId = libraryRepository.markStreamingChapterRead(
+                    sourceId = streamingChapter.sourceId,
+                    mangaUrl = streamingChapter.mangaUrl,
+                    chapter = streamingChapter.chapter,
+                )
+                updateState {
+                    copy(
+                        readerChapter = chapter.copy(
+                            isRead = true,
+                            readerPageIndex = nextPageIndex,
+                            readerPageCount = safePageCount,
+                        ),
+                        selectedMangaReadChapterIds = selectedMangaReadChapterIds + chapterId,
+                    )
+                }
+                return
+            }
             updateState {
                 copy(
                     readerChapter = chapter.copy(
@@ -1750,7 +1794,15 @@ class MangaViewModel internal constructor(
         }
 
         fun ChapterEntry.toStreamingReaderChapter(): ReaderChapter {
-            return streamingChapter.copy(chapter = this).toReaderChapter()
+            val readChapterIds = selectedMangaReadChapterIds
+                .ifEmpty {
+                    libraryRepository.streamingReadChapterIds(
+                        streamingChapter.sourceId,
+                        streamingChapter.mangaUrl,
+                    )
+                }
+            return streamingChapter.copy(chapter = this)
+                .toReaderChapter(isRead = DownloadStorage.stableChapterId(this) in readChapterIds)
         }
 
         return copy(

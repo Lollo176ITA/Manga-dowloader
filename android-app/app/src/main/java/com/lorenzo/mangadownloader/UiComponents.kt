@@ -361,9 +361,10 @@ fun FavoriteCard(
 fun ChapterRow(
     chapter: ChapterEntry,
     isDownloaded: Boolean = false,
+    isRead: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val containerColor = if (isDownloaded) {
+    val containerColor = if (isDownloaded || isRead) {
         MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
     } else {
         MaterialTheme.colorScheme.surfaceContainerLow
@@ -386,12 +387,28 @@ fun ChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
-            if (isDownloaded) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Capitolo scaricato",
-                    tint = ReadGreen,
-                )
+            if (isDownloaded || isRead) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isDownloaded) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "Capitolo scaricato",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    if (isRead) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Capitolo letto",
+                            tint = ReadGreen,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
             }
         }
     }

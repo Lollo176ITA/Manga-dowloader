@@ -263,13 +263,14 @@ abstract class BaseMangaSource(
                 labelPrefix = chapter.labelPrefix,
             )
         }
+        val streamingReadChapterIds = LibraryRepository(context).streamingReadChapterIds(plan)
         val metadata = SeriesMetadata(
             sourceId = existingMetadata?.sourceId ?: plan.sourceId,
             title = plan.seriesTitle,
             mangaUrl = plan.mangaUrl,
             coverFileName = coverFileName,
             totalChapters = maxOf(existingMetadata?.totalChapters ?: 0, plan.totalChapterCount),
-            readChapterIds = existingMetadata?.readChapterIds.orEmpty(),
+            readChapterIds = existingMetadata?.readChapterIds.orEmpty() + streamingReadChapterIds,
             chapters = mergedChapters.values.toList(),
         )
         SeriesMetadataJson.write(metadataFile, metadata)

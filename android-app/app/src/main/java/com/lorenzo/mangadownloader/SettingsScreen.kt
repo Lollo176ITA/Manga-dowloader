@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.CleaningServices
@@ -51,6 +52,7 @@ fun SettingsScreen(
     onBatchChange: (Int) -> Unit,
     onToggleSmartCleanup: (Boolean) -> Unit,
     onSmartCleanupKeepChange: (Int) -> Unit,
+    onToggleStreamingReader: (Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -122,6 +124,18 @@ fun SettingsScreen(
                 value = settings.smartCleanupKeepPreviousChapters,
                 enabled = settings.smartCleanupEnabled,
                 onValueChange = onSmartCleanupKeepChange,
+            )
+        }
+
+        SettingsSection(
+            title = "Lettura online",
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+        ) {
+            SettingsSwitchRow(
+                title = "Apri capitoli in streaming",
+                description = "Nel dettaglio manga, il tap su un capitolo apre il reader online invece del download.",
+                checked = settings.streamingReaderEnabled,
+                onCheckedChange = onToggleStreamingReader,
             )
         }
 

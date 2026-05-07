@@ -482,8 +482,8 @@ fun ScrollToBottomButton(
 
 @Composable
 fun ReaderChapterNavigationRow(
-    previousChapter: DownloadedChapter?,
-    nextChapter: DownloadedChapter?,
+    previousChapter: ReaderChapter?,
+    nextChapter: ReaderChapter?,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
 ) {

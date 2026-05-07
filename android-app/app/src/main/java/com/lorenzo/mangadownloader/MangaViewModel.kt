@@ -49,6 +49,7 @@ data class AppSettings(
     val autoDownloadBatchSize: Int = 3,
     val smartCleanupEnabled: Boolean = false,
     val smartCleanupKeepPreviousChapters: Int = 3,
+    val streamingReaderEnabled: Boolean = false,
     val parentalControlEnabled: Boolean = false,
     val parentalPinConfigured: Boolean = false,
     val parentalBiometricEnabled: Boolean = false,
@@ -145,10 +146,10 @@ data class MangaUiState(
     val library: List<DownloadedSeries> = emptyList(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
-    val readerChapter: DownloadedChapter? = null,
-    val readerPreviousChapter: DownloadedChapter? = null,
-    val readerNextChapter: DownloadedChapter? = null,
-    val readerPages: List<File> = emptyList(),
+    val readerChapter: ReaderChapter? = null,
+    val readerPreviousChapter: ReaderChapter? = null,
+    val readerNextChapter: ReaderChapter? = null,
+    val readerPages: List<ReaderPage> = emptyList(),
     val readerInitialPageIndex: Int = 0,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
@@ -192,6 +193,10 @@ class MangaViewModel internal constructor(
 
     private val sourceRegistry = MangaSourceRegistry(application)
     private val libraryRepository = LibraryRepository(application)
+    private val streamingCacheRepository = StreamingReaderCacheRepository(
+        context = application,
+        networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
+    )
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
     private val initialFavorites = readFavorites()
@@ -224,6 +229,7 @@ class MangaViewModel internal constructor(
     private var infoJob: Job? = null
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
+    private var streamingCacheJob: Job? = null
     private var updateJob: Job? = null
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
@@ -619,6 +625,10 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(smartCleanupKeepPreviousChapters = value.coerceAtLeast(0)) }
     }
 
+    fun setStreamingReaderEnabled(enabled: Boolean) {
+        updateSettings { it.copy(streamingReaderEnabled = enabled) }
+    }
+
     fun setLabsEnabled(enabled: Boolean) {
         updateSettings {
             if (enabled) it.copy(labsEnabled = true)
@@ -941,6 +951,7 @@ class MangaViewModel internal constructor(
 
     fun clearDownloadedSelection() {
         readerJob?.cancel()
+        streamingCacheJob?.cancel()
         smartCleanupJob?.cancel()
         updateState {
             copy(
@@ -952,18 +963,20 @@ class MangaViewModel internal constructor(
 
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
+        streamingCacheJob?.cancel()
         val initialPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
             ?: chapter.readerPageIndex
             ?: 0
+        val initialReaderChapter = chapter.copy(
+            readerPageIndex = initialPageIndex,
+        ).toReaderChapter()
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
             pageIndex = initialPageIndex,
             pageCount = chapter.readerPageCount,
         )
         _state.value = _state.value.copy(
-            readerChapter = chapter.copy(
-                readerPageIndex = initialPageIndex,
-            ),
+            readerChapter = initialReaderChapter,
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
@@ -986,14 +999,15 @@ class MangaViewModel internal constructor(
                     pageIndex = restoredPageIndex,
                     pageCount = pages.size,
                 )
-                val updated = (_state.value.readerChapter ?: chapter).copy(
-                    isRead = (_state.value.readerChapter ?: chapter).isRead,
+                val currentReaderChapter = _state.value.readerChapter ?: initialReaderChapter
+                val updated = currentReaderChapter.copy(
+                    isRead = currentReaderChapter.isRead,
                     readerPageIndex = restoredPageIndex,
                     readerPageCount = pages.size,
                 )
                 val nextState = _state.value.copy(
                     readerChapter = updated,
-                    readerPages = pages,
+                    readerPages = pages.map(ReaderPage::Local),
                     readerInitialPageIndex = restoredPageIndex,
                     isLoadingReader = false,
                 ).withReaderPosition(
@@ -1016,6 +1030,124 @@ class MangaViewModel internal constructor(
         maybePerformSmartCleanup(chapter)
     }
 
+    fun openStreamingReader(details: MangaDetails, chapter: ChapterEntry) {
+        openStreamingReader(
+            StreamingReaderChapter(
+                sourceId = details.sourceId,
+                mangaTitle = details.title,
+                mangaUrl = details.mangaUrl,
+                chapter = chapter,
+                chapters = details.chapters,
+            ),
+        )
+    }
+
+    private fun openStreamingReader(streamingChapter: StreamingReaderChapter) {
+        readerJob?.cancel()
+        streamingCacheJob?.cancel()
+
+        val readerChapter = streamingChapter.toReaderChapter()
+        val cacheKey = StreamingReaderCacheKey(
+            sourceId = streamingChapter.sourceId,
+            mangaUrl = streamingChapter.mangaUrl,
+            chapterUrl = streamingChapter.chapter.url,
+        )
+        _state.value = _state.value.copy(
+            readerChapter = readerChapter,
+            readerPreviousChapter = null,
+            readerNextChapter = null,
+            readerPages = emptyList(),
+            readerInitialPageIndex = 0,
+            isLoadingReader = true,
+            errorMessage = null,
+        ).withStreamingReaderAdjacency(streamingChapter)
+
+        readerJob = viewModelScope.launch {
+            try {
+                val cached = withContext(Dispatchers.IO) {
+                    streamingCacheRepository.getCachedChapter(cacheKey)
+                }
+                if (cached != null) {
+                    updateState {
+                        if (this.readerChapter?.relativePath != readerChapter.relativePath) {
+                            this
+                        } else {
+                            copy(
+                                readerChapter = readerChapter.copy(readerPageCount = cached.pages.size),
+                                readerPages = cached.pages.map(ReaderPage::Local),
+                                readerInitialPageIndex = 0,
+                                isLoadingReader = false,
+                            ).withStreamingReaderAdjacency(streamingChapter)
+                        }
+                    }
+                    return@launch
+                }
+
+                val pageUrls = withContext(Dispatchers.IO) {
+                    sourceRegistry
+                        .requireById(streamingChapter.sourceId)
+                        .fetchChapterPageImageUrls(streamingChapter.chapter.url)
+                }
+                if (pageUrls.isEmpty()) {
+                    throw IllegalStateException("Nessuna pagina trovata per il capitolo")
+                }
+
+                updateState {
+                    if (this.readerChapter?.relativePath != readerChapter.relativePath) {
+                        this
+                    } else {
+                        copy(
+                            readerChapter = readerChapter.copy(readerPageCount = pageUrls.size),
+                            readerPages = pageUrls.map { url ->
+                                ReaderPage.Remote(
+                                    url = url,
+                                    referer = streamingChapter.chapter.url,
+                                )
+                            },
+                            readerInitialPageIndex = 0,
+                            isLoadingReader = false,
+                        ).withStreamingReaderAdjacency(streamingChapter)
+                    }
+                }
+
+                streamingCacheJob = viewModelScope.launch {
+                    try {
+                        val completed = withContext(Dispatchers.IO) {
+                            streamingCacheRepository.cacheCompleteChapter(
+                                key = cacheKey,
+                                title = streamingChapter.chapter.displayLabel(),
+                                pageUrls = pageUrls,
+                                referer = streamingChapter.chapter.url,
+                            )
+                        }
+                        updateState {
+                            if (this.readerChapter?.relativePath != readerChapter.relativePath) {
+                                this
+                            } else {
+                                copy(
+                                    readerChapter = readerChapter.copy(readerPageCount = completed.pages.size),
+                                    readerPages = completed.pages.map(ReaderPage::Local),
+                                    isLoadingReader = false,
+                                ).withStreamingReaderAdjacency(streamingChapter)
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Streaming already has remote pages. Cache refresh is best-effort.
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                _state.value = _state.value.copy(
+                    isLoadingReader = false,
+                    errorMessage = exc.message ?: "Impossibile aprire il reader online",
+                )
+            }
+        }
+    }
+
     fun saveReaderPagePosition(pageIndex: Int, pageCount: Int, allowCompletion: Boolean) {
         val chapter = _state.value.readerChapter ?: return
         val safePageCount = pageCount.coerceAtLeast(1)
@@ -1033,6 +1165,19 @@ class MangaViewModel internal constructor(
             return
         }
 
+        val downloadedChapter = chapter.downloadedChapter
+        if (downloadedChapter == null) {
+            updateState {
+                copy(
+                    readerChapter = chapter.copy(
+                        readerPageIndex = nextPageIndex,
+                        readerPageCount = safePageCount,
+                    ),
+                )
+            }
+            return
+        }
+
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
             pageIndex = nextPageIndex,
@@ -1040,7 +1185,7 @@ class MangaViewModel internal constructor(
         )
         val completed = allowCompletion && nextPageIndex >= safePageCount - 1
         if (completed && !chapter.isRead) {
-            libraryRepository.markChapterRead(chapter)
+            libraryRepository.markChapterRead(downloadedChapter)
         }
         updateState {
             val positionedState = withReaderPosition(
@@ -1139,6 +1284,7 @@ class MangaViewModel internal constructor(
 
     fun closeReader() {
         readerJob?.cancel()
+        streamingCacheJob?.cancel()
         updateState { clearedReaderState() }
     }
 
@@ -1150,6 +1296,7 @@ class MangaViewModel internal constructor(
         val series = _state.value.selectedDownloadedSeries ?: return
 
         libraryJob?.cancel()
+        streamingCacheJob?.cancel()
         smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
@@ -1177,6 +1324,7 @@ class MangaViewModel internal constructor(
 
         libraryJob?.cancel()
         readerJob?.cancel()
+        streamingCacheJob?.cancel()
         smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
@@ -1201,11 +1349,19 @@ class MangaViewModel internal constructor(
     }
 
     fun openPreviousReaderChapter() {
-        _state.value.readerPreviousChapter?.let(::openReader)
+        _state.value.readerPreviousChapter?.let(::openReaderChapter)
     }
 
     fun openNextReaderChapter() {
-        _state.value.readerNextChapter?.let(::openReader)
+        _state.value.readerNextChapter?.let(::openReaderChapter)
+    }
+
+    private fun openReaderChapter(chapter: ReaderChapter) {
+        chapter.downloadedChapter?.let {
+            openReader(it)
+            return
+        }
+        chapter.streamingChapter?.let(::openStreamingReader)
     }
 
     fun checkForAppUpdate(force: Boolean = false) {
@@ -1449,17 +1605,19 @@ class MangaViewModel internal constructor(
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
         val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
         val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
-        val readerPath = readerChapter?.relativePath
-        val updatedReader = updatedSelected?.chapters?.firstOrNull { it.relativePath == readerPath }
-            ?: snapshot.asSequence()
-                .flatMap { it.chapters.asSequence() }
-                .firstOrNull { it.relativePath == readerPath }
+        val readerPath = readerChapter?.downloadedChapter?.relativePath
+        val updatedReader = readerPath?.let { path ->
+            updatedSelected?.chapters?.firstOrNull { it.relativePath == path }
+                ?: snapshot.asSequence()
+                    .flatMap { it.chapters.asSequence() }
+                    .firstOrNull { it.relativePath == path }
+        }
 
         return copy(
             library = snapshot,
             selectedDownloadedSeries = updatedSelected,
-            readerChapter = updatedReader ?: readerChapter,
-        ).withReaderAdjacency((updatedReader ?: readerChapter)?.relativePath)
+            readerChapter = updatedReader?.toReaderChapter() ?: readerChapter,
+        ).withReaderAdjacency(updatedReader?.relativePath ?: readerPath)
     }
 
     private fun MangaUiState.withReadChapter(relativePath: String): MangaUiState {
@@ -1499,10 +1657,16 @@ class MangaViewModel internal constructor(
                 },
             )
         }
-        val updatedReader = if (readerChapter?.relativePath == relativePath) {
-            readerChapter.copy(isRead = true)
-        } else {
-            readerChapter
+        val updatedReader = readerChapter?.let { currentReader ->
+            val downloaded = currentReader.downloadedChapter
+            if (downloaded != null && downloaded.relativePath == relativePath) {
+                currentReader.copy(
+                    isRead = true,
+                    downloadedChapter = downloaded.copy(isRead = true),
+                )
+            } else {
+                currentReader
+            }
         }
         return copy(
             library = updatedLibrary,
@@ -1533,7 +1697,19 @@ class MangaViewModel internal constructor(
         val updatedSelected = selectedDownloadedSeries?.let { series ->
             series.copy(chapters = series.chapters.map { chapter -> chapter.updateIfSame() })
         }
-        val updatedReader = readerChapter?.updateIfSame()
+        val updatedReader = readerChapter?.let { currentReader ->
+            val downloaded = currentReader.downloadedChapter
+            if (downloaded != null && downloaded.relativePath == relativePath) {
+                val updatedDownloaded = downloaded.updateIfSame()
+                currentReader.copy(
+                    readerPageIndex = updatedDownloaded.readerPageIndex,
+                    readerPageCount = updatedDownloaded.readerPageCount,
+                    downloadedChapter = updatedDownloaded,
+                )
+            } else {
+                currentReader
+            }
+        }
         return copy(
             library = updatedLibrary,
             selectedDownloadedSeries = updatedSelected,
@@ -1555,8 +1731,35 @@ class MangaViewModel internal constructor(
         }
 
         return copy(
-            readerPreviousChapter = chapters.getOrNull(currentIndex - 1),
-            readerNextChapter = chapters.getOrNull(currentIndex + 1),
+            readerPreviousChapter = chapters.getOrNull(currentIndex - 1)?.toReaderChapter(),
+            readerNextChapter = chapters.getOrNull(currentIndex + 1)?.toReaderChapter(),
+        )
+    }
+
+    private fun MangaUiState.withStreamingReaderAdjacency(
+        streamingChapter: StreamingReaderChapter,
+    ): MangaUiState {
+        val currentIndex = streamingChapter.chapters.indexOfFirst {
+            it.url == streamingChapter.chapter.url
+        }
+        if (currentIndex < 0) {
+            return copy(
+                readerPreviousChapter = null,
+                readerNextChapter = null,
+            )
+        }
+
+        fun ChapterEntry.toStreamingReaderChapter(): ReaderChapter {
+            return streamingChapter.copy(chapter = this).toReaderChapter()
+        }
+
+        return copy(
+            readerPreviousChapter = streamingChapter.chapters
+                .getOrNull(currentIndex - 1)
+                ?.toStreamingReaderChapter(),
+            readerNextChapter = streamingChapter.chapters
+                .getOrNull(currentIndex + 1)
+                ?.toStreamingReaderChapter(),
         )
     }
 
@@ -1639,6 +1842,7 @@ class MangaViewModel internal constructor(
             smartCleanupKeepPreviousChapters = prefs
                 .getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3)
                 .coerceAtLeast(0),
+            streamingReaderEnabled = prefs.getBoolean(KEY_STREAMING_READER_ENABLED, false),
             parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
             parentalPinConfigured = prefs.getBoolean(KEY_PARENTAL_PIN_CONFIGURED, false),
             parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
@@ -1667,6 +1871,7 @@ class MangaViewModel internal constructor(
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
             .putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
             .putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
+            .putBoolean(KEY_STREAMING_READER_ENABLED, settings.streamingReaderEnabled)
             .putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
             .putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
             .putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
@@ -1702,6 +1907,7 @@ class MangaViewModel internal constructor(
         private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
         private const val KEY_SMART_CLEANUP_ENABLED = "smart_cleanup_enabled"
         private const val KEY_SMART_CLEANUP_KEEP_PREVIOUS = "smart_cleanup_keep_previous"
+        private const val KEY_STREAMING_READER_ENABLED = "streaming_reader_enabled"
         private const val KEY_PARENTAL_CONTROL_ENABLED = "parental_control_enabled"
         private const val KEY_PARENTAL_PIN_CONFIGURED = "parental_pin_configured"
         private const val KEY_PARENTAL_BIOMETRIC_ENABLED = "parental_biometric_enabled"

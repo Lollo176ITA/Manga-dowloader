@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import java.io.File
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -62,10 +61,10 @@ import kotlin.math.hypot
 
 @Composable
 fun ReaderScreen(
-    chapter: DownloadedChapter?,
-    previousChapter: DownloadedChapter?,
-    nextChapter: DownloadedChapter?,
-    pages: List<File>,
+    chapter: ReaderChapter?,
+    previousChapter: ReaderChapter?,
+    nextChapter: ReaderChapter?,
+    pages: List<ReaderPage>,
     isLoading: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -108,10 +107,10 @@ fun ReaderScreen(
 @Composable
 private fun ReaderContent(
     chapterKey: String?,
-    chapter: DownloadedChapter?,
-    previousChapter: DownloadedChapter?,
-    nextChapter: DownloadedChapter?,
-    pages: List<File>,
+    chapter: ReaderChapter?,
+    previousChapter: ReaderChapter?,
+    nextChapter: ReaderChapter?,
+    pages: List<ReaderPage>,
     isLoading: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -444,9 +443,12 @@ private fun ReaderContent(
                             onOpenNext = onOpenNext,
                         )
                     }
-                    items(pages, key = { it.absolutePath }) { page ->
+                    items(pages, key = { it.stableKey }) { page ->
                         AsyncImage(
-                            model = page,
+                            model = when (page) {
+                                is ReaderPage.Local -> page.file
+                                is ReaderPage.Remote -> page.url
+                            },
                             contentDescription = chapter.title,
                             modifier = Modifier.fillMaxWidth(),
                             contentScale = ContentScale.FillWidth,

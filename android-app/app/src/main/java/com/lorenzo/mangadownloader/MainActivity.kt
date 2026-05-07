@@ -398,6 +398,7 @@ private fun MangaDownloaderAppContent(
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
                     onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
+                    onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
@@ -415,7 +416,9 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingDetails,
                     padding = innerPadding,
                     downloadedChapterKeys = downloadedChapterKeys,
+                    streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     onStart = onStartDownload,
+                    onOpenStreamingChapter = viewModel::openStreamingReader,
                 )
             }
             state.currentTab == AppTab.LIBRARY && selectedSeries != null -> {

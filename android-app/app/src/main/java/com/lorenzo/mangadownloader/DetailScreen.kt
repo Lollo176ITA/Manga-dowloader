@@ -51,7 +51,9 @@ fun DetailScreen(
     isLoading: Boolean,
     padding: PaddingValues,
     downloadedChapterKeys: Set<String>,
+    streamingReaderEnabled: Boolean,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
+    onOpenStreamingChapter: (MangaDetails, ChapterEntry) -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
@@ -115,10 +117,14 @@ fun DetailScreen(
                                     chapter = chapter,
                                     isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
                                 ) {
-                                    pendingStart = chapter
-                                    pendingEnd = chapter
-                                    startMenuExpanded = false
-                                    endMenuExpanded = false
+                                    if (streamingReaderEnabled) {
+                                        onOpenStreamingChapter(details, chapter)
+                                    } else {
+                                        pendingStart = chapter
+                                        pendingEnd = chapter
+                                        startMenuExpanded = false
+                                        endMenuExpanded = false
+                                    }
                                 }
                             }
                         }

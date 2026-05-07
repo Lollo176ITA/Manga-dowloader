@@ -217,6 +217,23 @@ class MangaViewModelParentalControlTest {
         assertFalse(settingFields.contains("autoReaderSpeed"))
     }
 
+    @Test
+    fun streamingReaderSetting_defaultsOffAndPersists() {
+        val viewModel = createViewModel()
+
+        assertFalse(viewModel.state.value.settings.streamingReaderEnabled)
+
+        viewModel.setStreamingReaderEnabled(true)
+        assertTrue(viewModel.state.value.settings.streamingReaderEnabled)
+
+        val recreated = createViewModel()
+        assertTrue(recreated.state.value.settings.streamingReaderEnabled)
+
+        recreated.setStreamingReaderEnabled(false)
+        val disabledAgain = createViewModel()
+        assertFalse(disabledAgain.state.value.settings.streamingReaderEnabled)
+    }
+
     private fun createConfiguredViewModel(): MangaViewModel {
         return createViewModel().also { viewModel ->
             viewModel.setParentalControlEnabled(true)

@@ -137,6 +137,8 @@ interface MangaSource {
 
     fun fetchMangaDetails(mangaUrl: String): MangaDetails
 
+    fun fetchChapterPageImageUrls(chapterUrl: String): List<String>
+
     fun buildDownloadPlan(firstChapterUrl: String, lastChapterUrl: String? = null): DownloadPlan
 
     fun prepareSeriesStorage(plan: DownloadPlan)
@@ -184,6 +186,10 @@ abstract class BaseMangaSource(
     protected abstract fun canonicalMangaUrl(url: String): String?
 
     protected abstract fun fetchPageImageUrls(chapterUrl: String): List<String>
+
+    override fun fetchChapterPageImageUrls(chapterUrl: String): List<String> {
+        return fetchPageImageUrls(chapterUrl)
+    }
 
     override fun buildDownloadPlan(firstChapterUrl: String, lastChapterUrl: String?): DownloadPlan {
         val normalizedFirstUrl = firstChapterUrl.trim()

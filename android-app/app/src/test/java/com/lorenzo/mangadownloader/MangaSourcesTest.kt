@@ -373,4 +373,14 @@ class MangaSourcesTest {
         assertEquals(3, mangapillConfig.minQueryLength)
         assertEquals(false, mangapillConfig.showAllOnEmptyQuery)
     }
+
+    @Test
+    fun mangaSource_exposesPublicChapterPageUrlApiForStreamingReader() {
+        assertTrue(
+            MangaSource::class.java.methods.any { method ->
+                method.name == "fetchChapterPageImageUrls" &&
+                    method.parameterTypes.toList() == listOf(String::class.java)
+            },
+        )
+    }
 }

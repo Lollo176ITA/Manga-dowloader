@@ -449,6 +449,11 @@ class LibraryRepository(
         prefs.edit()
             .putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
             .apply()
+        syncDownloadedChapterRead(
+            sourceId = sourceId,
+            mangaUrl = mangaUrl,
+            chapterId = chapterId,
+        )
         return chapterId
     }
 
@@ -682,6 +687,58 @@ class LibraryRepository(
         val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
         val existing = SeriesMetadataJson.read(metadataFile) ?: return
         SeriesMetadataJson.write(metadataFile, transform(existing))
+    }
+
+    private fun syncDownloadedChapterRead(
+        sourceId: String,
+        mangaUrl: String,
+        chapterId: String,
+    ) {
+        val root = DownloadStorage.libraryRoot(context)
+        val targetKey = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+        var changed = false
+        root.listFiles()
+            ?.filter(File::isDirectory)
+            .orEmpty()
+            .forEach { directory ->
+                val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+                val metadata = SeriesMetadataJson.read(metadataFile) ?: return@forEach
+                val metadataMangaUrl = metadata.mangaUrl?.takeIf(String::isNotBlank) ?: return@forEach
+                val metadataKey = MangaSourceCatalog.identityKey(metadata.sourceId, metadataMangaUrl)
+                if (metadataKey != targetKey) return@forEach
+
+                val matchingChapter = metadata.chapters.firstOrNull { chapter ->
+                    chapter.id == chapterId ||
+                        DownloadStorage.stableChapterId(
+                            numberText = chapter.numberText,
+                            url = chapter.url,
+                            slug = chapter.slug,
+                        ) == chapterId
+                } ?: return@forEach
+
+                if (chapterId !in metadata.readChapterIds) {
+                    SeriesMetadataJson.write(
+                        metadataFile,
+                        metadata.copy(
+                            totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
+                                .coerceAtLeast(metadata.readChapterIds.size + 1),
+                            readChapterIds = metadata.readChapterIds + chapterId,
+                        ),
+                    )
+                    changed = true
+                }
+
+                val chapterFile = File(directory, matchingChapter.fileName)
+                if (chapterFile.isFile) {
+                    prefs.edit()
+                        .putBoolean(readPrefKey(DownloadStorage.relativePath(root, chapterFile)), true)
+                        .apply()
+                    changed = true
+                }
+            }
+        if (changed) {
+            invalidateCache()
+        }
     }
 
     private fun clearChapterState(relativePath: String, clearReadState: Boolean) {

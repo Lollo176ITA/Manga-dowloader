@@ -100,6 +100,7 @@ fun AppTopBar(
         !state.showSettings &&
         !inDetail &&
         !inSeries
+    val showReaderLoading = showReaderLoadingIcon(readerChapter, state.isLoadingReader)
 
     CenterAlignedTopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
@@ -139,6 +140,10 @@ fun AppTopBar(
             }
         },
         actions = {
+            if (showReaderLoading) {
+                AppLoadingIndicator(modifier = Modifier.size(24.dp))
+            }
+
             if (readerChapter != null && state.settings.privacyBrightnessEnabled) {
                 ReaderBrightnessAction(
                     brightness = state.settings.readerBrightness,
@@ -330,6 +335,13 @@ private fun ReaderBrightnessAction(
             }
         }
     }
+}
+
+internal fun showReaderLoadingIcon(
+    readerChapter: ReaderChapter?,
+    isLoadingReader: Boolean,
+): Boolean {
+    return isLoadingReader && readerChapter?.streamingChapter != null
 }
 
 @Composable

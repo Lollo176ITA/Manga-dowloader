@@ -92,6 +92,39 @@ class StreamingReadStateTest {
     }
 
     @Test
+    fun markStreamingChapterRead_updatesAlreadyDownloadedLibraryChapter() {
+        val readChapter = chapter("1")
+        val unreadChapter = chapter("2")
+        val repository = LibraryRepository(application)
+        val source = TestMangaSource(
+            context = application,
+            details = MangaDetails(
+                sourceId = MangaSourceIds.MANGAPILL,
+                title = "Streaming Read Manga",
+                coverUrl = null,
+                mangaUrl = MANGA_URL,
+                chapters = listOf(readChapter, unreadChapter),
+            ),
+        )
+        val plan = source.buildDownloadPlan(readChapter.url, unreadChapter.url)
+        source.prepareSeriesStorage(plan)
+        plan.chapters.forEach { selected ->
+            File(plan.outputDir, DownloadStorage.buildChapterFileName(selected)).writeText(selected.displayLabel())
+        }
+        assertFalse(repository.scanLibrary(forceRefresh = true).single().chapters.first().isRead)
+
+        repository.markStreamingChapterRead(
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = MANGA_URL,
+            chapter = readChapter,
+        )
+
+        val scanned = repository.scanLibrary(forceRefresh = true).single()
+        assertTrue(scanned.chapters.first { it.numberText == "1" }.isRead)
+        assertFalse(scanned.chapters.first { it.numberText == "2" }.isRead)
+    }
+
+    @Test
     fun completingStreamingReader_marksCurrentChapterAndSelectedListRead() {
         val chapter = chapter("1")
         val viewModel = MangaViewModel(application, AppUpdateRepository(application))
@@ -113,6 +146,42 @@ class StreamingReadStateTest {
             setOf(chapter.stableId()),
             LibraryRepository(application).streamingReadChapterIds(MangaSourceIds.MANGAPILL, MANGA_URL),
         )
+    }
+
+    @Test
+    fun completingStreamingReader_updatesSelectedLibraryChapterReadState() {
+        val chapter = chapter("1")
+        val source = TestMangaSource(
+            context = application,
+            details = MangaDetails(
+                sourceId = MangaSourceIds.MANGAPILL,
+                title = "Streaming Read Manga",
+                coverUrl = null,
+                mangaUrl = MANGA_URL,
+                chapters = listOf(chapter),
+            ),
+        )
+        val plan = source.buildDownloadPlan(chapter.url, chapter.url)
+        source.prepareSeriesStorage(plan)
+        File(plan.outputDir, DownloadStorage.buildChapterFileName(chapter)).writeText(chapter.displayLabel())
+        val downloadedSeries = LibraryRepository(application).scanLibrary(forceRefresh = true).single()
+        val viewModel = MangaViewModel(application, AppUpdateRepository(application))
+        viewModel.selectDownloadedSeries(downloadedSeries)
+        assertFalse(viewModel.state.value.selectedDownloadedSeries!!.chapters.single().isRead)
+
+        viewModel.openStreamingReader(
+            MangaDetails(
+                sourceId = MangaSourceIds.MANGAPILL,
+                title = "Streaming Read Manga",
+                coverUrl = null,
+                mangaUrl = MANGA_URL,
+                chapters = listOf(chapter),
+            ),
+            chapter,
+        )
+        viewModel.saveReaderPagePosition(pageIndex = 1, pageCount = 2, allowCompletion = true)
+
+        assertTrue(viewModel.state.value.selectedDownloadedSeries!!.chapters.single().isRead)
     }
 
     private fun chapter(number: String): ChapterEntry {

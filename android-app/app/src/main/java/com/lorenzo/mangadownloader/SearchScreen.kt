@@ -12,6 +12,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -107,29 +110,36 @@ fun SearchScreen(
                         }
                     }
                     trimmed.isEmpty() -> {
-                        EmptyStateText(
-                            text = if (searchConfig.showAllOnEmptyQuery) {
-                                "Nessun risultato"
-                            } else {
-                                "Digita per cercare"
-                            },
-                            modifier = Modifier.align(Alignment.TopCenter),
-                        )
+                        if (searchConfig.showAllOnEmptyQuery) {
+                            EmptyState(
+                                icon = Icons.Default.SearchOff,
+                                title = "Nessun risultato",
+                            )
+                        } else {
+                            EmptyState(
+                                icon = Icons.Default.Search,
+                                title = "Cerca un manga",
+                                description = "Digita il titolo nella barra qui sopra per trovare manga da leggere o scaricare.",
+                            )
+                        }
                     }
                     trimmed.length < searchConfig.minQueryLength -> {
-                        EmptyStateText(
-                            text = if (searchConfig.minQueryLength == 1) {
+                        EmptyState(
+                            icon = Icons.Default.Search,
+                            title = if (searchConfig.minQueryLength == 1) {
                                 "Digita almeno 1 carattere"
                             } else {
                                 "Digita almeno ${searchConfig.minQueryLength} caratteri"
                             },
-                            modifier = Modifier.align(Alignment.TopCenter),
                         )
                     }
                     else -> {
-                        EmptyStateText(
-                            text = "Nessun risultato",
-                            modifier = Modifier.align(Alignment.TopCenter),
+                        EmptyState(
+                            icon = Icons.Default.SearchOff,
+                            title = "Nessun risultato",
+                            description = "Nessun manga trovato per \"$trimmed\". Prova con un altro titolo.",
+                            actionLabel = "Cancella ricerca",
+                            onAction = { onQueryChange("") },
                         )
                     }
                 }

@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -28,6 +30,7 @@ fun LibraryScreen(
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
     onQueryChange: (String) -> Unit,
+    onBrowse: () -> Unit,
     onStopDownloads: () -> Unit,
 ) {
     val rows = remember(state.library, state.libraryQuery, downloadStatuses) {
@@ -63,15 +66,20 @@ fun LibraryScreen(
                     }
                 }
                 rows.isEmpty() && state.library.isEmpty() && downloadStatuses.isEmpty() -> {
-                    EmptyStateText(
-                        text = "Nessun manga scaricato",
-                        modifier = Modifier.fillMaxSize(),
+                    EmptyState(
+                        icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                        title = "Nessun manga scaricato",
+                        description = "Cerca un manga e scarica i capitoli per leggerli offline, anche senza connessione.",
+                        actionLabel = "Cerca manga",
+                        onAction = onBrowse,
                     )
                 }
                 rows.isEmpty() -> {
-                    EmptyStateText(
-                        text = "Nessun manga corrisponde",
-                        modifier = Modifier.fillMaxSize(),
+                    EmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "Nessun manga corrisponde",
+                        actionLabel = "Cancella ricerca",
+                        onAction = { onQueryChange("") },
                     )
                 }
                 else -> {

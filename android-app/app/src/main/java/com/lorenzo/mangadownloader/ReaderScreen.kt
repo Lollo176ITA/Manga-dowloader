@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -291,11 +293,10 @@ private fun ReaderContent(
             }
         }
         chapter == null || pages.isEmpty() -> {
-            EmptyStateText(
-                text = "Nessuna pagina disponibile",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+            EmptyState(
+                icon = Icons.Default.BrokenImage,
+                title = "Nessuna pagina disponibile",
+                modifier = Modifier.padding(padding),
             )
         }
         else -> {

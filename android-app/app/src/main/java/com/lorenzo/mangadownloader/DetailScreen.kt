@@ -12,26 +12,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FloatingActionButtonMenu
-import androidx.compose.material3.FloatingActionButtonMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ToggleFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -44,7 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
     details: MangaDetails,
@@ -60,7 +56,6 @@ fun DetailScreen(
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
     var startMenuExpanded by remember { mutableStateOf(false) }
     var endMenuExpanded by remember { mutableStateOf(false) }
-    var fabMenuExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -137,29 +132,66 @@ fun DetailScreen(
 
         if (hasChapters) {
             val tutorialAnchorFor = LocalTutorialAnchor.current
-            DetailFabMenu(
-                expanded = fabMenuExpanded,
-                onExpandedChange = { fabMenuExpanded = it },
-                onDownloadAll = {
-                    fabMenuExpanded = false
-                    startAll()
-                },
-                onPickRange = {
-                    fabMenuExpanded = false
-                    startSelectRange()
-                },
-                isAtBottom = isAtListBottom,
-                onScrollToEdge = {
-                    fabMenuExpanded = false
+
+            // Utility di navigazione lista (vai in cima/fondo): tenuta separata dalle
+            // azioni primarie, come da linee guida M3. In basso a sinistra.
+            SmallFloatingActionButton(
+                onClick = {
                     scope.launch {
-                        listState.animateScrollToItem(if (isAtListBottom) 0 else chapters.lastIndex)
+                        listState.animateScrollToItem(
+                            if (isAtListBottom) 0 else chapterListItems.lastIndex,
+                        )
                     }
                 },
                 modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                shape = MaterialTheme.shapes.large,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Icon(
+                    imageVector = if (isAtListBottom) {
+                        Icons.Default.KeyboardDoubleArrowUp
+                    } else {
+                        Icons.Default.KeyboardDoubleArrowDown
+                    },
+                    contentDescription = if (isAtListBottom) {
+                        "Vai in cima alla lista"
+                    } else {
+                        "Vai in fondo alla lista"
+                    },
+                )
+            }
+
+            // Azioni di download in basso a destra. La primaria ("Scarica tutto") è un
+            // Extended FAB sempre visibile ed etichettato: un solo tocco, nessun menu da
+            // aprire. L'intervallo resta accessibile come azione secondaria affiancata.
+            Column(
+                modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .then(tutorialAnchorFor(TutorialAnchor.DETAIL_DOWNLOAD)),
-            )
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SmallFloatingActionButton(
+                    onClick = startSelectRange,
+                    shape = MaterialTheme.shapes.large,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                        contentDescription = "Scarica un intervallo di capitoli",
+                    )
+                }
+                ExtendedFloatingActionButton(
+                    onClick = startAll,
+                    icon = { Icon(Icons.Default.Download, contentDescription = null) },
+                    text = { Text("Scarica tutto") },
+                    modifier = tutorialAnchorFor(TutorialAnchor.DETAIL_DOWNLOAD),
+                )
+            }
         }
     }
 
@@ -260,59 +292,6 @@ private fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterLis
         items += ChapterListItem.Chapter(chapter)
     }
     return items
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun DetailFabMenu(
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    onDownloadAll: () -> Unit,
-    onPickRange: () -> Unit,
-    isAtBottom: Boolean,
-    onScrollToEdge: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FloatingActionButtonMenu(
-        expanded = expanded,
-        button = {
-            ToggleFloatingActionButton(
-                checked = expanded,
-                onCheckedChange = onExpandedChange,
-            ) {
-                Icon(
-                    imageVector = if (expanded) Icons.Default.Close else Icons.Default.Tune,
-                    contentDescription = if (expanded) "Chiudi menu" else "Azioni",
-                )
-            }
-        },
-        modifier = modifier,
-    ) {
-        FloatingActionButtonMenuItem(
-            onClick = onDownloadAll,
-            icon = { Icon(Icons.Default.Download, contentDescription = null) },
-            text = { Text("Scarica tutto") },
-        )
-        FloatingActionButtonMenuItem(
-            onClick = onPickRange,
-            icon = { Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = null) },
-            text = { Text("Scarica intervallo") },
-        )
-        FloatingActionButtonMenuItem(
-            onClick = onScrollToEdge,
-            icon = {
-                Icon(
-                    imageVector = if (isAtBottom) {
-                        Icons.Default.KeyboardDoubleArrowUp
-                    } else {
-                        Icons.Default.KeyboardDoubleArrowDown
-                    },
-                    contentDescription = null,
-                )
-            },
-            text = { Text(if (isAtBottom) "Vai in cima" else "Vai in fondo") },
-        )
-    }
 }
 
 private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boolean {

@@ -253,6 +253,19 @@ private fun MangaDownloaderAppContent(
     )
     var isReaderFullscreen by remember(state.readerChapter?.relativePath) { mutableStateOf(false) }
 
+    // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
+    // trasforma il vicolo cieco in un passo successivo chiaro. Rispetta il lock parentale.
+    val goToSearchTab: () -> Unit = {
+        viewModel.selectTab(AppTab.SEARCH)
+        val requiresSearchUnlock = state.settings.parentalControlEnabled &&
+            state.currentTab != AppTab.SEARCH
+        if (!requiresSearchUnlock) {
+            scope.launch {
+                pagerState.animateScrollToPage(AppTab.SEARCH.ordinal)
+            }
+        }
+    }
+
     BackHandler(enabled = canHandleBack) {
         if (isReaderFullscreen) {
             isReaderFullscreen = false
@@ -465,6 +478,7 @@ private fun MangaDownloaderAppContent(
                                     ),
                                 )
                             },
+                            onBrowse = goToSearchTab,
                         )
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,
@@ -473,6 +487,7 @@ private fun MangaDownloaderAppContent(
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
                             onQueryChange = viewModel::onLibraryQueryChange,
+                            onBrowse = goToSearchTab,
                             onStopDownloads = {
                                 workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
                             },

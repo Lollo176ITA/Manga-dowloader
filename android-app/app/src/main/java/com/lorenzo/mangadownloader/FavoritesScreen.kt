@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,6 +25,7 @@ fun FavoritesScreen(
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onSelect: (FavoriteManga) -> Unit,
+    onBrowse: () -> Unit,
 ) {
     val filtered = remember(favorites, query) {
         val trimmed = query.trim()
@@ -43,15 +47,20 @@ fun FavoritesScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             when {
                 favorites.isEmpty() -> {
-                    EmptyStateText(
-                        text = "Nessun preferito",
-                        modifier = Modifier.align(Alignment.TopCenter),
+                    EmptyState(
+                        icon = Icons.Outlined.StarBorder,
+                        title = "Nessun preferito",
+                        description = "Aggiungi un manga ai preferiti toccando la stella nella ricerca.",
+                        actionLabel = "Cerca manga",
+                        onAction = onBrowse,
                     )
                 }
                 filtered.isEmpty() -> {
-                    EmptyStateText(
-                        text = "Nessun preferito corrisponde",
-                        modifier = Modifier.align(Alignment.TopCenter),
+                    EmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "Nessun preferito corrisponde",
+                        actionLabel = "Cancella ricerca",
+                        onAction = { onQueryChange("") },
                     )
                 }
                 else -> {

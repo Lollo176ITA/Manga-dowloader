@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,7 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
@@ -26,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,8 +51,10 @@ fun DetailScreen(
     downloadedChapterKeys: Set<String>,
     readChapterIds: Set<String>,
     streamingReaderEnabled: Boolean,
+    autoDownloadEnabled: Boolean,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
     onOpenStreamingChapter: (MangaDetails, ChapterEntry) -> Unit,
+    onEnableAutoDownload: () -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
     var pendingEnd by remember { mutableStateOf<ChapterEntry?>(null) }
@@ -69,9 +73,6 @@ fun DetailScreen(
         }
     }
 
-    val startAll: () -> Unit = {
-        if (hasChapters) onStart(details, chapters.first(), chapters.last())
-    }
     val startSelectRange: () -> Unit = {
         if (hasChapters) {
             pendingStart = chapters.first()
@@ -164,34 +165,19 @@ fun DetailScreen(
                 )
             }
 
-            // Azioni di download in basso a destra. La primaria ("Scarica tutto") è un
-            // Extended FAB sempre visibile ed etichettato: un solo tocco, nessun menu da
-            // aprire. L'intervallo resta accessibile come azione secondaria affiancata.
-            Column(
+            // Azione di download primaria: un solo Extended FAB che apre il selettore di
+            // intervallo (la modalità che la maggior parte degli utenti preferisce).
+            // L'intervallo è pre-impostato su tutti i capitoli, quindi "scarica tutto"
+            // resta a un passo. Niente più due pulsanti separati.
+            ExtendedFloatingActionButton(
+                onClick = startSelectRange,
+                icon = { Icon(Icons.Default.Download, contentDescription = null) },
+                text = { Text("Scarica…") },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                SmallFloatingActionButton(
-                    onClick = startSelectRange,
-                    shape = MaterialTheme.shapes.large,
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                        contentDescription = "Scarica un intervallo di capitoli",
-                    )
-                }
-                ExtendedFloatingActionButton(
-                    onClick = startAll,
-                    icon = { Icon(Icons.Default.Download, contentDescription = null) },
-                    text = { Text("Scarica tutto") },
-                    modifier = tutorialAnchorFor(TutorialAnchor.DETAIL_DOWNLOAD),
-                )
-            }
+                    .padding(16.dp)
+                    .then(tutorialAnchorFor(TutorialAnchor.DETAIL_DOWNLOAD)),
+            )
         }
     }
 
@@ -212,6 +198,8 @@ fun DetailScreen(
             endOptions = endOptions,
             startMenuExpanded = startMenuExpanded,
             endMenuExpanded = endMenuExpanded,
+            autoDownloadEnabled = autoDownloadEnabled,
+            onEnableAutoDownload = onEnableAutoDownload,
             onDismiss = {
                 pendingStart = null
                 pendingEnd = null
@@ -313,6 +301,8 @@ private fun DownloadRangeDialog(
     endOptions: List<ChapterEntry>,
     startMenuExpanded: Boolean,
     endMenuExpanded: Boolean,
+    autoDownloadEnabled: Boolean,
+    onEnableAutoDownload: () -> Unit,
     onDismiss: () -> Unit,
     onOpenStartMenu: () -> Unit,
     onDismissStartMenu: () -> Unit,
@@ -387,6 +377,39 @@ private fun DownloadRangeDialog(
                                 onClick = { onSelectEnd(candidate) },
                                 contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                             )
+                        }
+                    }
+                }
+                if (!autoDownloadEnabled) {
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoMode,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Download automatico",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                                Text(
+                                    text = "Scarica da solo i capitoli successivi mentre leggi.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                            TextButton(onClick = onEnableAutoDownload) {
+                                Text("Attiva")
+                            }
                         }
                     }
                 }

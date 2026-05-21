@@ -434,8 +434,10 @@ private fun MangaDownloaderAppContent(
                     downloadedChapterKeys = downloadedChapterKeys,
                     readChapterIds = readChapterIds,
                     streamingReaderEnabled = state.settings.streamingReaderEnabled,
+                    autoDownloadEnabled = state.settings.autoDownloadEnabled,
                     onStart = onStartDownload,
                     onOpenStreamingChapter = viewModel::openStreamingReader,
+                    onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
                 )
             }
             state.currentTab == AppTab.LIBRARY && selectedSeries != null -> {
@@ -457,6 +459,7 @@ private fun MangaDownloaderAppContent(
                             state = state,
                             padding = innerPadding,
                             onQueryChange = viewModel::onQueryChange,
+                            onClearRecentSearches = viewModel::clearRecentSearches,
                             onRefresh = viewModel::submitSearch,
                             onSelect = viewModel::selectManga,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,

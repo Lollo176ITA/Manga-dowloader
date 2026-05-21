@@ -136,6 +136,7 @@ data class MangaUiState(
     val query: String = "",
     val favoritesQuery: String = "",
     val libraryQuery: String = "",
+    val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
@@ -206,6 +207,7 @@ class MangaViewModel internal constructor(
     private val _state = MutableStateFlow(
         MangaUiState(
             currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
+            recentSearches = readRecentSearches(),
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
                 MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
@@ -805,6 +807,9 @@ class MangaViewModel internal constructor(
     }
 
     fun selectManga(result: MangaSearchResult) {
+        if (_state.value.currentTab == AppTab.SEARCH) {
+            recordRecentSearch(_state.value.query)
+        }
         detailJob?.cancel()
         val readChapterIds = libraryRepository.streamingReadChapterIds(result.sourceId, result.mangaUrl)
         _state.value = _state.value.copy(
@@ -1862,6 +1867,47 @@ class MangaViewModel internal constructor(
             .apply()
     }
 
+    fun clearRecentSearches() {
+        updateState { copy(recentSearches = emptyList()) }
+        persistRecentSearches(emptyList())
+    }
+
+    private fun recordRecentSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            return
+        }
+        val updated = (
+            listOf(trimmed) +
+                _state.value.recentSearches.filterNot { it.equals(trimmed, ignoreCase = true) }
+            ).take(MAX_RECENT_SEARCHES)
+        updateState { copy(recentSearches = updated) }
+        persistRecentSearches(updated)
+    }
+
+    private fun readRecentSearches(): List<String> {
+        val raw = prefs.getString(KEY_RECENT_SEARCHES, null).orEmpty()
+        if (raw.isBlank()) {
+            return emptyList()
+        }
+        return try {
+            json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
+                element.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun persistRecentSearches(searches: List<String>) {
+        val payload = buildJsonArray {
+            searches.forEach { add(JsonPrimitive(it)) }
+        }
+        prefs.edit()
+            .putString(KEY_RECENT_SEARCHES, json.encodeToString(JsonArray.serializer(), payload))
+            .apply()
+    }
+
     private fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val current = _state.value.settings
         val updated = transform(current)
@@ -1953,6 +1999,7 @@ class MangaViewModel internal constructor(
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
         private const val KEY_FAVORITES_JSON = "favorites_json"
+        private const val KEY_RECENT_SEARCHES = "recent_searches_json"
         private const val KEY_SEARCH_SOURCE_ID = "search_source_id"
         private const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         private const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
@@ -1974,6 +2021,7 @@ class MangaViewModel internal constructor(
         private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
+        private const val MAX_RECENT_SEARCHES = 8
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
     }

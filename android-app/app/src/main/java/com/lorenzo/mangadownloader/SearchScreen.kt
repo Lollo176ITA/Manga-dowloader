@@ -33,6 +33,7 @@ fun SearchScreen(
     state: MangaUiState,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
+    onClearRecentSearches: () -> Unit,
     onRefresh: () -> Unit,
     onSelect: (MangaSearchResult) -> Unit,
     onToggleFavorite: (MangaSearchResult) -> Unit,
@@ -110,13 +111,17 @@ fun SearchScreen(
                         }
                     }
                     trimmed.isEmpty() -> {
-                        if (searchConfig.showAllOnEmptyQuery) {
-                            EmptyState(
+                        when {
+                            searchConfig.showAllOnEmptyQuery -> EmptyState(
                                 icon = Icons.Default.SearchOff,
                                 title = "Nessun risultato",
                             )
-                        } else {
-                            EmptyState(
+                            state.recentSearches.isNotEmpty() -> RecentSearches(
+                                queries = state.recentSearches,
+                                onPick = onQueryChange,
+                                onClear = onClearRecentSearches,
+                            )
+                            else -> EmptyState(
                                 icon = Icons.Default.Search,
                                 title = "Cerca un manga",
                                 description = "Digita il titolo nella barra qui sopra per trovare manga da leggere o scaricare.",

@@ -51,6 +51,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +64,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -156,6 +159,7 @@ fun EmptyState(
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = title,
+            modifier = Modifier.semantics { heading() },
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
         )
@@ -348,7 +352,9 @@ private fun InfoBadge(
 ) {
     FilledTonalIconButton(
         onClick = onClick,
-        modifier = modifier.size(36.dp),
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .size(36.dp),
         shape = MaterialTheme.shapes.extraLarge,
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = Color.Black.copy(alpha = 0.45f),
@@ -378,6 +384,7 @@ fun FavoriteToggleBadge(
         checked = isFavorite,
         onCheckedChange = { onClick() },
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(36.dp)
             .graphicsLayer {
                 scaleX = scale
@@ -772,7 +779,9 @@ fun SeriesDownloadSummary(
         Spacer(modifier = Modifier.width(8.dp))
         FilledTonalIconButton(
             onClick = onStopDownloads,
-            modifier = Modifier.size(32.dp),
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .size(32.dp),
             shape = MaterialTheme.shapes.medium,
             colors = IconButtonDefaults.filledTonalIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,

@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.Manifest
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -147,6 +148,16 @@ private fun MangaDownloaderAppContent(
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         viewModel.checkForAppUpdate()
+    }
+
+    // Blocca l'app in verticale di default. Solo se l'utente attiva esplicitamente
+    // il flag nelle impostazioni consentiamo la rotazione (a rischio impaginazione).
+    LaunchedEffect(activity, state.settings.allowLandscapeRotation) {
+        activity?.requestedOrientation = if (state.settings.allowLandscapeRotation) {
+            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 
     LaunchedEffect(state.biometricPromptRequest?.requestId) {
@@ -418,6 +429,7 @@ private fun MangaDownloaderAppContent(
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
+                    onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
                 )
             }
             selectedManga != null -> {

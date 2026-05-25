@@ -59,6 +59,7 @@ data class AppSettings(
     val downloadDevUpdates: Boolean = false,
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
+    val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
     val tutorialCompleted: Boolean = false,
@@ -657,6 +658,10 @@ class MangaViewModel internal constructor(
 
     fun setReaderBrightness(brightness: Float) {
         updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
+    }
+
+    fun setAllowLandscapeRotation(enabled: Boolean) {
+        updateSettings { it.copy(allowLandscapeRotation = enabled) }
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -1890,6 +1895,7 @@ class MangaViewModel internal constructor(
             downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
             privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
             readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
+            allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
             themeMode = runCatching {
                 ThemeMode.valueOf(
                     prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
@@ -1919,6 +1925,7 @@ class MangaViewModel internal constructor(
             .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
             .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
             .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
+            .putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
@@ -1956,6 +1963,7 @@ class MangaViewModel internal constructor(
         private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
         private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
+        private const val KEY_ALLOW_LANDSCAPE_ROTATION = "allow_landscape_rotation"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"

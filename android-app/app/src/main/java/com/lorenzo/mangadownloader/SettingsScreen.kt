@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -59,6 +60,7 @@ fun SettingsScreen(
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
+    onToggleAllowLandscapeRotation: (Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -80,6 +82,18 @@ fun SettingsScreen(
             DynamicColorRow(
                 checked = settings.useDynamicColor,
                 onCheckedChange = onToggleDynamicColor,
+            )
+        }
+
+        SettingsSection(
+            title = "Schermo",
+            icon = Icons.Default.ScreenRotation,
+        ) {
+            SettingsSwitchRow(
+                title = "Consenti rotazione orizzontale",
+                description = "Disattivata di default: l'app resta in verticale. Se la attivi puoi ruotare lo schermo, ma l'impaginazione della lettura potrebbe rompersi.",
+                checked = settings.allowLandscapeRotation,
+                onCheckedChange = onToggleAllowLandscapeRotation,
             )
         }
 

@@ -250,6 +250,7 @@ private fun MangaDownloaderAppContent(
     )
     val showPager = state.readerChapter == null &&
         !state.showSettings &&
+        !state.showStorageManager &&
         state.selected == null &&
         state.selectedDownloadedSeries == null
     val visiblePagerTab = when {
@@ -409,6 +410,13 @@ private fun MangaDownloaderAppContent(
                     onPageVisible = viewModel::saveReaderPagePosition,
                 )
             }
+            state.showStorageManager -> {
+                StorageScreen(
+                    library = state.library,
+                    padding = innerPadding,
+                    onDeleteSeries = viewModel::deleteDownloadedSeries,
+                )
+            }
             state.showSettings -> {
                 SettingsScreen(
                     settings = state.settings,
@@ -430,6 +438,7 @@ private fun MangaDownloaderAppContent(
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
+                    onOpenStorageManager = viewModel::openStorageManager,
                 )
             }
             selectedManga != null -> {
@@ -663,6 +672,7 @@ private fun tutorialSampleSeries(state: MangaUiState): DownloadedSeries? {
 
 private fun MangaUiState.canHandleBack(): Boolean {
     return readerChapter != null ||
+        showStorageManager ||
         showSettings ||
         selected != null ||
         (currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null)
@@ -671,6 +681,7 @@ private fun MangaUiState.canHandleBack(): Boolean {
 private fun MangaUiState.handleBack(viewModel: MangaViewModel) {
     when {
         readerChapter != null -> viewModel.closeReader()
+        showStorageManager -> viewModel.closeStorageManager()
         showSettings -> viewModel.closeSettings()
         selected != null -> viewModel.clearSelection()
         currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null ->

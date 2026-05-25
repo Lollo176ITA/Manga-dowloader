@@ -76,10 +76,12 @@ fun AppTopBar(
     val selectedManga = state.selected
     val selectedSeries = state.selectedDownloadedSeries
     val showBack = readerChapter != null ||
+        state.showStorageManager ||
         state.showSettings ||
         selectedManga != null ||
         (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
     val title = when {
+        state.showStorageManager -> "Gestisci memoria"
         state.showSettings -> "Impostazioni"
         readerChapter != null -> readerChapter.title
         selectedManga != null -> selectedManga.title
@@ -98,6 +100,7 @@ fun AppTopBar(
     val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
     val showOverflow = readerChapter == null &&
         !state.showSettings &&
+        !state.showStorageManager &&
         !inDetail &&
         !inSeries
 

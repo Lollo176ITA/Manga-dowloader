@@ -175,7 +175,7 @@ private fun buildSeriesInfoText(series: DownloadedSeries): String {
     }.trim()
 }
 
-private fun formatBytes(bytes: Long): String {
+internal fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val units = listOf("KB", "MB", "GB", "TB")
     var value = bytes.toDouble()

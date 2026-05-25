@@ -20,8 +20,10 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -61,6 +63,7 @@ fun SettingsScreen(
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
+    onOpenStorageManager: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -138,6 +141,18 @@ fun SettingsScreen(
                 value = settings.smartCleanupKeepPreviousChapters,
                 enabled = settings.smartCleanupEnabled,
                 onValueChange = onSmartCleanupKeepChange,
+            )
+        }
+
+        SettingsSection(
+            title = "Memoria",
+            icon = Icons.Default.Storage,
+        ) {
+            SettingsActionRow(
+                title = "Gestisci memoria",
+                description = "Vedi quanto spazio occupa ogni manga ed elimina quelli che non ti servono più.",
+                icon = Icons.Default.PieChart,
+                onClick = onOpenStorageManager,
             )
         }
 

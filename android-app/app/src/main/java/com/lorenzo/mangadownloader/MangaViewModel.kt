@@ -159,6 +159,7 @@ data class MangaUiState(
     val isCheckingUpdate: Boolean = false,
     val isInstallingUpdate: Boolean = false,
     val showSettings: Boolean = false,
+    val showStorageManager: Boolean = false,
     val settings: AppSettings = AppSettings(),
     val isBiometricAvailable: Boolean = false,
     val isParentalAuthInProgress: Boolean = false,
@@ -364,7 +365,16 @@ class MangaViewModel internal constructor(
     }
 
     fun closeSettings() {
-        updateState { copy(showSettings = false) }
+        updateState { copy(showSettings = false, showStorageManager = false) }
+    }
+
+    fun openStorageManager() {
+        updateState { copy(showStorageManager = true) }
+        refreshLibrary()
+    }
+
+    fun closeStorageManager() {
+        updateState { copy(showStorageManager = false) }
     }
 
     fun setParentalControlEnabled(enabled: Boolean) {

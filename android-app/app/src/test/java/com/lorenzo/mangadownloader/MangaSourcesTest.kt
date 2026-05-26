@@ -41,6 +41,92 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangapillSearchResults_mapsCanonicalUrlsAndMergesDuplicateAnchors() {
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div class="container">
+              <a href="/manga/12345/berserk">
+                <img data-src="https://cdn.mangapill.com/cover/berserk.jpeg" alt="">
+              </a>
+              <a href="/manga/12345/berserk" title="Berserk">Berserk</a>
+              <a href="/manga/678/oyasumi-punpun">
+                <img src="https://cdn.mangapill.com/cover/punpun.jpeg" alt="Oyasumi Punpun">
+              </a>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=ber",
+        )
+
+        assertEquals(2, results.size)
+        assertEquals(MangaSourceIds.MANGAPILL, results.first().sourceId)
+        assertEquals("Berserk", results.first().title)
+        assertEquals("https://mangapill.com/manga/12345", results.first().mangaUrl)
+        assertTrue(results.first().coverUrl!!.endsWith("berserk.jpeg"))
+        assertEquals("Oyasumi Punpun", results[1].title)
+        assertEquals("https://mangapill.com/manga/678", results[1].mangaUrl)
+    }
+
+    @Test
+    fun mangapillMangaDetails_sortsChaptersAscendingAndReadsCover() {
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <figure><img data-src="https://cdn.mangapill.com/cover/berserk.jpeg" alt="Berserk"></figure>
+              <div id="chapters">
+                <a href="/chapters/12345-13900000/berserk-chapter-2" title="Chapter 2">Chapter 2</a>
+                <a href="/chapters/12345-13900000/berserk-chapter-10" title="Chapter 10">Chapter 10</a>
+                <a href="/chapters/12345-13900000/berserk-chapter-1" title="Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertEquals(MangaSourceIds.MANGAPILL, details.sourceId)
+        assertEquals("Berserk", details.title)
+        assertEquals("https://mangapill.com/manga/12345", details.mangaUrl)
+        assertEquals(listOf("1", "2", "10"), details.chapters.map { it.numberText })
+        assertTrue(details.chapters.first().url.endsWith("berserk-chapter-1"))
+        assertTrue(details.coverUrl!!.endsWith("berserk.jpeg"))
+    }
+
+    @Test
+    fun mangapillMangaDetails_fallsBackToChapterNumberFromUrl() {
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/12345-13900020/berserk-chapter-2">Leggi</a>
+                <a href="/chapters/12345-13900010/berserk-chapter-1">Leggi</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertEquals(listOf("1", "2"), details.chapters.map { it.numberText })
+    }
+
+    @Test
+    fun mangapillChapterPages_readsReaderImagesInOrder() {
+        val pages = MangapillSource.parsePageImageUrls(
+            """
+            <div id="reader">
+              <chapter-page><img class="js-page lazy" data-src="https://cdn.mangapill.com/chapters/12345-10/1.png"></chapter-page>
+              <chapter-page><img class="js-page lazy" data-src="https://cdn.mangapill.com/chapters/12345-10/2.png"></chapter-page>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/chapters/12345-10/berserk-chapter-10",
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("1.png"))
+        assertTrue(pages.last().endsWith("2.png"))
+    }
+
+    @Test
     fun hastaSearchResponse_mapsAbsoluteUrlsAndSourceId() {
         val results = HastaTeamSource.parseSearchResponse(
             """

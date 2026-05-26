@@ -61,9 +61,9 @@
 
 ## 🟡 Affidabilità & test mancanti (sforzo medio)
 
-- [ ] **Rendere testabile il parsing di Mangapill (fonte di default)** 🔎
-  - Dove: `MangapillSource` fa fetch live nei metodi d'istanza [MangapillSource.kt:25-156], a differenza di MangaWorld/HastaTeam che espongono funzioni statiche `parseSearchResults/parseMangaDetails/parsePageImageUrls` già testate su HTML d'esempio.
-  - Cosa fare: estrarre le stesse funzioni statiche e aggiungere test su HTML salvato → ci si accorge subito se il sito cambia markup. Impatto Alto · Sforzo Medio.
+- [x] **Rendere testabile il parsing di Mangapill (fonte di default)** ✅ — *fatto (2026-05-26)*
+  - Dove: `MangapillSource` faceva fetch live nei metodi d'istanza, a differenza di MangaWorld/HastaTeam che espongono funzioni statiche `parseSearchResults/parseMangaDetails/parsePageImageUrls` già testate su HTML d'esempio.
+  - **Fatto:** estratte nel `companion object` le funzioni pure `parseSearchResults(raw, baseUrl)`, `parseMangaDetails(raw, mangaUrl)`, `parsePageImageUrls(raw, chapterUrl)` (parsing via `Jsoup.parse(raw, base)` + `absUrl`, stesso pattern di MangaWorld); i metodi d'istanza ora sono wrapper sottili che fanno solo `fetchString` e delegano. Aggiunti 4 test in `MangaSourcesTest` su HTML d'esempio (ricerca con merge degli anchor duplicati, dettaglio con ordinamento capitoli + copertina, fallback del numero capitolo dall'URL, pagine del reader). Suite verde.
 
 - [ ] **Test del `DownloadWorker` (cuore dell'app)** 🔎
   - Dove: [DownloadWorker.kt:41-186] — `doWork`, `enqueue`, retry/cancellazione, concorrenza con `Semaphore`/`Mutex`.

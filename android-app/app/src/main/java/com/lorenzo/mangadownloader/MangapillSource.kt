@@ -1,11 +1,11 @@
 package com.lorenzo.mangadownloader
 
 import android.content.Context
+import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.math.BigDecimal
-import java.util.Locale
 
 class MangapillSource(
     context: Context,
@@ -33,165 +33,30 @@ class MangapillSource(
             .build()
             .toString()
 
-        val document = fetchDocument(url)
-        val accumulated = linkedMapOf<String, Pair<String?, String?>>()
-
-        for (anchor in document.select("""a[href^="/manga/"]""")) {
-            val href = anchor.attr("href").trim()
-            val mangaUrl = canonicalMangaUrl(absolutize(url, href)) ?: continue
-
-            val image = anchor.selectFirst("img")
-            val coverRaw = image?.let { img ->
-                sequenceOf(img.attr("data-src"), img.attr("src"))
-                    .map { it.trim() }
-                    .firstOrNull { it.isNotBlank() && !it.startsWith("data:") }
-            }
-            val cover = coverRaw?.let { absolutize(url, it) }
-
-            val anchorText = anchor.text().trim()
-            val titleCandidate = firstNonBlank(
-                image?.attr("alt"),
-                anchor.attr("title"),
-                anchorText.takeIf { it.isNotBlank() },
-            )
-
-            val prior = accumulated[mangaUrl]
-            accumulated[mangaUrl] = Pair(
-                prior?.first ?: titleCandidate,
-                prior?.second ?: cover,
-            )
-        }
-
-        return accumulated.entries.mapNotNull { (mangaUrl, pair) ->
-            val (titleRaw, cover) = pair
-            val title = titleRaw?.trim().orEmpty().ifBlank {
-                mangaUrl.substringAfterLast('/').replace('-', ' ').trim()
-            }
-            if (title.isBlank()) null
-            else {
-                MangaSearchResult(
-                    sourceId = descriptor.id,
-                    title = title,
-                    mangaUrl = mangaUrl,
-                    coverUrl = cover,
-                )
-            }
-        }
+        return parseSearchResults(fetchString(url), url)
     }
 
     override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga non valido")
-        val document = fetchDocument(canonical)
-        val title = document.selectFirst("h1")?.text()?.trim().orEmpty().ifBlank { "manga" }
-        val cover = findCoverImage(document)?.let { absolutize(canonical, it) }
-        val chapters = fetchChapterEntries(document, canonical)
-        return MangaDetails(
-            sourceId = descriptor.id,
-            title = title,
-            coverUrl = cover,
-            mangaUrl = canonical,
-            chapters = chapters,
-        )
-    }
-
-    private fun fetchChapterEntries(document: Document, mangaUrl: String): List<ChapterEntry> {
-        val entries = linkedMapOf<String, ChapterEntry>()
-
-        for (link in document.select("""#chapters a[href^="/chapters/"]""")) {
-            val href = link.attr("href").trim()
-            if (href.isBlank()) {
-                continue
-            }
-            val chapterUrl = absolutize(mangaUrl, href)
-            val title = link.attr("title").trim().ifBlank { link.text().trim() }
-            val numberText = Regex("""chapter\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-                .find(title)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?: Regex("""chapter-(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-                    .find(chapterUrl)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                ?: continue
-
-            entries[chapterUrl] = ChapterEntry(
-                numberText = numberText,
-                numberValue = parseChapterNumber(numberText),
-                url = chapterUrl,
-                slug = chapterUrl.substringAfterLast('/'),
-            )
-        }
-
-        if (entries.isEmpty()) {
-            throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
-        }
-
-        return entries.values.sortedBy { it.numberValue }
+        return parseMangaDetails(fetchString(canonical), canonical)
     }
 
     override fun fetchPageImageUrls(chapterUrl: String): List<String> {
-        val document = fetchDocument(chapterUrl)
-        val selectors = listOf(
-            "chapter-page img.js-page",
-            "chapter-page picture img",
-            "img.page-image",
-        )
-
-        val ordered = linkedSetOf<String>()
-        for (selector in selectors) {
-            for (image in document.select(selector)) {
-                val src = image.attr("data-src").ifBlank { image.attr("src") }.trim()
-                if (src.isNotBlank()) {
-                    ordered.add(absolutize(chapterUrl, src))
-                }
-            }
-        }
-
-        if (ordered.isEmpty()) {
-            throw IllegalStateException("Nessuna immagine trovata per il capitolo")
-        }
-
-        return ordered.toList()
+        return parsePageImageUrls(fetchString(chapterUrl), chapterUrl)
     }
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
-
-    private fun findCoverImage(document: Document): String? {
-        val candidates = listOf(
-            "figure img",
-            "picture img",
-            "div.flex img",
-            "img",
-        )
-        for (selector in candidates) {
-            for (image in document.select(selector)) {
-                val src = image.attr("data-src").ifBlank { image.attr("src") }.trim()
-                if (src.isBlank()) {
-                    continue
-                }
-                if (looksLikeCover(src, image)) {
-                    return src
-                }
-            }
-        }
-        return null
-    }
-
-    private fun looksLikeCover(src: String, image: Element): Boolean {
-        val lowered = src.lowercase(Locale.US)
-        if ("mangapill.com" in lowered || "cdn.mangapill" in lowered || "cover" in lowered) {
-            return true
-        }
-        val alt = image.attr("alt").lowercase(Locale.US)
-        return alt.isNotBlank() && alt != "logo"
-    }
 
     companion object {
         private val mangaRegex =
             Regex("""^https?://mangapill\.com/manga/([^/?#]+)(?:/([^/?#]+))?""", RegexOption.IGNORE_CASE)
         private val chapterRegex =
             Regex("""^https?://mangapill\.com/chapters/([^/]+)/""", RegexOption.IGNORE_CASE)
+        private val chapterNumberInTitle =
+            Regex("""chapter\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        private val chapterNumberInUrl =
+            Regex("""chapter-(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
 
         fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null
@@ -209,6 +74,180 @@ class MangapillSource(
                 val mangaId = chapterMatch.groupValues[1].substringBefore('-')
                 if (mangaId.isNotBlank()) {
                     return "https://mangapill.com/manga/$mangaId"
+                }
+            }
+            return null
+        }
+
+        /** Estrae i risultati di ricerca dall'HTML della pagina `/search`. */
+        fun parseSearchResults(raw: String, baseUrl: String): List<MangaSearchResult> {
+            return parseSearchResults(Jsoup.parse(raw, baseUrl))
+        }
+
+        /** Estrae titolo, copertina e capitoli dall'HTML della pagina manga. */
+        fun parseMangaDetails(raw: String, mangaUrl: String): MangaDetails {
+            val canonical = canonicalSeriesUrl(mangaUrl)
+                ?: throw IllegalArgumentException("URL manga non valido")
+            return parseMangaDetails(Jsoup.parse(raw, canonical), canonical)
+        }
+
+        /** Estrae gli URL delle immagini di un capitolo dall'HTML del reader. */
+        fun parsePageImageUrls(raw: String, chapterUrl: String): List<String> {
+            return parsePageImageUrls(Jsoup.parse(raw, chapterUrl), chapterUrl)
+        }
+
+        private fun parseSearchResults(document: Document): List<MangaSearchResult> {
+            val accumulated = linkedMapOf<String, Pair<String?, String?>>()
+
+            for (anchor in document.select("""a[href^="/manga/"]""")) {
+                val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
+
+                val image = anchor.selectFirst("img")
+                val cover = image?.let { img ->
+                    sequenceOf("data-src", "src")
+                        .firstOrNull { attr ->
+                            val value = img.attr(attr).trim()
+                            value.isNotBlank() && !value.startsWith("data:")
+                        }
+                        ?.let { attr -> img.absUrl(attr) }
+                }
+
+                val anchorText = anchor.text().trim()
+                val titleCandidate = firstNonBlankStatic(
+                    image?.attr("alt"),
+                    anchor.attr("title"),
+                    anchorText.takeIf { it.isNotBlank() },
+                )
+
+                val prior = accumulated[mangaUrl]
+                accumulated[mangaUrl] = Pair(
+                    prior?.first ?: titleCandidate,
+                    prior?.second ?: cover,
+                )
+            }
+
+            return accumulated.entries.mapNotNull { (mangaUrl, pair) ->
+                val (titleRaw, cover) = pair
+                val title = titleRaw?.trim().orEmpty().ifBlank {
+                    mangaUrl.substringAfterLast('/').replace('-', ' ').trim()
+                }
+                if (title.isBlank()) {
+                    null
+                } else {
+                    MangaSearchResult(
+                        sourceId = MangaSourceIds.MANGAPILL,
+                        title = title,
+                        mangaUrl = mangaUrl,
+                        coverUrl = cover,
+                    )
+                }
+            }
+        }
+
+        private fun parseMangaDetails(document: Document, canonical: String): MangaDetails {
+            val title = document.selectFirst("h1")?.text()?.trim().orEmpty().ifBlank { "manga" }
+            val cover = findCoverImage(document)
+            val chapters = parseChapterEntries(document)
+            return MangaDetails(
+                sourceId = MangaSourceIds.MANGAPILL,
+                title = title,
+                coverUrl = cover,
+                mangaUrl = canonical,
+                chapters = chapters,
+            )
+        }
+
+        private fun parseChapterEntries(document: Document): List<ChapterEntry> {
+            val entries = linkedMapOf<String, ChapterEntry>()
+
+            for (link in document.select("""#chapters a[href^="/chapters/"]""")) {
+                if (link.attr("href").trim().isBlank()) {
+                    continue
+                }
+                val chapterUrl = link.absUrl("href")
+                val title = link.attr("title").trim().ifBlank { link.text().trim() }
+                val numberText = chapterNumberInTitle.find(title)?.groupValues?.getOrNull(1)
+                    ?: chapterNumberInUrl.find(chapterUrl)?.groupValues?.getOrNull(1)
+                    ?: continue
+
+                val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
+                    ?: throw IllegalArgumentException("Numero capitolo non valido: $numberText")
+
+                entries[chapterUrl] = ChapterEntry(
+                    numberText = numberText,
+                    numberValue = numberValue,
+                    url = chapterUrl,
+                    slug = chapterUrl.substringAfterLast('/'),
+                )
+            }
+
+            if (entries.isEmpty()) {
+                throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
+            }
+
+            return entries.values.sortedBy { it.numberValue }
+        }
+
+        private fun parsePageImageUrls(document: Document, chapterUrl: String): List<String> {
+            val selectors = listOf(
+                "chapter-page img.js-page",
+                "chapter-page picture img",
+                "img.page-image",
+            )
+
+            val ordered = linkedSetOf<String>()
+            for (selector in selectors) {
+                for (image in document.select(selector)) {
+                    val attr = if (image.attr("data-src").isNotBlank()) "data-src" else "src"
+                    if (image.attr(attr).trim().isBlank()) {
+                        continue
+                    }
+                    ordered.add(image.absUrl(attr))
+                }
+            }
+
+            if (ordered.isEmpty()) {
+                throw IllegalStateException("Nessuna immagine trovata per il capitolo")
+            }
+
+            return ordered.toList()
+        }
+
+        private fun findCoverImage(document: Document): String? {
+            val candidates = listOf(
+                "figure img",
+                "picture img",
+                "div.flex img",
+                "img",
+            )
+            for (selector in candidates) {
+                for (image in document.select(selector)) {
+                    val attr = if (image.attr("data-src").isNotBlank()) "data-src" else "src"
+                    val src = image.attr(attr).trim()
+                    if (src.isBlank()) {
+                        continue
+                    }
+                    if (looksLikeCover(src, image)) {
+                        return image.absUrl(attr)
+                    }
+                }
+            }
+            return null
+        }
+
+        private fun looksLikeCover(src: String, image: Element): Boolean {
+            val lowered = src.lowercase(Locale.US)
+            if ("mangapill.com" in lowered || "cdn.mangapill" in lowered || "cover" in lowered) {
+                return true
+            }
+            val alt = image.attr("alt").lowercase(Locale.US)
+            return alt.isNotBlank() && alt != "logo"
+        }
+
+        private fun firstNonBlankStatic(vararg values: String?): String? {
+            for (value in values) {
+                if (!value.isNullOrBlank()) {
+                    return value
                 }
             }
             return null

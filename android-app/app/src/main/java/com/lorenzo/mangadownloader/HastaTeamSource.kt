@@ -15,7 +15,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 class HastaTeamSource(
     context: Context,
     networkClient: MangaNetworkClient,
-) : BaseMangaSource(context, networkClient) {
+    libraryRepository: LibraryRepository = LibraryRepository(context),
+) : BaseMangaSource(context, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.HASTA_TEAM,
         displayName = "Hasta Team",

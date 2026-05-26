@@ -1,11 +1,21 @@
 package com.lorenzo.mangadownloader
 
 import android.app.Application
+import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient
 
 class MangaApplication : Application(), ImageLoaderFactory {
+
+    /**
+     * Istanze applicative uniche: condivise tra ViewModel e DownloadWorker così che
+     * la TTL-cache di [LibraryRepository] sia coerente e non si ricreino registry/repo
+     * a ogni uso. Lazy: costruite al primo accesso, non all'avvio del processo.
+     */
+    val libraryRepository: LibraryRepository by lazy { LibraryRepository(this) }
+    val sourceRegistry: MangaSourceRegistry by lazy { MangaSourceRegistry(this, libraryRepository) }
+
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
@@ -43,3 +53,16 @@ class MangaApplication : Application(), ImageLoaderFactory {
                 "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     }
 }
+
+private fun Context.mangaApp(): MangaApplication? = applicationContext as? MangaApplication
+
+/**
+ * Registry condiviso dell'app, con fallback a un'istanza nuova se il [Context] non
+ * appartiene a [MangaApplication] (es. test che usano un Application generico).
+ */
+fun sharedSourceRegistry(context: Context): MangaSourceRegistry =
+    context.mangaApp()?.sourceRegistry ?: MangaSourceRegistry(context)
+
+/** Repository di libreria condiviso dell'app, con lo stesso fallback. */
+fun sharedLibraryRepository(context: Context): LibraryRepository =
+    context.mangaApp()?.libraryRepository ?: LibraryRepository(context)

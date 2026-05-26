@@ -35,7 +35,7 @@ class DownloadWorker(
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
 
-    private val sourceRegistry = MangaSourceRegistry(appContext)
+    private val sourceRegistry = sharedSourceRegistry(appContext)
     private val workTags = workerParams.tags
 
     override suspend fun doWork(): Result {

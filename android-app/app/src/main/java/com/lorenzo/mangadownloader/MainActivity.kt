@@ -337,7 +337,8 @@ private fun MangaDownloaderAppContent(
                     }
                 }
                 TutorialAnchor.LIBRARY_SERIES_FIRST -> {
-                    tutorialSampleSeries(state)?.let(viewModel::selectDownloadedSeries)
+                    LibraryMatching.tutorialSampleSeries(state.tutorialState.sample, state.library)
+                        ?.let(viewModel::selectDownloadedSeries)
                 }
                 TutorialAnchor.DOWNLOADED_CHAPTER_FIRST -> {
                     state.selectedDownloadedSeries
@@ -446,10 +447,11 @@ private fun MangaDownloaderAppContent(
             }
             selectedManga != null -> {
                 val downloadedChapterKeys = remember(selectedManga, state.library) {
-                    downloadedChapterKeysFor(selectedManga, state.library)
+                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library)
                 }
                 val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds) {
-                    state.selectedMangaReadChapterIds + downloadedReadChapterIdsFor(selectedManga, state.library)
+                    state.selectedMangaReadChapterIds +
+                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library)
                 }
                 DetailScreen(
                     details = selectedManga,
@@ -592,86 +594,6 @@ private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
 }
 
 private const val ReaderPrivacyMaxDimAlpha = 0.86f
-
-private fun downloadedChapterKeysFor(
-    details: MangaDetails,
-    library: List<DownloadedSeries>,
-): Set<String> {
-    val matchingSeries = matchingDownloadedSeries(details, library) ?: return emptySet()
-
-    return buildSet {
-        matchingSeries.chapters.forEach { chapter ->
-            add(chapter.chapterId)
-            add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
-        }
-    }
-}
-
-private fun downloadedReadChapterIdsFor(
-    details: MangaDetails,
-    library: List<DownloadedSeries>,
-): Set<String> {
-    return matchingDownloadedSeries(details, library)?.let { series ->
-        buildSet {
-            addAll(series.readChapterIds)
-            series.chapters
-                .filter { it.isRead }
-                .mapTo(this) { it.chapterId }
-        }
-    }.orEmpty()
-}
-
-private fun matchingDownloadedSeries(
-    details: MangaDetails,
-    library: List<DownloadedSeries>,
-): DownloadedSeries? {
-    val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
-    val detailsTitleKey = MangaSourceCatalog.identityKeyOrNull(
-        sourceId = details.sourceId,
-        mangaUrl = null,
-        title = details.title,
-    )
-    val detailsKeys = buildSet {
-        add(detailsKey)
-        detailsTitleKey?.let(::add)
-    }
-    return library.firstOrNull { series ->
-        val seriesKey = MangaSourceCatalog.identityKeyOrNull(
-            sourceId = series.sourceId,
-            mangaUrl = series.mangaUrl,
-            title = series.title,
-        )
-        val seriesTitleKey = MangaSourceCatalog.identityKeyOrNull(
-            sourceId = series.sourceId,
-            mangaUrl = null,
-            title = series.title,
-        )
-        seriesKey in detailsKeys || seriesTitleKey in detailsKeys
-    }
-}
-
-private fun tutorialSampleSeries(state: MangaUiState): DownloadedSeries? {
-    val sample = state.tutorialState.sample ?: return state.library.firstOrNull()
-    val sampleKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
-    val sampleTitleKey = MangaSourceCatalog.identityKeyOrNull(
-        sourceId = sample.sourceId,
-        mangaUrl = null,
-        title = sample.title,
-    )
-    return state.library.firstOrNull { series ->
-        val seriesKey = MangaSourceCatalog.identityKeyOrNull(
-            sourceId = series.sourceId,
-            mangaUrl = series.mangaUrl,
-            title = series.title,
-        )
-        val seriesTitleKey = MangaSourceCatalog.identityKeyOrNull(
-            sourceId = series.sourceId,
-            mangaUrl = null,
-            title = series.title,
-        )
-        seriesKey == sampleKey || seriesTitleKey == sampleTitleKey
-    } ?: state.library.firstOrNull()
-}
 
 private fun MangaUiState.canHandleBack(): Boolean {
     return readerChapter != null ||

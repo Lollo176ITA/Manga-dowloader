@@ -11,7 +11,8 @@ import org.jsoup.nodes.Element
 class MangaWorldSource(
     context: Context,
     networkClient: MangaNetworkClient,
-) : BaseMangaSource(context, networkClient) {
+    libraryRepository: LibraryRepository = LibraryRepository(context),
+) : BaseMangaSource(context, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.MANGA_WORLD,
         displayName = "MangaWorld",

@@ -18,16 +18,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 enum class AppTab {
     SEARCH,
@@ -40,6 +34,15 @@ data class FavoriteManga(
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
+)
+
+/** Forma su disco di un preferito (prefs JSON). I campi combaciano col formato storico. */
+@Serializable
+private data class FavoriteEntryJson(
+    val sourceId: String? = null,
+    val title: String = "",
+    val mangaUrl: String = "",
+    val coverUrl: String? = null,
 )
 
 data class AppSettings(
@@ -198,8 +201,8 @@ class MangaViewModel internal constructor(
 
     constructor(application: Application) : this(application, AppUpdateRepository(application))
 
-    private val sourceRegistry = MangaSourceRegistry(application)
-    private val libraryRepository = LibraryRepository(application)
+    private val sourceRegistry = sharedSourceRegistry(application)
+    private val libraryRepository = sharedLibraryRepository(application)
     private val streamingCacheRepository = StreamingReaderCacheRepository(
         context = application,
         networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
@@ -1242,6 +1245,8 @@ class MangaViewModel internal constructor(
         }
 
         // Unico punto di persistenza: stessa chiave (relativePath) per scaricati e streaming.
+        // Scrittura immediata (prefs.apply è già asincrono): la posizione deve essere durevole
+        // anche se l'app viene chiusa subito dopo, senza attendere alcun boundary.
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
             pageIndex = nextPageIndex,
@@ -1828,21 +1833,17 @@ class MangaViewModel internal constructor(
             return emptyList()
         }
         return try {
-            json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
-                val item = element.jsonObject
-                val title = item["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-                val mangaUrl = item["mangaUrl"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            json.decodeFromString<List<FavoriteEntryJson>>(raw).mapNotNull { entry ->
+                val title = entry.title.trim()
+                val mangaUrl = entry.mangaUrl.trim()
                 if (title.isBlank() || mangaUrl.isBlank()) {
                     null
                 } else {
                     FavoriteManga(
-                        sourceId = MangaSourceCatalog.resolveSourceId(
-                            sourceId = item["sourceId"]?.jsonPrimitive?.contentOrNull,
-                            url = mangaUrl,
-                        ),
+                        sourceId = MangaSourceCatalog.resolveSourceId(entry.sourceId, mangaUrl),
                         title = title,
                         mangaUrl = mangaUrl,
-                        coverUrl = item["coverUrl"]?.jsonPrimitive?.contentOrNull,
+                        coverUrl = entry.coverUrl,
                     )
                 }
             }
@@ -1852,20 +1853,16 @@ class MangaViewModel internal constructor(
     }
 
     private fun persistFavorites(favorites: List<FavoriteManga>) {
-        val payload = buildJsonArray {
-            favorites.forEach { manga ->
-                add(
-                    buildJsonObject {
-                        put("sourceId", JsonPrimitive(manga.sourceId))
-                        put("title", JsonPrimitive(manga.title))
-                        put("mangaUrl", JsonPrimitive(manga.mangaUrl))
-                        manga.coverUrl?.let { put("coverUrl", JsonPrimitive(it)) }
-                    },
-                )
-            }
+        val payload = favorites.map {
+            FavoriteEntryJson(
+                sourceId = it.sourceId,
+                title = it.title,
+                mangaUrl = it.mangaUrl,
+                coverUrl = it.coverUrl,
+            )
         }
         prefs.edit()
-            .putString(KEY_FAVORITES_JSON, json.encodeToString(JsonArray.serializer(), payload))
+            .putString(KEY_FAVORITES_JSON, json.encodeToString(payload))
             .apply()
     }
 
@@ -1893,8 +1890,8 @@ class MangaViewModel internal constructor(
             return emptyList()
         }
         return try {
-            json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
-                element.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+            json.decodeFromString<List<String>>(raw).mapNotNull {
+                it.trim().takeIf(String::isNotBlank)
             }
         } catch (_: Exception) {
             emptyList()
@@ -1902,11 +1899,8 @@ class MangaViewModel internal constructor(
     }
 
     private fun persistRecentSearches(searches: List<String>) {
-        val payload = buildJsonArray {
-            searches.forEach { add(JsonPrimitive(it)) }
-        }
         prefs.edit()
-            .putString(KEY_RECENT_SEARCHES, json.encodeToString(JsonArray.serializer(), payload))
+            .putString(KEY_RECENT_SEARCHES, json.encodeToString(searches))
             .apply()
     }
 

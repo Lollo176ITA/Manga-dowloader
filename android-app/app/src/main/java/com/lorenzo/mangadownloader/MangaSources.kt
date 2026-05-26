@@ -160,12 +160,13 @@ interface MangaSource {
 
 class MangaSourceRegistry(
     context: Context,
+    libraryRepository: LibraryRepository = LibraryRepository(context),
 ) {
     private val networkClient = MangaNetworkClient(SharedHttpClient.get(context))
     private val sources = mapOf(
-        MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient),
-        MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient),
-        MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient),
+        MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient, libraryRepository),
+        MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient, libraryRepository),
+        MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient, libraryRepository),
     )
 
     val descriptors: List<MangaSourceDescriptor>
@@ -187,6 +188,7 @@ class MangaSourceRegistry(
 abstract class BaseMangaSource(
     protected val context: Context,
     protected val networkClient: MangaNetworkClient,
+    private val libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : MangaSource {
     protected abstract val invalidChapterUrlMessage: String
 
@@ -270,7 +272,7 @@ abstract class BaseMangaSource(
                 labelPrefix = chapter.labelPrefix,
             )
         }
-        val streamingReadChapterIds = LibraryRepository(context).streamingReadChapterIds(plan)
+        val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(plan)
         val metadata = SeriesMetadata(
             sourceId = existingMetadata?.sourceId ?: plan.sourceId,
             title = plan.seriesTitle,

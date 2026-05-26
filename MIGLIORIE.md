@@ -100,22 +100,22 @@
   - Perché: lo stack è implicito nell'ordine del `when`; combinazioni illegali sono rappresentabili e ogni nuova schermata tocca 4 punti.
   - Cosa fare: `sealed interface Screen` + `List<Screen>` nel ViewModel con `push/pop`; `handleBack = pop`; rendering esaustivo sul `last()`. Niente Navigation Compose. Impatto Medio · Sforzo Medio.
 
-- [ ] **Spostare la logica di dominio fuori da `MainActivity`** 🔎
-  - Dove: `downloadedChapterKeysFor`, `downloadedReadChapterIdsFor`, `matchingDownloadedSeries`, `tutorialSampleSeries` [MainActivity.kt:596-693] — matching identità serie/capitoli (dominio, non UI).
-  - Cosa fare: spostare nel ViewModel o in un `LibraryMatching` accanto a `MangaSourceCatalog`, esponendo i dati già pronti nello stato → diventa testabile. Impatto Medio · Sforzo Basso/Medio.
+- [x] **Spostare la logica di dominio fuori da `MainActivity`** ✅ — *fatto (2026-05-26)*
+  - Dove: `downloadedChapterKeysFor`, `downloadedReadChapterIdsFor`, `matchingDownloadedSeries`, `tutorialSampleSeries` [MainActivity.kt] — matching identità serie/capitoli (dominio, non UI).
+  - **Fatto:** estratte in un nuovo `object LibraryMatching` (puro, accanto a `MangaSourceCatalog`); `MainActivity` ora le chiama e `tutorialSampleSeries` prende `(sample, library)` invece dello stato UI. 7 unit test JVM (`LibraryMatchingTest`, niente Robolectric) coprono match per identità, fallback sul titolo, no-match e le chiavi capitolo/letti.
 
 - [ ] **Ridurre il `MangaUiState` monolitico / ricomposizioni** 🔎
   - Dove: 40+ campi in un solo `MutableStateFlow` [MangaViewModel.kt:135-174]; `saveReaderPagePosition` rimappa liste grandi ad ogni pagina [MangaViewModel.kt:1764-1768]; `SearchScreen`/`LibraryScreen` ricevono l'intero `state`.
   - Cosa fare: passare alle schermate solo i sotto-campi necessari; opzionale split in `searchState`/`libraryState`/`readerState` derivati con `map`+`distinctUntilChanged`. Impatto Medio · Sforzo Medio.
 
-- [ ] **Centralizzare `LibraryRepository`/`MangaSourceRegistry` come singleton** 🔎
-  - Dove: `BaseMangaSource.prepareSeriesStorage` crea un `LibraryRepository` al volo [MangaSources.kt:266] mentre il ViewModel ne ha già uno [MangaViewModel.kt:202]; il `DownloadWorker` crea il proprio registry.
-  - Perché: la TTL-cache del repository non è condivisa tra worker e ViewModel (oggi mitigato da `forceRefresh` su eventi worker, accoppiamento fragile).
-  - Cosa fare: istanze applicative uniche in `MangaApplication`, iniettate. Impatto Basso/Medio · Sforzo Basso.
+- [x] **Centralizzare `LibraryRepository`/`MangaSourceRegistry` come singleton** ✅ — *fatto (2026-05-26)*
+  - Dove: `BaseMangaSource.prepareSeriesStorage` creava un `LibraryRepository` al volo mentre il ViewModel ne aveva già uno; il `DownloadWorker` creava il proprio registry.
+  - **Fatto:** `MangaApplication` espone `libraryRepository` e `sourceRegistry` come singleton `lazy`; helper `sharedLibraryRepository(context)`/`sharedSourceRegistry(context)` con fallback per Context non-MangaApplication (test). ViewModel e DownloadWorker ora usano le istanze condivise; `MangaSourceRegistry` e `BaseMangaSource` ricevono il `LibraryRepository` iniettato (default-arg per non rompere i test), così `prepareSeriesStorage` non istanzia più un repo al volo. La TTL-cache è ora condivisa.
 
-- [ ] **Debounce del salvataggio posizione pagina + serializzazione tipizzata** 🔎
-  - Dove: `reader_page_index::<path>` salvato ad ogni pagina visibile [LibraryRepository.kt:533-546]; favoriti/recenti come JSON costruito a mano [MangaViewModel.kt:1854-1911] (duplicato con `SeriesMetadataJson`).
-  - Cosa fare: throttle/debounce del salvataggio; un unico `@Serializable data class` + `Json.encodeToString` al posto dei `buildJsonObject` a mano. (DataStore solo se si vuole investire, opzionale.) Impatto Basso/Medio · Sforzo Medio.
+- [x] **Serializzazione tipizzata favoriti/recenti** ✅ — *fatto (2026-05-26)*; **debounce salvataggio pagina: scartato di proposito** ⚠️
+  - Dove: `reader_page_index::<path>` salvato ad ogni pagina visibile [LibraryRepository.kt]; favoriti/recenti come JSON costruito a mano [MangaViewModel.kt].
+  - **Fatto (serializzazione):** aggiunto il plugin `org.jetbrains.kotlin.plugin.serialization` (2.0.21, allineato a Kotlin); favoriti via `@Serializable data class FavoriteEntryJson` + `Json.encode/decodeFromString`, recenti come `List<String>` tipizzata, al posto dei `buildJsonObject`/`jsonArray` a mano. Formato su disco invariato (retrocompatibile). Test `FavoritesPersistenceTest` (round-trip + lettura del vecchio JSON senza cover).
+  - **Debounce scartato:** un test esistente (`ReaderProgressTest.streamingReader_positionSurvivesNewViewModel`) garantisce che la posizione sia **durevole subito** dopo il salvataggio (simula riavvio app con un nuovo ViewModel). Il debounce rompe questa garanzia e introduce perdita di dato su process-death; inoltre `prefs.apply()` è già asincrono (nessun jank sul main thread) e il vero costo per-pagina è il remap di stato in `withReaderProgress` — affrontato nell'item ricomposizioni. Mantenuta quindi la scrittura immediata.
 
 - [ ] **Uniformare gli aggiornamenti di stato** 🔎
   - Dove: ~30 `_state.value = _state.value.copy(...)` diretti vs l'esistente `updateState { copy(...) }`.

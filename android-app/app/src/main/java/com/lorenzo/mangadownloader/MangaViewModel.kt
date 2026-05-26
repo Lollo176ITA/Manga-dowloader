@@ -59,6 +59,7 @@ data class AppSettings(
     val downloadDevUpdates: Boolean = false,
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
+    val readingMode: ReadingMode = ReadingMode.VERTICAL,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
@@ -154,6 +155,8 @@ data class MangaUiState(
     val readerNextChapter: ReaderChapter? = null,
     val readerPages: List<ReaderPage> = emptyList(),
     val readerInitialPageIndex: Int = 0,
+    val readerReadingMode: ReadingMode = ReadingMode.VERTICAL,
+    val readerSeriesKey: String? = null,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
     val isCheckingUpdate: Boolean = false,
@@ -996,6 +999,44 @@ class MangaViewModel internal constructor(
         }
     }
 
+    fun setReadingMode(mode: ReadingMode) {
+        // Default globale, applicato alle serie senza una preferenza esplicita.
+        updateSettings { it.copy(readingMode = mode) }
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey
+        if (state.readerChapter != null &&
+            seriesKey != null &&
+            !prefs.contains(KEY_READING_MODE_SERIES_PREFIX + seriesKey)
+        ) {
+            updateState { copy(readerReadingMode = mode) }
+        }
+    }
+
+    fun setReaderReadingMode(mode: ReadingMode) {
+        // Override ricordato per la serie attualmente in lettura.
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey ?: return
+        prefs.edit()
+            .putString(KEY_READING_MODE_SERIES_PREFIX + seriesKey, mode.name)
+            .apply()
+        // Riparte dalla pagina corrente così il cambio modalità non perde il segno.
+        val currentPage = (state.readerChapter?.readerPageIndex ?: state.readerInitialPageIndex)
+            .coerceAtLeast(0)
+        updateState { copy(readerReadingMode = mode, readerInitialPageIndex = currentPage) }
+    }
+
+    private fun seriesKeyForDownloaded(relativePath: String): String =
+        "dl:" + relativePath.substringBefore('/')
+
+    private fun seriesKeyForStreaming(sourceId: String, mangaUrl: String): String =
+        "st:" + MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+
+    private fun resolveReadingMode(seriesKey: String): ReadingMode {
+        val stored = prefs.getString(KEY_READING_MODE_SERIES_PREFIX + seriesKey, null)
+        return stored?.let { runCatching { ReadingMode.valueOf(it) }.getOrNull() }
+            ?: _state.value.settings.readingMode
+    }
+
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
@@ -1003,6 +1044,7 @@ class MangaViewModel internal constructor(
             ?: chapter.readerPageIndex
             ?: 0
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
+        val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
 
         _state.value = _state.value.copy(
             readerChapter = initialReaderChapter,
@@ -1010,6 +1052,8 @@ class MangaViewModel internal constructor(
             readerNextChapter = null,
             readerPages = emptyList(),
             readerInitialPageIndex = savedPageIndex,
+            readerSeriesKey = seriesKey,
+            readerReadingMode = resolveReadingMode(seriesKey),
             isLoadingReader = true,
             errorMessage = null,
         )
@@ -1070,12 +1114,15 @@ class MangaViewModel internal constructor(
             chapterUrl = streamingChapter.chapter.url,
         )
         val savedPageIndex = libraryRepository.readerPagePosition(readerChapter.relativePath)?.pageIndex ?: 0
+        val seriesKey = seriesKeyForStreaming(streamingChapter.sourceId, streamingChapter.mangaUrl)
         _state.value = _state.value.copy(
             readerChapter = readerChapter.copy(readerPageIndex = savedPageIndex),
             readerPreviousChapter = null,
             readerNextChapter = null,
             readerPages = emptyList(),
             readerInitialPageIndex = savedPageIndex,
+            readerSeriesKey = seriesKey,
+            readerReadingMode = resolveReadingMode(seriesKey),
             isLoadingReader = true,
             errorMessage = null,
             selectedMangaReadChapterIds = streamingReadChapterIds,
@@ -1905,6 +1952,9 @@ class MangaViewModel internal constructor(
             downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
             privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
             readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
+            readingMode = runCatching {
+                ReadingMode.valueOf(prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name) ?: ReadingMode.VERTICAL.name)
+            }.getOrDefault(ReadingMode.VERTICAL),
             allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
             themeMode = runCatching {
                 ThemeMode.valueOf(
@@ -1935,6 +1985,7 @@ class MangaViewModel internal constructor(
             .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
             .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
             .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
+            .putString(KEY_READING_MODE, settings.readingMode.name)
             .putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
@@ -1973,6 +2024,8 @@ class MangaViewModel internal constructor(
         private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
         private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
+        private const val KEY_READING_MODE = "reading_mode"
+        private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
         private const val KEY_ALLOW_LANDSCAPE_ROTATION = "allow_landscape_rotation"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"

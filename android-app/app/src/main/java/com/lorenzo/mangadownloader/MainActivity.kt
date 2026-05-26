@@ -368,6 +368,7 @@ private fun MangaDownloaderAppContent(
                     onOpenSettings = viewModel::openSettings,
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
+                    onSelectReadingMode = viewModel::setReaderReadingMode,
                     onEnterReaderFullscreen = { isReaderFullscreen = true },
                 )
             }
@@ -403,6 +404,7 @@ private fun MangaDownloaderAppContent(
                     nextChapter = state.readerNextChapter,
                     pages = state.readerPages,
                     isLoading = state.isLoadingReader,
+                    readingMode = state.readerReadingMode,
                     padding = innerPadding,
                     initialPageIndex = state.readerInitialPageIndex,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
@@ -431,6 +433,7 @@ private fun MangaDownloaderAppContent(
                     onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                     onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
+                    onSelectReadingMode = viewModel::setReadingMode,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,

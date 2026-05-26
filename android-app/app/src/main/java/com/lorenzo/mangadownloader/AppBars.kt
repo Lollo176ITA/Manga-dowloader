@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
@@ -60,6 +62,7 @@ fun AppTopBar(
     onOpenSettings: () -> Unit,
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
+    onSelectReadingMode: (ReadingMode) -> Unit,
     onEnterReaderFullscreen: () -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
@@ -152,6 +155,10 @@ fun AppTopBar(
             }
 
             if (readerChapter != null) {
+                ReaderModeAction(
+                    currentMode = state.readerReadingMode,
+                    onSelectMode = onSelectReadingMode,
+                )
                 IconButton(
                     onClick = onEnterReaderFullscreen,
                     modifier = anchorFor(TutorialAnchor.READER_FULLSCREEN),
@@ -278,6 +285,41 @@ fun AppTopBar(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun ReaderModeAction(
+    currentMode: ReadingMode,
+    onSelectMode: (ReadingMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                contentDescription = "Modalità di lettura",
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            ReadingMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.menuLabel) },
+                    trailingIcon = if (mode == currentMode) {
+                        { Icon(Icons.Default.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelectMode(mode)
+                    },
+                )
+            }
+        }
     }
 }
 

@@ -56,6 +56,7 @@ fun SettingsScreen(
     onToggleSmartCleanup: (Boolean) -> Unit,
     onSmartCleanupKeepChange: (Int) -> Unit,
     onToggleStreamingReader: (Boolean) -> Unit,
+    onSelectReadingMode: (ReadingMode) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -153,6 +154,16 @@ fun SettingsScreen(
                 description = "Vedi quanto spazio occupa ogni manga ed elimina quelli che non ti servono più.",
                 icon = Icons.Default.PieChart,
                 onClick = onOpenStorageManager,
+            )
+        }
+
+        SettingsSection(
+            title = "Modalità di lettura",
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+        ) {
+            ReadingModePicker(
+                selected = settings.readingMode,
+                onSelect = onSelectReadingMode,
             )
         }
 
@@ -288,6 +299,44 @@ private fun ThemeModePicker(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReadingModePicker(
+    selected: ReadingMode,
+    onSelect: (ReadingMode) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Predefinita",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+        )
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            ReadingMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = selected == mode,
+                    onClick = { onSelect(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = ReadingMode.entries.size,
+                    ),
+                    label = { Text(mode.shortLabel) },
+                )
+            }
+        }
+        Text(
+            text = "Vale per i nuovi manga. Puoi cambiare modalità per la singola serie dal reader: la scelta viene ricordata. \"Pagine ←\" è la lettura destra→sinistra dei manga.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

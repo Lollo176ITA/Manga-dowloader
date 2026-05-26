@@ -39,20 +39,20 @@ class MangaViewModelReadingModeTest {
 
     @Test
     fun setReadingMode_updatesGlobalDefaultAndPersists() {
-        createViewModel().setReadingMode(ReadingMode.PAGED_RTL)
+        createViewModel().setReadingMode(ReadingMode.PAGED)
 
         // Nuovo ViewModel: il default è ancora su disco.
-        assertEquals(ReadingMode.PAGED_RTL, createViewModel().state.value.settings.readingMode)
+        assertEquals(ReadingMode.PAGED, createViewModel().state.value.settings.readingMode)
     }
 
     @Test
     fun openReader_usesGlobalDefaultWhenNoOverride() {
         val viewModel = createViewModel()
-        viewModel.setReadingMode(ReadingMode.PAGED_LTR)
+        viewModel.setReadingMode(ReadingMode.PAGED)
 
         viewModel.openStreamingReader(seriesA(), seriesA().chapters.first())
 
-        assertEquals(ReadingMode.PAGED_LTR, viewModel.state.value.readerReadingMode)
+        assertEquals(ReadingMode.PAGED, viewModel.state.value.readerReadingMode)
     }
 
     @Test
@@ -60,12 +60,12 @@ class MangaViewModelReadingModeTest {
         val viewModel = createViewModel()
         viewModel.openStreamingReader(seriesA(), seriesA().chapters.first())
 
-        viewModel.setReaderReadingMode(ReadingMode.PAGED_RTL)
-        assertEquals(ReadingMode.PAGED_RTL, viewModel.state.value.readerReadingMode)
+        viewModel.setReaderReadingMode(ReadingMode.PAGED)
+        assertEquals(ReadingMode.PAGED, viewModel.state.value.readerReadingMode)
 
         // Riapro la stessa serie: l'override viene ricordato.
         viewModel.openStreamingReader(seriesA(), seriesA().chapters.first())
-        assertEquals(ReadingMode.PAGED_RTL, viewModel.state.value.readerReadingMode)
+        assertEquals(ReadingMode.PAGED, viewModel.state.value.readerReadingMode)
 
         // Un'altra serie senza override usa il default globale (verticale).
         viewModel.openStreamingReader(seriesB(), seriesB().chapters.first())
@@ -73,18 +73,19 @@ class MangaViewModelReadingModeTest {
     }
 
     @Test
-    fun perSeriesOverride_survivesNewViewModelAndIgnoresGlobalChange() {
+    fun perSeriesOverride_survivesNewViewModelAndWinsOverGlobal() {
         createViewModel().also { viewModel ->
             viewModel.openStreamingReader(seriesA(), seriesA().chapters.first())
-            viewModel.setReaderReadingMode(ReadingMode.PAGED_RTL)
+            // Override esplicito "verticale" sulla serie A.
+            viewModel.setReaderReadingMode(ReadingMode.VERTICAL)
         }
 
         val recreated = createViewModel()
-        // Cambio il default globale: non deve sovrascrivere l'override esplicito della serie A.
-        recreated.setReadingMode(ReadingMode.PAGED_LTR)
+        // Cambio il default globale a "a pagine": non deve toccare l'override della serie A.
+        recreated.setReadingMode(ReadingMode.PAGED)
         recreated.openStreamingReader(seriesA(), seriesA().chapters.first())
 
-        assertEquals(ReadingMode.PAGED_RTL, recreated.state.value.readerReadingMode)
+        assertEquals(ReadingMode.VERTICAL, recreated.state.value.readerReadingMode)
     }
 
     private fun seriesA(): MangaDetails = sampleDetails(

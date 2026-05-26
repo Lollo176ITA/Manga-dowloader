@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDecay
@@ -22,6 +23,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +37,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -64,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -158,7 +162,6 @@ private fun ReaderContent(
                 pages = pages,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
-                rtl = readingMode == ReadingMode.PAGED_RTL,
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
@@ -532,7 +535,6 @@ private fun PagedReader(
     pages: List<ReaderPage>,
     padding: PaddingValues,
     initialPageIndex: Int,
-    rtl: Boolean,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -561,39 +563,94 @@ private fun PagedReader(
             }
     }
 
-    HorizontalPager(
-        state = pagerState,
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
             .background(Color.Black),
-        reverseLayout = rtl,
-        key = { index ->
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { index ->
+                when (index) {
+                    0 -> "reader-nav-top"
+                    pageCount - 1 -> "reader-nav-bottom"
+                    else -> pages[index - ReaderPageItemOffset].stableKey
+                }
+            },
+        ) { index ->
             when (index) {
-                0 -> "reader-nav-top"
-                pageCount - 1 -> "reader-nav-bottom"
-                else -> pages[index - ReaderPageItemOffset].stableKey
+                0 -> ReaderPagedNavPage(
+                    isStart = true,
+                    previousChapter = previousChapter,
+                    nextChapter = nextChapter,
+                    onOpenPrevious = onOpenPrevious,
+                    onOpenNext = onOpenNext,
+                )
+                pageCount - 1 -> ReaderPagedNavPage(
+                    isStart = false,
+                    previousChapter = previousChapter,
+                    nextChapter = nextChapter,
+                    onOpenPrevious = onOpenPrevious,
+                    onOpenNext = onOpenNext,
+                )
+                else -> ZoomablePage(
+                    page = pages[index - ReaderPageItemOffset],
+                    contentDescription = chapter.title,
+                )
             }
-        },
-    ) { index ->
-        when (index) {
-            0 -> ReaderPagedNavPage(
-                isStart = true,
-                previousChapter = previousChapter,
-                nextChapter = nextChapter,
-                onOpenPrevious = onOpenPrevious,
-                onOpenNext = onOpenNext,
-            )
-            pageCount - 1 -> ReaderPagedNavPage(
-                isStart = false,
-                previousChapter = previousChapter,
-                nextChapter = nextChapter,
-                onOpenPrevious = onOpenPrevious,
-                onOpenNext = onOpenNext,
-            )
-            else -> ZoomablePage(
-                page = pages[index - ReaderPageItemOffset],
-                contentDescription = chapter.title,
+        }
+
+        // Indicatore di pagina discreto: appare al cambio pagina e svanisce da solo,
+        // così non resta sempre davanti agli occhi. Solo sulle pagine reali, non sulle
+        // schermate di inizio/fine capitolo.
+        val currentRealPage = pagerState.currentPage - ReaderPageItemOffset
+        ReaderPageIndicator(
+            currentPageIndex = currentRealPage,
+            pageCount = pages.size,
+            isScrolling = pagerState.isScrollInProgress,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.ReaderPageIndicator(
+    currentPageIndex: Int,
+    pageCount: Int,
+    isScrolling: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val visiblePage = currentPageIndex in 0 until pageCount
+    var visible by remember { mutableStateOf(true) }
+
+    // Mostra l'indicatore quando cambi pagina o stai scorrendo, poi nascondilo dopo
+    // una breve pausa di inattività.
+    LaunchedEffect(currentPageIndex, isScrolling) {
+        if (!visiblePage) return@LaunchedEffect
+        visible = true
+        if (!isScrolling) {
+            delay(1400)
+            visible = false
+        }
+    }
+
+    AnimatedVisibility(
+        visible = visible && visiblePage,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier.padding(bottom = 20.dp),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
+            contentColor = Color.White,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Text(
+                text = "${currentPageIndex + 1} / $pageCount",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
     }

@@ -333,7 +333,7 @@ private fun ReadingModePicker(
             }
         }
         Text(
-            text = "Vale per i nuovi manga. Puoi cambiare modalità per la singola serie dal reader: la scelta viene ricordata. \"Pagine ←\" è la lettura destra→sinistra dei manga.",
+            text = "Vale per i nuovi manga. Puoi cambiare modalità per la singola serie dal reader: la scelta viene ricordata.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

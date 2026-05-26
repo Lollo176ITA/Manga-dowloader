@@ -562,25 +562,32 @@ class LibraryRepository(
         cacheDir.mkdirs()
 
         val extracted = mutableListOf<File>()
-        ZipInputStream(chapter.file.inputStream().buffered()).use { zip ->
-            var entry = zip.nextEntry
-            var index = 1
-            while (entry != null) {
-                if (!entry.isDirectory) {
-                    val extension = entry.name
-                        .substringAfterLast('.', "jpg")
-                        .lowercase(Locale.US)
-                        .ifBlank { "jpg" }
-                    val outFile = File(cacheDir, "${index.toString().padStart(3, '0')}.$extension")
-                    outFile.outputStream().buffered().use { output ->
-                        zip.copyTo(output)
+        try {
+            ZipInputStream(chapter.file.inputStream().buffered()).use { zip ->
+                var entry = zip.nextEntry
+                var index = 1
+                while (entry != null) {
+                    if (!entry.isDirectory) {
+                        val extension = entry.name
+                            .substringAfterLast('.', "jpg")
+                            .lowercase(Locale.US)
+                            .ifBlank { "jpg" }
+                        val outFile = File(cacheDir, "${index.toString().padStart(3, '0')}.$extension")
+                        outFile.outputStream().buffered().use { output ->
+                            zip.copyTo(output)
+                        }
+                        extracted += outFile
+                        index += 1
                     }
-                    extracted += outFile
-                    index += 1
+                    zip.closeEntry()
+                    entry = zip.nextEntry
                 }
-                zip.closeEntry()
-                entry = zip.nextEntry
             }
+        } catch (e: IOException) {
+            // Un .cbz corrotto/troncato non deve lasciare una cache parziale: altrimenti
+            // alla riapertura verrebbe scambiata per estrazione completa (vedi sopra).
+            cacheDir.deleteRecursively()
+            throw IOException("Capitolo scaricato corrotto o illeggibile", e)
         }
 
         if (extracted.isEmpty()) {

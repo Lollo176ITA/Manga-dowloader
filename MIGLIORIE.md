@@ -22,37 +22,37 @@
 
 ## 🟢 Bug & quick win (alto rapporto valore/sforzo)
 
-- [ ] **Referer immagini sbagliato per fonti diverse da Mangapill** ✅
+- [x] **Referer immagini sbagliato per fonti diverse da Mangapill** ✅ — *fatto (2026-05-26): le pagine `Remote` passano il proprio Referer via Coil `ImageRequest`; l'interceptor mette il default mangapill solo se assente (copertine invariate).*
   - Dove: header `Referer: https://mangapill.com/` fisso su **tutte** le immagini Coil [MangaApplication.kt:21]; le pagine streaming iniziali sono `ReaderPage.Remote` [MangaViewModel.kt:1179-1184] ma `ReaderScreen` usa solo `page.url` [ReaderScreen.kt:509, 745] e ignora il campo `Remote.referer` [ReaderModels.kt:46].
   - Perché: leggendo in streaming da MangaWorld/HastaTeam (e per le copertine di quelle fonti) le immagini partono col referer di Mangapill → possibili 403/immagini rotte finché la cache locale non subentra.
   - Cosa fare: togliere il referer fisso dall'interceptor (lasciare solo lo User-Agent) e impostare il referer per-immagine via `ImageRequest.Builder().setHeader("Referer", page.referer)` per i `Remote`. Impatto Alto · Sforzo Basso/Medio.
 
-- [ ] **Bug latente: CBZ corrotto lascia cache parziale trattata come completa** ✅
+- [x] **Bug latente: CBZ corrotto lascia cache parziale trattata come completa** ✅ — *fatto (2026-05-26): estrazione in try/catch che pulisce la cache su errore; test `ReaderPageExtractionTest`.*
   - Dove: `LibraryRepository.extractReaderPages` [LibraryRepository.kt:548-591].
   - Perché: se lo zip estrae alcune pagine e poi lancia (`ZipException`/IOException a riga 575-582), la `cacheDir` parziale **non** viene ripulita (il cleanup è solo nel ramo `extracted.isEmpty()`); alla riapertura `existing.isNotEmpty()` (551-557) restituisce le pagine parziali come fosse completo → capitolo mostrato monco in modo permanente.
   - Cosa fare: avvolgere l'estrazione in try/catch che cancella `cacheDir` su qualunque errore; aggiungere test con CBZ valido/vuoto/corrotto. Impatto Medio · Sforzo Basso.
 
-- [ ] **Letture SharedPreferences sincrone nel costruttore del ViewModel (main thread)** ✅
+- [ ] **Letture SharedPreferences sincrone nel costruttore del ViewModel (main thread)** ✅ — *RINVIATO (2026-05-26): lo stato iniziale (tab con parental control, fase tutorial, preferiti) è costruito sincronamente da queste letture; renderle async non è un vero quick win (rischio flash/regressioni su tutorial e tab iniziale) e il guadagno è marginale con prefs piccole. Da fare con cura a parte.*
   - Dove: `MangaViewModel` field init [MangaViewModel.kt:205-206, 233] → `readFavorites()` (JSON a mano), `readSettings()`, `readRecentSearches()` eseguiti alla creazione (in composizione).
   - Perché: I/O + parsing JSON sincroni all'avvio → jank potenziale man mano che i favoriti crescono.
   - Cosa fare: stato iniziale "vuoto/loading" e caricamento in `init { viewModelScope.launch(Dispatchers.IO) { … } }`. Impatto Medio · Sforzo Basso.
 
-- [ ] **Niente retry/backoff di rete** 🔎
+- [x] **Niente retry/backoff di rete** 🔎 — *fatto (2026-05-26): `MangaNetworkClient` ritenta solo gli errori di trasporto (3 tentativi, backoff), mai gli HTTP non-2xx; `DownloadWorker.enqueue` ora ha `setBackoffCriteria(EXPONENTIAL, 30s)`.*
   - Dove: `MangaNetworkClient` fa una sola `execute()` [MangaNetworkClient.kt:42-48]; `DownloadWorker.enqueue` non imposta `setBackoffCriteria` [DownloadWorker.kt:327]. (`SharedHttpClient` ha `retryOnConnectionFailure` ma copre solo i fallimenti di connessione, non le risposte non-2xx.)
   - Perché: un blip di rete fa fallire ricerca/dettaglio; il retry del worker usa il default implicito.
   - Cosa fare: retry leggero con backoff (2-3 tentativi su IOException/5xx, mai su 4xx) nel client; `setBackoffCriteria(EXPONENTIAL, …)` nel worker. Impatto Medio · Sforzo Basso.
 
-- [ ] **README disallineato** ✅
+- [x] **README disallineato** ✅ — *fatto (2026-05-26): app come progetto principale, 3 fonti elencate, sezione Python rietichettata come CLI.*
   - Dove: [README.md:3, 23] — "supporto: solo Mangapill" e il client Python presentato come progetto principale.
   - Perché: le fonti reali sono 3 (Mangapill, MangaWorld, HastaTeam) e l'app è il progetto attivo, non lo script Python.
   - Cosa fare: aggiornare elenco fonti, mettere l'app Android come protagonista, citare le preview da `dev`, ridimensionare/segnalare lo stato del client Python. Impatto Medio · Sforzo Basso.
 
-- [ ] **Aggiungere un file `LICENSE`** ✅
+- [x] **Aggiungere un file `LICENSE`** ✅ — *fatto (2026-05-26): **PolyForm Noncommercial License 1.0.0** (standard, testo ufficiale verbatim) con `Required Notice` di copyright. Codice aperto, uso libero solo non commerciale, nessuna responsabilità.*
   - Dove: root del repo (nessun `LICENSE*` presente).
   - Perché: senza licenza il codice è "all rights reserved" di default.
   - Cosa fare: aggiungere una licenza (es. MIT) o una nota d'uso esplicita. Impatto Medio · Sforzo Basso.
 
-- [ ] **Rimuovere codice morto** ✅
+- [x] **Rimuovere codice morto** ✅ — *fatto (2026-05-26): rimosso `buildReleaseTag(versionName)` inutilizzato; `*.log` aggiunto a `.gitignore`. (Il campo `ReaderPage.Remote.referer` ora è usato dal fix referer, quindi non più morto.)*
   - `buildReleaseTag(versionName)` [AppUpdateManager.kt:199]: nessun chiamante (tutti usano l'overload a 2 argomenti, 38/260/358).
   - Campo `ReaderPage.Remote.referer` [ReaderModels.kt:46]: oggi mai letto dal display (collegato al fix referer sopra).
   - Aggiungere `*.log` a [.gitignore] (in passato fu committato `batch_stdout.log`). Impatto Basso · Sforzo Basso.

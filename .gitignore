@@ -20,6 +20,7 @@ android-app/.kotlin/
 *.jpeg
 *.png
 !docs/**/*.png
+*.log
 .claude/
 .vscode/
 .idea/

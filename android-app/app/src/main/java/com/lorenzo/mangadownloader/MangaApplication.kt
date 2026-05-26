@@ -16,12 +16,17 @@ class MangaApplication : Application(), ImageLoaderFactory {
         // so image requests reuse the same pool as the rest of the app.
         val okHttpClient = SharedHttpClient.get(this).newBuilder()
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
+                val original = chain.request()
+                val builder = original.newBuilder()
                     .header("User-Agent", COIL_USER_AGENT)
-                    .header("Referer", "https://mangapill.com/")
                     .header("Accept", "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8")
-                    .build()
-                chain.proceed(request)
+                // Non sovrascrivere un Referer già impostato per-immagine (es. le pagine
+                // del reader in streaming, che usano l'URL della loro fonte). Solo come
+                // fallback usiamo mangapill, dove serve per l'hotlink protection.
+                if (original.header("Referer") == null) {
+                    builder.header("Referer", "https://mangapill.com/")
+                }
+                chain.proceed(builder.build())
             }
             .build()
 

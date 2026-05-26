@@ -5,6 +5,7 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
@@ -39,7 +40,7 @@ class MangaNetworkClient(
             }
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        executeWithConnectionRetry(request).use { response ->
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} su $url")
             }
@@ -63,7 +64,7 @@ class MangaNetworkClient(
             }
             .build()
 
-        httpClient.newCall(request).execute().use { response ->
+        executeWithConnectionRetry(request).use { response ->
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} scaricando $url")
             }
@@ -75,7 +76,35 @@ class MangaNetworkClient(
         return URI(baseUrl).resolve(value).toString()
     }
 
+    /**
+     * Esegue la richiesta ritentando **solo** gli errori di trasporto (timeout,
+     * connessione, reset): le risposte HTTP non-2xx non passano di qui, quindi un
+     * 404 non viene ritentato. Sincrono: chiamato da thread IO/worker, mai dal main.
+     */
+    private fun executeWithConnectionRetry(request: Request): Response {
+        var lastError: IOException? = null
+        repeat(MAX_ATTEMPTS) { attempt ->
+            try {
+                return httpClient.newCall(request).execute()
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    try {
+                        Thread.sleep(RETRY_BACKOFF_MS * (attempt + 1))
+                    } catch (interrupted: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw e
+                    }
+                }
+            }
+        }
+        throw lastError ?: IOException("Richiesta di rete fallita: ${request.url}")
+    }
+
     companion object {
+        private const val MAX_ATTEMPTS = 3
+        private const val RETRY_BACKOFF_MS = 400L
+
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"

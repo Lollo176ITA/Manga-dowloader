@@ -345,6 +345,11 @@ class DownloadWorker(
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build(),
                 )
+                .setBackoffCriteria(
+                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    30,
+                    java.util.concurrent.TimeUnit.SECONDS,
+                )
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

@@ -200,8 +200,6 @@ open class AppUpdateRepository(
     }
 }
 
-private fun buildReleaseTag(versionName: String): String = "android-v$versionName"
-
 internal fun parseUpdateConfigInfo(raw: String): AppUpdateInfo {
     val properties = Properties().apply { load(raw.byteInputStream()) }
     val versionName = properties.getProperty("versionName").orEmpty()

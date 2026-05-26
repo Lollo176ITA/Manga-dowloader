@@ -60,11 +60,13 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
@@ -504,10 +506,7 @@ private fun VerticalReader(
             }
             items(pages, key = { it.stableKey }) { page ->
                 AsyncImage(
-                    model = when (page) {
-                        is ReaderPage.Local -> page.file
-                        is ReaderPage.Remote -> page.url
-                    },
+                    model = rememberReaderImageModel(page),
                     contentDescription = chapter.title,
                     modifier = Modifier.fillMaxWidth(),
                     contentScale = ContentScale.FillWidth,
@@ -740,10 +739,7 @@ private fun ZoomablePage(
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = when (page) {
-                is ReaderPage.Local -> page.file
-                is ReaderPage.Remote -> page.url
-            },
+            model = rememberReaderImageModel(page),
             contentDescription = contentDescription,
             modifier = Modifier
                 .fillMaxSize()
@@ -788,6 +784,25 @@ private fun ReaderPagedNavPage(
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
             )
+        }
+    }
+}
+
+/**
+ * Modello immagine per Coil. Le pagine locali sono semplici file; quelle remote
+ * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
+ * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
+ */
+@Composable
+private fun rememberReaderImageModel(page: ReaderPage): Any {
+    val context = LocalContext.current
+    return when (page) {
+        is ReaderPage.Local -> page.file
+        is ReaderPage.Remote -> remember(page.url, page.referer) {
+            ImageRequest.Builder(context)
+                .data(page.url)
+                .setHeader("Referer", page.referer)
+                .build()
         }
     }
 }

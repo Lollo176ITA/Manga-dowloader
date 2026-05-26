@@ -1,10 +1,10 @@
 # Manga Downloader
 
-Scarica un capitolo da **mangaworld.mx** o **mangapill.com** e lo salva in un unico **PDF** o in una singola immagine **JPG**.
+**App Android** per cercare, leggere e scaricare manga offline come `.cbz`, con reader integrato, download in background (`WorkManager`) e auto-aggiornamento. Vive in [android-app](./android-app) ed è il progetto principale (vedi sotto).
 
-Il repo contiene anche un'app Android in [android-app](./android-app): cerchi il manga per nome direttamente dentro l'app, scegli il capitolo da cui partire e il download continua in background tramite `WorkManager`.
+Il repo include anche uno **script Python da riga di comando** ([manga_downloader.py](./manga_downloader.py)) per scaricare un singolo capitolo (o un range) come **PDF** o **JPG**.
 
-## Installazione
+## Client Python (riga di comando)
 
 ```bash
 pip install -r requirements.txt
@@ -20,7 +20,7 @@ L'app Android si trova in `android-app/` e offre un flusso completamente nativo:
 
 Dettagli:
 
-- supporto: solo **Mangapill**
+- fonti supportate: **Mangapill**, **MangaWorld**, **HastaTeam**
 - ricerca, browsing e download interamente dentro l'app (nessun URL da copiare)
 - output: un file `.cbz` per capitolo in `Android/data/com.lorenzo.mangadownloader/files/Download/MangaDownloader/<manga>/`
 - resume: i capitoli gi&agrave; salvati vengono saltati al riavvio

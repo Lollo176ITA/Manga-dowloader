@@ -69,18 +69,19 @@
   - Dove: [DownloadWorker.kt:41-186] — `doWork`, `enqueue`, retry/cancellazione, concorrenza con `Semaphore`/`Mutex`.
   - Cosa fare: test di `enqueue` (constraint/tag) con `WorkManagerTestInitHelper`, e/o estrarre l'orchestrazione in una classe testabile con `MangaSource` fake (come `StreamingReadStateTest.TestMangaSource`). Impatto Alto · Sforzo Medio/Alto.
 
-- [ ] **Gestire lo spazio disco insufficiente** 🔎
-  - Dove: scrittura pagine [MangaSources.kt:381-388], estrazione [LibraryRepository.kt:575-577], cache streaming.
-  - Perché: su disco pieno `IOException` → il worker va in retry potenzialmente infinito; nessun messaggio dedicato.
-  - Cosa fare: check spazio (`StatFs`) prima del download + messaggio utente; test del fallimento di scrittura. Impatto Medio · Sforzo Medio.
+- [x] **Gestire lo spazio disco insufficiente** ✅ — *fatto (2026-05-26)*
+  - Dove: scrittura pagine [MangaSources.kt], estrazione [LibraryRepository.kt:575-577], cache streaming.
+  - Perché: su disco pieno `IOException` → il worker andava in retry potenzialmente infinito; nessun messaggio dedicato.
+  - **Fatto:** prima di scaricare un capitolo (`downloadChapterAsCbz`, dopo lo skip del file esistente) si controlla lo spazio libero con `StatFs` (`DownloadStorage.freeSpaceBytes`, **fail-open**: se la misura fallisce non blocca) contro una soglia di 50 MB (`MIN_FREE_SPACE_BYTES`); se insufficiente lancia `InsufficientStorageException` — eccezione **non**-`IOException`, così il `DownloadWorker` la mappa su `Result.failure` con messaggio ("Spazio insufficiente sul dispositivo…") invece di ciclare in retry. Policy isolata in `hasEnoughFreeSpace(available, required)` (pura) e misura dietro `availableSpaceBytes(dir)` (seam overridabile). Test: policy pura + `downloadChapterAsCbz` che lancia con disco simulato quasi pieno senza toccare la rete. Suite verde.
+  - *Nota scope:* coperto il percorso di download (quello che causava i retry infiniti del worker). L'estrazione CBZ in lettura usa già il try/catch che pulisce la cache su errore (vedi item "CBZ corrotto"); aggiungere un check `StatFs` anche lì è un follow-up minore.
 
-- [ ] **Coprire i rami d'errore di `buildDownloadPlan`/`downloadChapterAsCbz`** 🔎
-  - Dove: [MangaSources.kt:194-240, 279-329] — capitolo iniziale/finale non trovato, intervallo invertito, lista vuota (oggi solo happy path).
-  - Cosa fare: test con `TestMangaSource` su URL fuori range / lista vuota; verifica zip prodotto e skip file esistente. Impatto Medio · Sforzo Medio.
+- [x] **Coprire i rami d'errore di `buildDownloadPlan`/`downloadChapterAsCbz`** ✅ — *fatto (2026-05-26)*
+  - Dove: [MangaSources.kt:194-240, 279-329] — capitolo iniziale/finale non trovato, intervallo invertito, lista vuota (prima solo happy path).
+  - **Fatto:** nuovo `DownloadPlanAndCbzTest` (Robolectric) con un `TestMangaSource` configurabile. Copre `buildDownloadPlan`: URL non riconosciuto → `IllegalArgumentException`, capitolo iniziale/finale assente e intervallo invertito → `IllegalStateException`, più gli happy path (intervallo inclusivo + `totalChapterCount`, default all'ultimo capitolo). Copre `downloadChapterAsCbz`: **zip prodotto** (un'entry per pagina, niente residui `.part`/`_pages`) iniettando byte finti via interceptor OkHttp (nessuna rete) e **skip del file già esistente**. 8 test verdi.
 
-- [ ] **Test del `CrashReporter`** 🔎
+- [x] **Test del `CrashReporter`** ✅ — *fatto (2026-05-26)*
   - Dove: [CrashReporter.kt] — round-trip write→read→clear e caso "file assente → null".
-  - Perché: è la diagnostica dei crash; un bug qui si paga proprio quando serve. Impatto Medio · Sforzo Basso.
+  - **Fatto:** nuovo `CrashReporterTest` (Robolectric): file assente → `null`, `clearLastCrash` idempotente, `crashFilePath` punta a `diagnostics/last_crash.txt`, e round-trip completo invocando l'handler installato da `install` (con handler precedente non-null per evitare `exitProcess`) → il report contiene messaggio/eccezione/thread, poi `clear` riporta a `null` e la catena dell'handler precedente è rispettata. 4 test verdi.
 
 - [ ] **Alimentare il `CrashReporter`/log sugli errori di parsing** 🔎
   - Dove: le source lanciano `IllegalStateException("Nessun capitolo…")` senza dire *quale* selettore è fallito [MangapillSource.kt:127].

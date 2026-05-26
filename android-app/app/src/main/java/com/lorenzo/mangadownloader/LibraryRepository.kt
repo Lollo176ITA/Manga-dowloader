@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import android.content.Context
 import android.os.Environment
+import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -78,10 +79,36 @@ object DownloadStorage {
     private val chapterFileRegex = Regex("""^chapter_(.+)\.cbz$""", RegexOption.IGNORE_CASE)
     private val numericRegex = Regex("""\d+(?:\.\d+)?""")
 
+    /**
+     * Soglia minima di spazio libero richiesta prima di scaricare un capitolo.
+     * Margine prudente: una richiesta scrive le pagine in una cartella temporanea e
+     * poi lo zip finale, quindi serve spazio per entrambi durante la finalizzazione.
+     */
+    const val MIN_FREE_SPACE_BYTES = 50L * 1024 * 1024
+
     fun libraryRoot(context: Context): File {
         val root = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: throw IllegalStateException("Cartella download dell'app non disponibile")
         return File(root, LIBRARY_FOLDER_NAME).apply { mkdirs() }
+    }
+
+    /** Policy pura: c'è abbastanza spazio libero? (testabile senza toccare il filesystem) */
+    fun hasEnoughFreeSpace(
+        availableBytes: Long,
+        requiredBytes: Long = MIN_FREE_SPACE_BYTES,
+    ): Boolean = availableBytes >= requiredBytes
+
+    /**
+     * Spazio libero (byte) sul volume che contiene [dir]. **Fail-open**: se la misura
+     * non è possibile restituisce `Long.MAX_VALUE`, così un guasto della misura non
+     * blocca i download (al massimo si ricade nel vecchio comportamento su `IOException`).
+     */
+    fun freeSpaceBytes(dir: File): Long {
+        return try {
+            StatFs(dir.absolutePath).availableBytes
+        } catch (_: Exception) {
+            Long.MAX_VALUE
+        }
     }
 
     fun safeFilename(input: String): String {

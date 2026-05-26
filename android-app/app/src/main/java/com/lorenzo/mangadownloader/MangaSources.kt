@@ -26,6 +26,13 @@ data class MangaSearchConfig(
     val showAllOnEmptyQuery: Boolean = false,
 )
 
+/**
+ * Spazio su disco insufficiente per completare un download. Volutamente **non** è una
+ * [java.io.IOException]: il `DownloadWorker` ritenta gli `IOException` (blip di rete), ma
+ * un disco pieno deve fermarsi subito con un messaggio per l'utente, non ciclare in retry.
+ */
+class InsufficientStorageException(message: String) : RuntimeException(message)
+
 object MangaSourceIds {
     const val MANGAPILL = "mangapill"
     const val HASTA_TEAM = "hasta_team"
@@ -287,6 +294,8 @@ abstract class BaseMangaSource(
             return DownloadResult.SKIPPED_EXISTING
         }
 
+        ensureEnoughFreeSpace(outputDir)
+
         val tempFile = File(outputDir, "${outputFile.name}.part")
         if (tempFile.exists()) {
             tempFile.delete()
@@ -356,6 +365,17 @@ abstract class BaseMangaSource(
         val raw = url.substringBefore('?').substringAfterLast('.', "jpg")
         val cleaned = raw.lowercase(Locale.US).filter { it.isLetterOrDigit() }
         return if (cleaned.isBlank()) "jpg" else cleaned
+    }
+
+    /** Spazio libero sul volume di [dir]. Overridabile nei test per simulare il disco pieno. */
+    protected open fun availableSpaceBytes(dir: File): Long = DownloadStorage.freeSpaceBytes(dir)
+
+    private fun ensureEnoughFreeSpace(dir: File) {
+        if (!DownloadStorage.hasEnoughFreeSpace(availableSpaceBytes(dir))) {
+            throw InsufficientStorageException(
+                "Spazio insufficiente sul dispositivo: libera spazio e riprova.",
+            )
+        }
     }
 
     private suspend fun downloadPageFiles(

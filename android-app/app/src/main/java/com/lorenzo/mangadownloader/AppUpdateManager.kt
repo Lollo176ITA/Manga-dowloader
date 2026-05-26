@@ -3,12 +3,16 @@ package com.lorenzo.mangadownloader
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.Signature
+import android.content.pm.SigningInfo
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.Properties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -419,6 +423,12 @@ object AppUpdateInstaller {
     }
 
     fun installApk(context: Context, apkFile: File) {
+        // Difesa contro un APK scaricato manomesso/sostituito: prima di passarlo
+        // all'installer verifichiamo che sia firmato con lo stesso certificato
+        // dell'app già installata. Fail-closed: se non riusciamo a leggere le
+        // firme, l'installazione viene rifiutata.
+        verifyTrustedSignature(context, apkFile)
+
         val uri = FileProvider.getUriForFile(
             context,
             "${BuildConfig.APPLICATION_ID}.fileprovider",
@@ -435,4 +445,75 @@ object AppUpdateInstaller {
             throw IOException("Nessuna app disponibile per installare l'APK", exc)
         }
     }
+
+    private fun verifyTrustedSignature(context: Context, apkFile: File) {
+        val packageManager = context.packageManager
+        val installed = installedSignatureHashes(packageManager, context.packageName)
+        val downloaded = archiveSignatureHashes(packageManager, apkFile.absolutePath)
+        if (!signaturesTrusted(installed = installed, downloaded = downloaded)) {
+            throw IOException(
+                "Aggiornamento rifiutato: la firma dell'APK non corrisponde a quella dell'app installata.",
+            )
+        }
+    }
+
+    private fun installedSignatureHashes(
+        packageManager: PackageManager,
+        packageName: String,
+    ): Set<String> = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            signingInfoHashes(info.signingInfo)
+        } else {
+            @Suppress("DEPRECATION")
+            val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            @Suppress("DEPRECATION")
+            info.signatures.hashes()
+        }
+    }.getOrDefault(emptySet())
+
+    private fun archiveSignatureHashes(
+        packageManager: PackageManager,
+        apkPath: String,
+    ): Set<String> = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = packageManager.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNING_CERTIFICATES)
+            signingInfoHashes(info?.signingInfo)
+        } else {
+            @Suppress("DEPRECATION")
+            val info = packageManager.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNATURES)
+            @Suppress("DEPRECATION")
+            info?.signatures.hashes()
+        }
+    }.getOrDefault(emptySet())
+
+    private fun signingInfoHashes(signingInfo: SigningInfo?): Set<String> {
+        if (signingInfo == null) return emptySet()
+        val signatures = if (signingInfo.hasMultipleSigners()) {
+            signingInfo.apkContentsSigners
+        } else {
+            signingInfo.signingCertificateHistory
+        }
+        return signatures.hashes()
+    }
+
+    private fun Array<Signature>?.hashes(): Set<String> {
+        if (this == null) return emptySet()
+        val digest = MessageDigest.getInstance("SHA-256")
+        return this.mapNotNullTo(mutableSetOf()) { signature ->
+            runCatching {
+                digest.digest(signature.toByteArray()).joinToString("") { "%02x".format(it) }
+            }.getOrNull()
+        }
+    }
+}
+
+/**
+ * Firma "fidata" se app installata e APK scaricato condividono almeno un
+ * certificato. Fail-closed: insiemi vuoti (firme illeggibili) ⇒ non fidato.
+ * Funzione pura, isolata per essere testabile senza PackageManager.
+ */
+internal fun signaturesTrusted(installed: Set<String>, downloaded: Set<String>): Boolean {
+    if (installed.isEmpty() || downloaded.isEmpty()) return false
+    return installed.intersect(downloaded).isNotEmpty()
 }

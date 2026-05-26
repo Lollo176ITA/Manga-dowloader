@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -324,5 +325,23 @@ class AppUpdateManagerTest {
         assertNotNull(stable)
         assertNotNull(preview)
         assertTrue(stable!!.versionCode > preview!!.versionCode)
+    }
+
+    @Test
+    fun signaturesTrusted_trueWhenCertificatesOverlap() {
+        assertTrue(signaturesTrusted(installed = setOf("aa", "bb"), downloaded = setOf("bb")))
+    }
+
+    @Test
+    fun signaturesTrusted_falseWhenCertificatesDiffer() {
+        assertFalse(signaturesTrusted(installed = setOf("aa"), downloaded = setOf("cc")))
+    }
+
+    @Test
+    fun signaturesTrusted_failsClosedOnEmptySignatures() {
+        // Firme illeggibili da una delle due parti ⇒ installazione rifiutata.
+        assertFalse(signaturesTrusted(installed = emptySet(), downloaded = setOf("aa")))
+        assertFalse(signaturesTrusted(installed = setOf("aa"), downloaded = emptySet()))
+        assertFalse(signaturesTrusted(installed = emptySet(), downloaded = emptySet()))
     }
 }

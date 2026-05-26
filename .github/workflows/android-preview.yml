@@ -48,6 +48,9 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Resolve preview version
         run: |
           MAIN_VERSION="$(git show origin/main:android-app/version.properties | grep '^versionName=' | cut -d= -f2-)"

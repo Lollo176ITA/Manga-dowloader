@@ -436,6 +436,7 @@ private fun MangaDownloaderAppContent(
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
+                    onToggleHighResImages = viewModel::setHighResImages,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
                     onOpenStorageManager = viewModel::openStorageManager,

@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +61,7 @@ fun SettingsScreen(
     onToggleParentalBiometric: (Boolean) -> Unit,
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
+    onToggleHighResImages: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
@@ -86,18 +86,6 @@ fun SettingsScreen(
             DynamicColorRow(
                 checked = settings.useDynamicColor,
                 onCheckedChange = onToggleDynamicColor,
-            )
-        }
-
-        SettingsSection(
-            title = "Schermo",
-            icon = Icons.Default.ScreenRotation,
-        ) {
-            SettingsSwitchRow(
-                title = "Consenti rotazione orizzontale",
-                description = "Disattivata di default: l'app resta in verticale. Se la attivi puoi ruotare lo schermo, ma l'impaginazione della lettura potrebbe rompersi.",
-                checked = settings.allowLandscapeRotation,
-                onCheckedChange = onToggleAllowLandscapeRotation,
             )
         }
 
@@ -247,10 +235,24 @@ fun SettingsScreen(
                 )
                 SettingsDivider()
                 SettingsSwitchRow(
+                    title = "Immagini full-res",
+                    description = "Scarica le pagine alla risoluzione massima quando la fonte le serve ridimensionate (es. VyManga). Usa più dati e spazio.",
+                    checked = settings.highResImages,
+                    onCheckedChange = onToggleHighResImages,
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
                     title = "Luminosità",
-                    description = "Mostra nel reader un controllo sole per ridurre la luminosità, anche sotto il minimo pratico dello schermo.",
+                    description = "Mostra nel reader un controllo sole per ridurre la luminosità",
                     checked = settings.privacyBrightnessEnabled,
                     onCheckedChange = onTogglePrivacyBrightness,
+                )
+                SettingsDivider()
+                SettingsSwitchRow(
+                    title = "Consenti rotazione orizzontale",
+                    description = "Disattivata di default: l'app resta in verticale. Se la attivi puoi ruotare lo schermo, ma l'impaginazione della lettura potrebbe rompersi.",
+                    checked = settings.allowLandscapeRotation,
+                    onCheckedChange = onToggleAllowLandscapeRotation,
                 )
             }
         }

@@ -71,7 +71,9 @@ class VyMangaSource(
         val tokenUrl = extractChapterToken(mangaHtml, ref.chapterId)
             ?: throw IllegalStateException("Capitolo non più disponibile nella pagina manga")
         // OkHttp segue i redirect del cloaker fino alla pagina reader.
-        return parseReaderImageUrls(fetchString(tokenUrl))
+        val pages = parseReaderImageUrls(fetchString(tokenUrl))
+        // Le pagine sono servite ridimensionate (es. =w700); su richiesta passa al full-res.
+        return if (highResImagesEnabled()) pages.map { toHighResUrl(it) } else pages
     }
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
@@ -94,6 +96,9 @@ class VyMangaSource(
             )
         private val chapterNumberInText =
             Regex("""chapter\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        // Suffisso di ridimensionamento Google Blogger in coda all'URL (es. =w700, =s1600, =w700-h1000).
+        private val imageSizeSuffix =
+            Regex("""=[swh]\d+(?:-[swh]\d+)*$""", RegexOption.IGNORE_CASE)
 
         /** Riferimento stabile a un capitolo: serie canonica + id `chapter-<n>`. */
         data class ChapterRef(val mangaUrl: String, val chapterId: String)
@@ -129,6 +134,14 @@ class VyMangaSource(
             val anchor = Jsoup.parse(mangaHtml, BASE_URL).getElementById(chapterId) ?: return null
             return firstNonBlankStatic(anchor.absUrl("href"), anchor.attr("href"))
         }
+
+        /**
+         * Converte l'URL Blogger ridimensionato alla risoluzione originale: il suffisso di
+         * resize finale (`=w700`, `=s1600`, `=w700-h1000`...) diventa `=s0`. Se non c'è
+         * suffisso, l'URL resta invariato.
+         */
+        fun toHighResUrl(url: String): String =
+            if (imageSizeSuffix.containsMatchIn(url)) imageSizeSuffix.replace(url, "=s0") else url
 
         /** URL immagine (in ordine) dall'HTML del reader. */
         fun parseReaderImageUrls(raw: String): List<String> {

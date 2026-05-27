@@ -55,6 +55,19 @@ class MangaViewModelLandscapeRotationTest {
         assertFalse(createViewModel().state.value.settings.allowLandscapeRotation)
     }
 
+    @Test
+    fun disablingLabs_clearsLandscapeRotation() {
+        val viewModel = createViewModel()
+        viewModel.setLabsEnabled(true)
+        viewModel.setAllowLandscapeRotation(true)
+
+        viewModel.setLabsEnabled(false)
+
+        // La rotazione è ora una sub-opzione Labs: spegnere Labs la azzera (come le altre).
+        assertFalse(viewModel.state.value.settings.allowLandscapeRotation)
+        assertFalse(createViewModel().state.value.settings.allowLandscapeRotation)
+    }
+
     private fun createViewModel(): MangaViewModel =
         MangaViewModel(application, AppUpdateRepository(application))
 

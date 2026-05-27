@@ -47,6 +47,7 @@ data class AppSettings(
     val parentalPinHash: String? = null,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
+    val highResImages: Boolean = false,
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
@@ -194,7 +195,7 @@ class MangaViewModel internal constructor(
         context = application,
         networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
     )
-    private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
     private val settingsStore = SettingsStore(prefs)
     private val favoritesStore = FavoritesStore(prefs)
     private val recentSearchesStore = RecentSearchesStore(prefs)
@@ -644,8 +645,10 @@ class MangaViewModel internal constructor(
             else it.copy(
                 labsEnabled = false,
                 downloadDevUpdates = false,
+                highResImages = false,
                 privacyBrightnessEnabled = false,
                 readerBrightness = 1f,
+                allowLandscapeRotation = false,
             )
         }
     }
@@ -655,6 +658,10 @@ class MangaViewModel internal constructor(
         if (enabled) {
             checkForAppUpdate(force = true)
         }
+    }
+
+    fun setHighResImages(enabled: Boolean) {
+        updateSettings { it.copy(highResImages = enabled) }
     }
 
     fun setPrivacyBrightnessEnabled(enabled: Boolean) {
@@ -1856,7 +1863,6 @@ class MangaViewModel internal constructor(
     }
 
     companion object {
-        private const val PREFS_NAME = "manga_downloader_prefs"
         // Chiavi non-impostazioni che restano nel ViewModel (gli store gestiscono le altre).
         private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"

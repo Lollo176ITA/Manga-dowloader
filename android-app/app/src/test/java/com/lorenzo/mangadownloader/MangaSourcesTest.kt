@@ -604,4 +604,20 @@ class MangaSourcesTest {
             identityKey,
         )
     }
+
+    @Test
+    fun vyMangaToHighResUrl_upgradesBloggerSizeSuffix() {
+        assertEquals(
+            "https://2.bp.blogspot.com/drive-storage/AAA=s0",
+            VyMangaSource.toHighResUrl("https://2.bp.blogspot.com/drive-storage/AAA=w700"),
+        )
+        // suffisso composito (larghezza+altezza) → originale
+        assertEquals(
+            "https://2.bp.blogspot.com/drive-storage/BBB=s0",
+            VyMangaSource.toHighResUrl("https://2.bp.blogspot.com/drive-storage/BBB=w700-h1000"),
+        )
+        // nessun suffisso di resize → invariato
+        val noSuffix = "https://2.bp.blogspot.com/drive-storage/CCC"
+        assertEquals(noSuffix, VyMangaSource.toHighResUrl(noSuffix))
+    }
 }

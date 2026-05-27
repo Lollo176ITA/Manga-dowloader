@@ -354,6 +354,15 @@ abstract class BaseMangaSource(
         headers: Map<String, String> = emptyMap(),
     ) = networkClient.fetchString(url, headers)
 
+    /**
+     * Opzione Labs "immagini full-res", letta a runtime. Rilevante solo per le fonti che
+     * servono varianti ridimensionate delle pagine (es. VyManga); le altre già servono
+     * la risoluzione nativa, quindi la ignorano.
+     */
+    protected fun highResImagesEnabled(): Boolean =
+        SettingsStore(context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE))
+            .read().highResImages
+
     protected fun absolutize(baseUrl: String, value: String) = networkClient.absolutize(baseUrl, value)
 
     protected fun parseChapterNumber(text: String) = DownloadStorage.parseChapterValueOrNull(text)

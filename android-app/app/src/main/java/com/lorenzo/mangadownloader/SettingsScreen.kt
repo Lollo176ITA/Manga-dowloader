@@ -153,12 +153,7 @@ fun SettingsScreen(
                 selected = settings.readingMode,
                 onSelect = onSelectReadingMode,
             )
-        }
-
-        SettingsSection(
-            title = "Lettura online",
-            icon = Icons.AutoMirrored.Filled.MenuBook,
-        ) {
+            SettingsDivider()
             SettingsSwitchRow(
                 title = "Apri capitoli in streaming",
                 description = "Nel dettaglio manga, il tap su un capitolo apre il reader online invece del download.",

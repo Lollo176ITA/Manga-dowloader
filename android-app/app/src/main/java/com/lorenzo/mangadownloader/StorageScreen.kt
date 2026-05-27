@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -263,7 +264,9 @@ private fun StorageSeriesRow(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            // La card è tinta col colore della serie: ogni manga ha la sua identità cromatica,
+            // restando leggibile (mix leggero sopra surfaceContainerHigh in light e dark).
+            containerColor = lerp(MaterialTheme.colorScheme.surfaceContainerHigh, info.color, 0.20f),
         ),
     ) {
         Row(

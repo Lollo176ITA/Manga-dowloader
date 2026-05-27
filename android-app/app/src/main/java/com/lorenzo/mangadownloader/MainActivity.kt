@@ -248,11 +248,7 @@ private fun MangaDownloaderAppContent(
         initialPage = state.currentTab.ordinal,
         pageCount = { AppTab.entries.size },
     )
-    val showPager = state.readerChapter == null &&
-        !state.showSettings &&
-        !state.showStorageManager &&
-        state.selected == null &&
-        state.selectedDownloadedSeries == null
+    val showPager = state.currentScreen() == Screen.Tabs
     val visiblePagerTab = when {
         !showPager -> state.currentTab
         pagerState.isScrollInProgress -> AppTab.entries[pagerState.targetPage]
@@ -282,7 +278,7 @@ private fun MangaDownloaderAppContent(
         if (isReaderFullscreen) {
             isReaderFullscreen = false
         } else {
-            state.handleBack(viewModel)
+            viewModel.handleBack()
         }
     }
 
@@ -364,7 +360,7 @@ private fun MangaDownloaderAppContent(
                 AppTopBar(
                     state = state,
                     visibleTab = visiblePagerTab,
-                    onBack = { state.handleBack(viewModel) },
+                    onBack = viewModel::handleBack,
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                     onOpenSettings = viewModel::openSettings,
                     onSelectSource = viewModel::selectSearchSource,
@@ -397,8 +393,8 @@ private fun MangaDownloaderAppContent(
         val selectedManga = state.selected
         val selectedSeries = state.selectedDownloadedSeries
 
-        when {
-            state.readerChapter != null -> {
+        when (state.currentScreen()) {
+            Screen.Reader -> {
                 ReaderScreen(
                     chapter = state.readerChapter,
                     previousChapter = state.readerPreviousChapter,
@@ -413,14 +409,14 @@ private fun MangaDownloaderAppContent(
                     onPageVisible = viewModel::saveReaderPagePosition,
                 )
             }
-            state.showStorageManager -> {
+            Screen.StorageManager -> {
                 StorageScreen(
                     library = state.library,
                     padding = innerPadding,
                     onDeleteSeries = viewModel::deleteDownloadedSeries,
                 )
             }
-            state.showSettings -> {
+            Screen.Settings -> {
                 SettingsScreen(
                     settings = state.settings,
                     isBiometricAvailable = state.isBiometricAvailable,
@@ -445,7 +441,7 @@ private fun MangaDownloaderAppContent(
                     onOpenStorageManager = viewModel::openStorageManager,
                 )
             }
-            selectedManga != null -> {
+            Screen.Detail -> if (selectedManga != null) {
                 val downloadedChapterKeys = remember(selectedManga, state.library) {
                     LibraryMatching.downloadedChapterKeys(selectedManga, state.library)
                 }
@@ -466,7 +462,7 @@ private fun MangaDownloaderAppContent(
                     onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
                 )
             }
-            state.currentTab == AppTab.LIBRARY && selectedSeries != null -> {
+            Screen.DownloadedSeries -> if (selectedSeries != null) {
                 DownloadedSeriesScreen(
                     series = selectedSeries,
                     padding = innerPadding,
@@ -474,7 +470,7 @@ private fun MangaDownloaderAppContent(
                     onDeleteChapter = viewModel::deleteDownloadedChapter,
                 )
             }
-            else -> {
+            Screen.Tabs -> {
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
@@ -595,21 +591,3 @@ private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
 
 private const val ReaderPrivacyMaxDimAlpha = 0.86f
 
-private fun MangaUiState.canHandleBack(): Boolean {
-    return readerChapter != null ||
-        showStorageManager ||
-        showSettings ||
-        selected != null ||
-        (currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null)
-}
-
-private fun MangaUiState.handleBack(viewModel: MangaViewModel) {
-    when {
-        readerChapter != null -> viewModel.closeReader()
-        showStorageManager -> viewModel.closeStorageManager()
-        showSettings -> viewModel.closeSettings()
-        selected != null -> viewModel.clearSelection()
-        currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null ->
-            viewModel.clearDownloadedSelection()
-    }
-}

@@ -91,22 +91,24 @@
 
 ## 🔵 Architettura & manutenibilità (interventi grossi, valore nel tempo)
 
-- [ ] **Spezzare la god class `MangaViewModel` (~2039 righe, ~98 funzioni)** 🔎
-  - Dove: [MangaViewModel.kt] — mescola ricerca, dettaglio, libreria, reader, auto-download, smart cleanup, parental control, tutorial, update, persistenza.
-  - Cosa fare: estrarre collaboratori plain-class iniettati nel costruttore (come già con `appUpdateRepository`): `ParentalControlController`, `TutorialController`, `ReaderController`/use-case, store per favoriti/settings/recenti. Niente librerie nuove. Impatto Alto · Sforzo Alto.
+- [x] **Spezzare la god class `MangaViewModel`** ✅ — *fatto (parziale, 2026-05-26)*
+  - Dove: [MangaViewModel.kt] — mescolava ricerca, dettaglio, libreria, reader, auto-download, smart cleanup, parental control, tutorial, update, persistenza.
+  - **Fatto:** estratta la **persistenza** in tre collaboratori cohesi ([SettingsStore.kt], [FavoritesStore.kt], [RecentSearchesStore.kt]): il ViewModel ora delega `read/persist` e tiene solo l'orchestrazione di stato. `MangaViewModel` da ~2040 a ~1867 righe; le chiavi prefs delle impostazioni/preferiti/recenti vivono nei rispettivi store. Test: `RecentSearchesStoreTest` (regola pura dedup/cap); read/persist coperti dai test VM esistenti (recenti, preferiti, parental). Insieme a [ReaderProgress.kt] e [LibraryMatching.kt] (estratti negli item precedenti) il VM ha già diversi collaboratori puri fuori.
+  - *Scelta concordata:* estratti **solo gli store** (basso rischio, testabili). I controller di stato (`ParentalControlController`/`TutorialController`/`ReaderController`) **non** sono stati estratti: manipolano `MangaUiState` condiviso e la UI/macchina a stati non ha copertura di test → rischio di regressione non giustificato ora. Restano come follow-up se si aggiunge prima copertura di test sul ViewModel.
 
-- [ ] **Back-stack di navigazione esplicito invece dei booleani sparsi** 🔎
-  - Dove: `showSettings`/`showStorageManager`/`selected`/`selectedDownloadedSeries`/`readerChapter` + `when`/`BackHandler` [MainActivity.kt:251-260, 676-693].
-  - Perché: lo stack è implicito nell'ordine del `when`; combinazioni illegali sono rappresentabili e ogni nuova schermata tocca 4 punti.
-  - Cosa fare: `sealed interface Screen` + `List<Screen>` nel ViewModel con `push/pop`; `handleBack = pop`; rendering esaustivo sul `last()`. Niente Navigation Compose. Impatto Medio · Sforzo Medio.
+- [x] **Back-stack di navigazione esplicito invece dei booleani sparsi** ✅ — *fatto (2026-05-26)*
+  - Dove: `showSettings`/`showStorageManager`/`selected`/`selectedDownloadedSeries`/`readerChapter` + `when`/`BackHandler` [MainActivity.kt].
+  - **Fatto:** nuovo `sealed interface Screen` (Tabs/Detail/DownloadedSeries/Reader/Settings/StorageManager) + funzione pura `MangaUiState.currentScreen()` che codifica la gerarchia **in un punto solo**; `MainActivity` rende con un `when (currentScreen())` **esaustivo** (il compilatore obbliga a gestire ogni schermata) e `showPager`/`canHandleBack` derivano da lì; il back è centralizzato in `MangaViewModel.handleBack()` (testabile). Test: `ScreenTest` (6, puro) + `MangaViewModelBackNavigationTest` (2, Robolectric — pop StorageManager→Settings→Tabs).
+  - *Deviazione motivata:* **non** uno `List<Screen>` mutabile con push/pop, ma una schermata **derivata** dai campi di stato esistenti (unica fonte di verità → niente stack parallelo da tenere in sync). La UI non è coperta da test, quindi migrare i dati delle schermate dentro entry di stack mutabili era rischio di regressione non giustificato; questa forma ottiene gli stessi obiettivi (esplicito, esaustivo, back centralizzato, niente booleani sparsi nel `when`) a rischio molto minore.
 
 - [x] **Spostare la logica di dominio fuori da `MainActivity`** ✅ — *fatto (2026-05-26)*
   - Dove: `downloadedChapterKeysFor`, `downloadedReadChapterIdsFor`, `matchingDownloadedSeries`, `tutorialSampleSeries` [MainActivity.kt] — matching identità serie/capitoli (dominio, non UI).
   - **Fatto:** estratte in un nuovo `object LibraryMatching` (puro, accanto a `MangaSourceCatalog`); `MainActivity` ora le chiama e `tutorialSampleSeries` prende `(sample, library)` invece dello stato UI. 7 unit test JVM (`LibraryMatchingTest`, niente Robolectric) coprono match per identità, fallback sul titolo, no-match e le chiavi capitolo/letti.
 
-- [ ] **Ridurre il `MangaUiState` monolitico / ricomposizioni** 🔎
-  - Dove: 40+ campi in un solo `MutableStateFlow` [MangaViewModel.kt:135-174]; `saveReaderPagePosition` rimappa liste grandi ad ogni pagina [MangaViewModel.kt:1764-1768]; `SearchScreen`/`LibraryScreen` ricevono l'intero `state`.
-  - Cosa fare: passare alle schermate solo i sotto-campi necessari; opzionale split in `searchState`/`libraryState`/`readerState` derivati con `map`+`distinctUntilChanged`. Impatto Medio · Sforzo Medio.
+- [x] **Ridurre il `MangaUiState` monolitico / ricomposizioni** ✅ — *fatto (parziale, 2026-05-26)*
+  - Dove: `saveReaderPagePosition`→`withReaderProgress` rimappava liste grandi ad ogni pagina [MangaViewModel.kt]; `SearchScreen`/`LibraryScreen` ricevono l'intero `state`.
+  - **Fatto:** estratte funzioni pure `DownloadedChapter/DownloadedSeries.withReaderProgressApplied` ([ReaderProgress.kt]) che restituiscono **la stessa istanza** per le serie/capitoli non toccati dal capitolo corrente → niente ricostruzione dell'intera libreria a ogni pagina sfogliata (meno allocazioni/GC in lettura). `withReaderProgress` ora le usa. 5 unit test puri (`ReaderProgressFunctionsTest`) verificano identità e correttezza.
+  - *Scope ridotto di proposito:* il passaggio dei soli sotto-campi alle schermate / lo split in `searchState`/`libraryState`/`readerState` **non** è stato fatto: `MangaUiState` ha campi `List` che in Compose sono **instabili**, quindi restringere le firme non abiliterebbe lo skip delle ricomposizioni senza una nuova dipendenza (kotlinx-immutable-collections) che il progetto evita; inoltre i Composable non hanno copertura di test. Rapporto valore/rischio basso → rimandato.
 
 - [x] **Centralizzare `LibraryRepository`/`MangaSourceRegistry` come singleton** ✅ — *fatto (2026-05-26)*
   - Dove: `BaseMangaSource.prepareSeriesStorage` creava un `LibraryRepository` al volo mentre il ViewModel ne aveva già uno; il `DownloadWorker` creava il proprio registry.

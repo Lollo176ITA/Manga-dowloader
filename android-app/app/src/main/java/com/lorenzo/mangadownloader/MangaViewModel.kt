@@ -18,10 +18,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 enum class AppTab {
     SEARCH,
@@ -34,15 +30,6 @@ data class FavoriteManga(
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
-)
-
-/** Forma su disco di un preferito (prefs JSON). I campi combaciano col formato storico. */
-@Serializable
-private data class FavoriteEntryJson(
-    val sourceId: String? = null,
-    val title: String = "",
-    val mangaUrl: String = "",
-    val coverUrl: String? = null,
 )
 
 data class AppSettings(
@@ -208,14 +195,16 @@ class MangaViewModel internal constructor(
         networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
     )
     private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true }
-    private val initialFavorites = readFavorites()
-    private val initialSettings = readSettings()
+    private val settingsStore = SettingsStore(prefs)
+    private val favoritesStore = FavoritesStore(prefs)
+    private val recentSearchesStore = RecentSearchesStore(prefs)
+    private val initialFavorites = favoritesStore.read()
+    private val initialSettings = settingsStore.read()
 
     private val _state = MutableStateFlow(
         MangaUiState(
             currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
-            recentSearches = readRecentSearches(),
+            recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
                 MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
@@ -248,7 +237,7 @@ class MangaViewModel internal constructor(
 
     init {
         if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
-            persistSettings(initialSettings.copy(tutorialCompleted = true))
+            settingsStore.persist(initialSettings.copy(tutorialCompleted = true))
         }
         observeQueryChanges()
         refreshLibrary()
@@ -785,7 +774,7 @@ class MangaViewModel internal constructor(
             MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
         }
         if (removed) {
-            persistFavorites(current)
+            favoritesStore.persist(current)
             updateState {
                 copy(
                     favorites = current,
@@ -939,7 +928,7 @@ class MangaViewModel internal constructor(
         } else {
             current.add(0, manga)
         }
-        persistFavorites(current)
+        favoritesStore.persist(current)
         updateState {
             copy(
                 favorites = current,
@@ -1382,6 +1371,22 @@ class MangaViewModel internal constructor(
         updateState { copy(errorMessage = null) }
     }
 
+    /**
+     * "Pop" della schermata corrente: chiude l'overlay in cima secondo la gerarchia di
+     * [currentScreen]. Le close-action compongono lo stack (es. chiudere la gestione memoria
+     * riporta alle impostazioni, perché `closeStorageManager` non tocca `showSettings`).
+     */
+    fun handleBack() {
+        when (_state.value.currentScreen()) {
+            Screen.Reader -> closeReader()
+            Screen.StorageManager -> closeStorageManager()
+            Screen.Settings -> closeSettings()
+            Screen.Detail -> clearSelection()
+            Screen.DownloadedSeries -> clearDownloadedSelection()
+            Screen.Tabs -> Unit
+        }
+    }
+
     fun deleteDownloadedChapter(chapter: DownloadedChapter) {
         val series = _state.value.selectedDownloadedSeries ?: return
 
@@ -1731,28 +1736,6 @@ class MangaViewModel internal constructor(
             null
         }
 
-        fun DownloadedChapter.updated(): DownloadedChapter {
-            if (this.relativePath != relativePath) return this
-            return copy(
-                readerPageIndex = pageIndex ?: readerPageIndex,
-                readerPageCount = pageCount ?: readerPageCount,
-                isRead = isRead || markRead,
-            )
-        }
-
-        fun DownloadedSeries.updated(): DownloadedSeries {
-            val updatedChapters = chapters.map { it.updated() }
-            val touched = updatedChapters.any { it.relativePath == relativePath }
-            return copy(
-                chapters = updatedChapters,
-                readChapterIds = if (markRead && touched && readChapterId != null) {
-                    readChapterIds + readChapterId
-                } else {
-                    readChapterIds
-                },
-            )
-        }
-
         val updatedReader = readerChapter?.let { reader ->
             if (reader.relativePath != relativePath) {
                 reader
@@ -1761,14 +1744,18 @@ class MangaViewModel internal constructor(
                     readerPageIndex = pageIndex ?: reader.readerPageIndex,
                     readerPageCount = pageCount ?: reader.readerPageCount,
                     isRead = reader.isRead || markRead,
-                    downloadedChapter = reader.downloadedChapter?.updated(),
+                    downloadedChapter = reader.downloadedChapter
+                        ?.withReaderProgressApplied(relativePath, pageIndex, pageCount, markRead),
                 )
             }
         }
 
         return copy(
-            library = library.map { it.updated() },
-            selectedDownloadedSeries = selectedDownloadedSeries?.updated(),
+            library = library.map {
+                it.withReaderProgressApplied(relativePath, pageIndex, pageCount, markRead, readChapterId)
+            },
+            selectedDownloadedSeries = selectedDownloadedSeries
+                ?.withReaderProgressApplied(relativePath, pageIndex, pageCount, markRead, readChapterId),
             readerChapter = updatedReader,
         )
     }
@@ -1827,81 +1814,18 @@ class MangaViewModel internal constructor(
         )
     }
 
-    private fun readFavorites(): List<FavoriteManga> {
-        val raw = prefs.getString(KEY_FAVORITES_JSON, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyList()
-        }
-        return try {
-            json.decodeFromString<List<FavoriteEntryJson>>(raw).mapNotNull { entry ->
-                val title = entry.title.trim()
-                val mangaUrl = entry.mangaUrl.trim()
-                if (title.isBlank() || mangaUrl.isBlank()) {
-                    null
-                } else {
-                    FavoriteManga(
-                        sourceId = MangaSourceCatalog.resolveSourceId(entry.sourceId, mangaUrl),
-                        title = title,
-                        mangaUrl = mangaUrl,
-                        coverUrl = entry.coverUrl,
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun persistFavorites(favorites: List<FavoriteManga>) {
-        val payload = favorites.map {
-            FavoriteEntryJson(
-                sourceId = it.sourceId,
-                title = it.title,
-                mangaUrl = it.mangaUrl,
-                coverUrl = it.coverUrl,
-            )
-        }
-        prefs.edit()
-            .putString(KEY_FAVORITES_JSON, json.encodeToString(payload))
-            .apply()
-    }
-
     fun clearRecentSearches() {
         updateState { copy(recentSearches = emptyList()) }
-        persistRecentSearches(emptyList())
+        recentSearchesStore.persist(emptyList())
     }
 
     private fun recordRecentSearch(query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) {
+        val updated = RecentSearchesStore.withRecorded(_state.value.recentSearches, query)
+        if (updated == _state.value.recentSearches) {
             return
         }
-        val updated = (
-            listOf(trimmed) +
-                _state.value.recentSearches.filterNot { it.equals(trimmed, ignoreCase = true) }
-            ).take(MAX_RECENT_SEARCHES)
         updateState { copy(recentSearches = updated) }
-        persistRecentSearches(updated)
-    }
-
-    private fun readRecentSearches(): List<String> {
-        val raw = prefs.getString(KEY_RECENT_SEARCHES, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyList()
-        }
-        return try {
-            json.decodeFromString<List<String>>(raw).mapNotNull {
-                it.trim().takeIf(String::isNotBlank)
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun persistRecentSearches(searches: List<String>) {
-        prefs.edit()
-            .putString(KEY_RECENT_SEARCHES, json.encodeToString(searches))
-            .apply()
+        recentSearchesStore.persist(updated)
     }
 
     private fun updateSettings(transform: (AppSettings) -> AppSettings) {
@@ -1909,7 +1833,7 @@ class MangaViewModel internal constructor(
         val updated = transform(current)
         if (updated == current) return
         updateState { copy(settings = updated) }
-        persistSettings(updated)
+        settingsStore.persist(updated)
     }
 
     private inline fun updateState(transform: MangaUiState.() -> MangaUiState) {
@@ -1918,73 +1842,6 @@ class MangaViewModel internal constructor(
 
     private suspend fun scanLibrarySnapshot(forceRefresh: Boolean = false): List<DownloadedSeries> {
         return withContext(Dispatchers.IO) { libraryRepository.scanLibrary(forceRefresh) }
-    }
-
-    private fun readSettings(): AppSettings {
-        return AppSettings(
-            searchSourceId = MangaSourceCatalog.resolveSourceId(
-                prefs.getString(KEY_SEARCH_SOURCE_ID, null),
-            ),
-            autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
-            autoDownloadTriggerChapters = prefs
-                .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
-                .coerceAtLeast(1),
-            autoDownloadBatchSize = prefs
-                .getInt(KEY_AUTO_DOWNLOAD_BATCH, 3)
-                .coerceAtLeast(1),
-            smartCleanupEnabled = prefs.getBoolean(KEY_SMART_CLEANUP_ENABLED, false),
-            smartCleanupKeepPreviousChapters = prefs
-                .getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3)
-                .coerceAtLeast(0),
-            streamingReaderEnabled = prefs.getBoolean(KEY_STREAMING_READER_ENABLED, false),
-            parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
-            parentalPinConfigured = prefs.getBoolean(KEY_PARENTAL_PIN_CONFIGURED, false),
-            parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
-            parentalPinSalt = prefs.getString(KEY_PARENTAL_PIN_SALT, null),
-            parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
-            labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
-            downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
-            privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
-            readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
-            readingMode = runCatching {
-                ReadingMode.valueOf(prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name) ?: ReadingMode.VERTICAL.name)
-            }.getOrDefault(ReadingMode.VERTICAL),
-            allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
-            themeMode = runCatching {
-                ThemeMode.valueOf(
-                    prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name)
-                        ?: ThemeMode.AUTO.name,
-                )
-            }.getOrDefault(ThemeMode.AUTO),
-            useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
-            tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
-        )
-    }
-
-    private fun persistSettings(settings: AppSettings) {
-        prefs.edit()
-            .putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
-            .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
-            .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
-            .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
-            .putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
-            .putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
-            .putBoolean(KEY_STREAMING_READER_ENABLED, settings.streamingReaderEnabled)
-            .putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
-            .putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
-            .putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
-            .putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
-            .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
-            .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
-            .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
-            .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
-            .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
-            .putString(KEY_READING_MODE, settings.readingMode.name)
-            .putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
-            .putString(KEY_THEME_MODE, settings.themeMode.name)
-            .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
-            .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
-            .apply()
     }
 
     private fun MangaUiState.clearedReaderState(): MangaUiState {
@@ -2000,33 +1857,10 @@ class MangaViewModel internal constructor(
 
     companion object {
         private const val PREFS_NAME = "manga_downloader_prefs"
-        private const val KEY_FAVORITES_JSON = "favorites_json"
-        private const val KEY_RECENT_SEARCHES = "recent_searches_json"
-        private const val KEY_SEARCH_SOURCE_ID = "search_source_id"
-        private const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
-        private const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
-        private const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
-        private const val KEY_SMART_CLEANUP_ENABLED = "smart_cleanup_enabled"
-        private const val KEY_SMART_CLEANUP_KEEP_PREVIOUS = "smart_cleanup_keep_previous"
-        private const val KEY_STREAMING_READER_ENABLED = "streaming_reader_enabled"
-        private const val KEY_PARENTAL_CONTROL_ENABLED = "parental_control_enabled"
-        private const val KEY_PARENTAL_PIN_CONFIGURED = "parental_pin_configured"
-        private const val KEY_PARENTAL_BIOMETRIC_ENABLED = "parental_biometric_enabled"
-        private const val KEY_PARENTAL_PIN_SALT = "parental_pin_salt"
-        private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
-        private const val KEY_LABS_ENABLED = "labs_enabled"
-        private const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
-        private const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
-        private const val KEY_READER_BRIGHTNESS = "reader_brightness"
-        private const val KEY_READING_MODE = "reading_mode"
+        // Chiavi non-impostazioni che restano nel ViewModel (gli store gestiscono le altre).
         private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
-        private const val KEY_ALLOW_LANDSCAPE_ROTATION = "allow_landscape_rotation"
-        private const val KEY_THEME_MODE = "theme_mode"
-        private const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
-        private const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
-        private const val MAX_RECENT_SEARCHES = 8
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
     }

@@ -37,6 +37,7 @@ object MangaSourceIds {
     const val MANGAPILL = "mangapill"
     const val HASTA_TEAM = "hasta_team"
     const val MANGA_WORLD = "manga_world"
+    const val VYMANGA = "vymanga"
     const val DEFAULT = MANGAPILL
 }
 
@@ -45,6 +46,7 @@ object MangaSourceCatalog {
         MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP"),
         MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT"),
         MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW"),
+        MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY"),
     )
 
     fun resolveSourceId(
@@ -69,6 +71,7 @@ object MangaSourceCatalog {
             MangapillSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGAPILL
             HastaTeamSource.handlesUrl(normalizedUrl) -> MangaSourceIds.HASTA_TEAM
             MangaWorldSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGA_WORLD
+            VyMangaSource.handlesUrl(normalizedUrl) -> MangaSourceIds.VYMANGA
             else -> null
         }
     }
@@ -128,6 +131,7 @@ object MangaSourceCatalog {
             MangaSourceIds.MANGAPILL -> MangapillSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.HASTA_TEAM -> HastaTeamSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.MANGA_WORLD -> MangaWorldSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.VYMANGA -> VyMangaSource.canonicalSeriesUrl(normalizedUrl)
             else -> normalizedUrl
         } ?: normalizedUrl
     }
@@ -167,6 +171,7 @@ class MangaSourceRegistry(
         MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient, libraryRepository),
         MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient, libraryRepository),
         MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient, libraryRepository),
+        MangaSourceIds.VYMANGA to VyMangaSource(context, networkClient, libraryRepository),
     )
 
     val descriptors: List<MangaSourceDescriptor>

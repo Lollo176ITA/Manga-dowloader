@@ -25,3 +25,4 @@ android-app/.kotlin/
 .vscode/
 .idea/
 AGENTS.md
+.playwright*

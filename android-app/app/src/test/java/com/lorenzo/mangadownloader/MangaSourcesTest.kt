@@ -469,4 +469,139 @@ class MangaSourcesTest {
             },
         )
     }
+
+    @Test
+    fun vyMangaCanonicalSeriesUrl_normalizesChapterAndNetUrls() {
+        val series = VyMangaSource.canonicalSeriesUrl(
+            "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life",
+        )
+        val chapter = VyMangaSource.canonicalSeriesUrl(
+            "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life/chapter-31.1",
+        )
+        val netMirror = VyMangaSource.canonicalSeriesUrl(
+            "https://vymanga.net/manga/kajiya-de-hajimeru-isekai-slow-life",
+        )
+
+        assertEquals("https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life", series)
+        assertEquals(series, chapter)
+        assertEquals(series, netMirror)
+    }
+
+    @Test
+    fun vyMangaSearchResults_mapsComicItems() {
+        val results = VyMangaSource.parseSearchResults(
+            """
+            <div class="row book-list">
+              <div class="col-lg-2 col-md-3 col-4">
+                <div class="comic-item">
+                  <a href="/manga/kajiya-de-hajimeru-isekai-slow-life">
+                    <div class="comic-image">
+                      <img class="image lozad" data-src="https://cdnxyz.xyz/web/cover/64366/thumbnail.png" src="/web/img/blank.gif" title="Kajiya de Hajimeru Isekai Slow Life" alt="Kajiya de Hajimeru Isekai Slow Life"/>
+                      <span class="tray-item">Chapter 31 : Ch 31 1</span>
+                    </div>
+                    <div class="comic-title"> Kajiya de Hajimeru Isekai Slow Life </div>
+                  </a>
+                </div>
+              </div>
+            </div>
+            """.trimIndent(),
+            "https://vymanga.com/search?q=kajiya",
+        )
+
+        assertEquals(1, results.size)
+        assertEquals(MangaSourceIds.VYMANGA, results.first().sourceId)
+        assertEquals("Kajiya de Hajimeru Isekai Slow Life", results.first().title)
+        assertEquals(
+            "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life",
+            results.first().mangaUrl,
+        )
+        assertTrue(results.first().coverUrl!!.endsWith("thumbnail.png"))
+    }
+
+    @Test
+    fun vyMangaMangaDetails_sortsChaptersAscendingAndBuildsSyntheticUrls() {
+        val details = VyMangaSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1 class="title">Kajiya de Hajimeru Isekai Slow Life</h1>
+              <div class="img-manga"><img src="https://cdnxyz.xyz/web/cover/64366/thumbnail.png" title="Kajiya" alt="Kajiya"></div>
+              <div class="div-chapter">
+                <a class="btn btn-success w-100 btn-first-last" href="https://aovheroes.com/rds/br/rdsd?data=FIRST">First Chapter Chapter 1</a>
+                <a class="list-group-item list-group-item-action list-chapter" id="chapter-2" href="https://aovheroes.com/rds/br/rdsd?data=BBB">Chapter 2 May 19, 2026</a>
+                <a class="list-group-item list-group-item-action list-chapter" id="chapter-10" href="https://aovheroes.com/rds/br/rdsd?data=CCC">Chapter 10 Mar 01, 2026</a>
+                <a class="list-group-item list-group-item-action list-chapter" id="chapter-1" href="https://aovheroes.com/rds/br/rdsd?data=DDD">Chapter 1 Jan 01, 2026</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life",
+        )
+
+        assertEquals(MangaSourceIds.VYMANGA, details.sourceId)
+        assertEquals("Kajiya de Hajimeru Isekai Slow Life", details.title)
+        assertEquals("https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life", details.mangaUrl)
+        // ordine numerico crescente (10 dopo 2), non lessicale; il bottone first-last è escluso
+        assertEquals(listOf("1", "2", "10"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life/chapter-1",
+            details.chapters.first().url,
+        )
+        assertTrue(details.coverUrl!!.contains("cdnxyz.xyz"))
+    }
+
+    @Test
+    fun vyMangaExtractChapterToken_findsFreshTokenById() {
+        val token = VyMangaSource.extractChapterToken(
+            """
+            <div class="div-chapter">
+              <a class="list-chapter" id="chapter-2" href="https://aovheroes.com/rds/br/rdsd?data=BBB">Chapter 2</a>
+              <a class="list-chapter" id="chapter-10" href="https://aovheroes.com/rds/br/rdsd?data=CCC">Chapter 10</a>
+            </div>
+            """.trimIndent(),
+            "chapter-10",
+        )
+
+        assertEquals("https://aovheroes.com/rds/br/rdsd?data=CCC", token)
+    }
+
+    @Test
+    fun vyMangaReaderImages_readsLozadDataSrcInOrderSkippingAdsAndPlaceholders() {
+        val pages = VyMangaSource.parseReaderImageUrls(
+            """
+            <div id="content-reader">
+              <div class="hview mb-2" data-page="0">
+                <img class="d-block w-100 lozad" data-src="https://2.bp.blogspot.com/drive-storage/AAA=w700" src="https://2.bp.blogspot.com/drive-storage/AAA=w700" data-loaded="true">
+              </div>
+              <div id="ads_vertical_reader_1" class="ads_reader hview mb-2">
+                <h5>Page of Ads</h5><div id="container-ads"></div>
+              </div>
+              <div class="hview mb-2" data-page="1">
+                <img class="d-block w-100 lozad" data-src="https://2.bp.blogspot.com/drive-storage/BBB=w700" src="https://vymanga.net/web/img/loading.gif">
+              </div>
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("AAA=w700"))
+        assertTrue(pages.last().endsWith("BBB=w700"))
+        assertTrue(pages.none { it.contains("loading.gif") })
+    }
+
+    @Test
+    fun sourceCatalog_resolvesVyMangaUrlAndIdentityKey() {
+        val resolved = MangaSourceCatalog.resolveSourceId(
+            sourceId = null,
+            url = "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life/chapter-10",
+        )
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.VYMANGA,
+            mangaUrl = "https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life/chapter-10",
+        )
+
+        assertEquals(MangaSourceIds.VYMANGA, resolved)
+        assertEquals(
+            "vymanga::https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life",
+            identityKey,
+        )
+    }
 }

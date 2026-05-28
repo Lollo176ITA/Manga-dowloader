@@ -88,6 +88,7 @@ fun ReaderScreen(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleFullscreen: () -> Unit,
 ) {
     AnimatedContent(
         targetState = chapter?.relativePath,
@@ -118,6 +119,7 @@ fun ReaderScreen(
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
             onPageVisible = onPageVisible,
+            onToggleFullscreen = onToggleFullscreen,
         )
     }
 }
@@ -136,6 +138,7 @@ private fun ReaderContent(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleFullscreen: () -> Unit,
 ) {
     when {
         isLoading -> {
@@ -167,6 +170,7 @@ private fun ReaderContent(
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
+                onToggleFullscreen = onToggleFullscreen,
             )
         }
         else -> {
@@ -181,6 +185,7 @@ private fun ReaderContent(
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
+                onToggleFullscreen = onToggleFullscreen,
             )
         }
     }
@@ -198,6 +203,7 @@ private fun VerticalReader(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleFullscreen: () -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -443,6 +449,7 @@ private fun VerticalReader(
             }
             .pointerInput(chapterKey) {
                 detectTapGestures(
+                    onTap = { onToggleFullscreen() },
                     onDoubleTap = { tapOffset ->
                         if (readerScale > minScale) {
                             readerScale = minScale
@@ -537,6 +544,7 @@ private fun PagedReader(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
+    onToggleFullscreen: () -> Unit,
 ) {
     // Pagine logiche: una "pagina di navigazione" all'inizio e una alla fine, come
     // le righe prev/successivo del reader verticale. L'offset 1 allinea gli indici.
@@ -597,6 +605,7 @@ private fun PagedReader(
                 else -> ZoomablePage(
                     page = pages[index - ReaderPageItemOffset],
                     contentDescription = chapter.title,
+                    onToggleFullscreen = onToggleFullscreen,
                 )
             }
         }
@@ -659,6 +668,7 @@ private fun BoxScope.ReaderPageIndicator(
 private fun ZoomablePage(
     page: ReaderPage,
     contentDescription: String,
+    onToggleFullscreen: () -> Unit,
 ) {
     val minScale = 1f
     val maxScale = 4f
@@ -720,6 +730,7 @@ private fun ZoomablePage(
             }
             .pointerInput(page.stableKey) {
                 detectTapGestures(
+                    onTap = { onToggleFullscreen() },
                     onDoubleTap = { tapOffset ->
                         if (scale > minScale) {
                             scale = minScale

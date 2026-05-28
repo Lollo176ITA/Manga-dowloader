@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -33,7 +34,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
@@ -261,6 +266,24 @@ private fun MangaDownloaderAppContent(
     )
     var isReaderFullscreen by remember(state.readerChapter?.relativePath) { mutableStateOf(false) }
 
+    // Vero schermo intero: quando il reader è in fullscreen nascondiamo anche le barre
+    // di sistema (status + navigation), così la pagina occupa davvero tutto lo schermo.
+    // Si esce con un tap (toggle) o con lo swipe dal bordo, che le ripristina da solo.
+    val view = LocalView.current
+    val readerImmersive = state.readerChapter != null && isReaderFullscreen
+    LaunchedEffect(readerImmersive, view) {
+        if (view.isInEditMode) return@LaunchedEffect
+        val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (readerImmersive) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
     // trasforma il vicolo cieco in un passo successivo chiaro. Rispetta il lock parentale.
     val goToSearchTab: () -> Unit = {
@@ -366,7 +389,6 @@ private fun MangaDownloaderAppContent(
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
-                    onEnterReaderFullscreen = { isReaderFullscreen = true },
                 )
             }
         },
@@ -407,6 +429,7 @@ private fun MangaDownloaderAppContent(
                     onOpenPrevious = viewModel::openPreviousReaderChapter,
                     onOpenNext = viewModel::openNextReaderChapter,
                     onPageVisible = viewModel::saveReaderPagePosition,
+                    onToggleFullscreen = { isReaderFullscreen = !isReaderFullscreen },
                 )
             }
             Screen.StorageManager -> {

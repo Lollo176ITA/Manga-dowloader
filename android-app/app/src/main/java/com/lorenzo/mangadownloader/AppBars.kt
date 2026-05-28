@@ -12,7 +12,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -63,7 +62,6 @@ fun AppTopBar(
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
-    onEnterReaderFullscreen: () -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
@@ -158,16 +156,8 @@ fun AppTopBar(
                 ReaderModeAction(
                     currentMode = state.readerReadingMode,
                     onSelectMode = onSelectReadingMode,
-                )
-                IconButton(
-                    onClick = onEnterReaderFullscreen,
                     modifier = anchorFor(TutorialAnchor.READER_FULLSCREEN),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = "Schermo intero",
-                    )
-                }
+                )
             }
 
             if (selectedManga != null) {
@@ -292,9 +282,10 @@ fun AppTopBar(
 private fun ReaderModeAction(
     currentMode: ReadingMode,
     onSelectMode: (ReadingMode) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier = modifier) {
         IconButton(onClick = { expanded = true }) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.MenuBook,

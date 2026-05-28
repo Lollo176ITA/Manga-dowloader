@@ -254,7 +254,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.InReader -> TutorialTargetContent(
             anchor = TutorialAnchor.READER_FULLSCREEN,
             title = "Reader",
-            description = "Qui leggi le pagine offline. Puoi scorrere in verticale, fare pinch per zoomare e usare lo schermo intero.",
+            description = "Qui leggi le pagine offline. Puoi scorrere in verticale, fare pinch per zoomare e toccare lo schermo per nascondere le barre.",
             ctaText = "Torna al tour",
             shape = CutoutShape.Circle(radiusPadding = 10.dp),
             targetTapBehavior = TargetTapBehavior.BOTH,
@@ -487,7 +487,7 @@ private fun FallbackClosingTutorialDialog(onDismiss: () -> Unit) {
                 )
                 ReaderHintRow(
                     icon = Icons.Default.Fullscreen,
-                    text = "Tap fullscreen per nascondere le barre.",
+                    text = "Tocca lo schermo per nascondere le barre.",
                 )
             }
         },

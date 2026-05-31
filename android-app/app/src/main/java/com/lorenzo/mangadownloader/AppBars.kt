@@ -398,19 +398,22 @@ private fun FavoriteToggleAction(
 @Composable
 fun AppBottomBar(
     currentTab: AppTab,
+    showDiscovery: Boolean,
     onSelect: (AppTab) -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        AppTabEntry(
-            tab = AppTab.DISCOVERY,
-            selected = currentTab == AppTab.DISCOVERY,
-            icon = Icons.Default.Explore,
-            label = "Scopri",
-            onSelect = onSelect,
-        )
+        if (showDiscovery) {
+            AppTabEntry(
+                tab = AppTab.DISCOVERY,
+                selected = currentTab == AppTab.DISCOVERY,
+                icon = Icons.Default.Explore,
+                label = "Scopri",
+                onSelect = onSelect,
+            )
+        }
         AppTabEntry(
             tab = AppTab.SEARCH,
             selected = currentTab == AppTab.SEARCH,

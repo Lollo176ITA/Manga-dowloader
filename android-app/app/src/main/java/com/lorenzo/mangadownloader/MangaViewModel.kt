@@ -62,6 +62,7 @@ private fun List<FavoriteManga>.identityKeys(): Set<String> =
 
 data class AppSettings(
     val searchSourceId: String = MangaSourceIds.DEFAULT,
+    val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -248,12 +249,13 @@ class MangaViewModel internal constructor(
 
     private val _state = MutableStateFlow(
         MangaUiState(
-            // Parental → Libreria (Cerca bloccato). Nuovi utenti col tutorial → Cerca (il
-            // tutorial guida la barra di ricerca). Tutti gli altri → Scopri, la vetrina.
+            // Parental → Libreria (Cerca bloccato). Se la vetrina Scopri è attiva e non c'è il
+            // tutorial in partenza, atterra lì. Altrimenti → Cerca.
             currentTab = when {
                 initialSettings.parentalControlEnabled -> AppTab.LIBRARY
-                initialSettings.shouldStartTutorial(initialFavorites) -> AppTab.SEARCH
-                else -> AppTab.DISCOVERY
+                initialSettings.discoveryEnabled &&
+                    !initialSettings.shouldStartTutorial(initialFavorites) -> AppTab.DISCOVERY
+                else -> AppTab.SEARCH
             },
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
@@ -677,6 +679,14 @@ class MangaViewModel internal constructor(
                 },
                 errorMessage = message ?: errorMessage,
             )
+        }
+    }
+
+    fun setDiscoveryEnabled(enabled: Boolean) {
+        updateSettings { it.copy(discoveryEnabled = enabled) }
+        // Se disattivata mentre era la tab corrente, evita di restare su una pagina che sparisce.
+        if (!enabled && _state.value.currentTab == AppTab.DISCOVERY) {
+            updateState { copy(currentTab = AppTab.SEARCH) }
         }
     }
 

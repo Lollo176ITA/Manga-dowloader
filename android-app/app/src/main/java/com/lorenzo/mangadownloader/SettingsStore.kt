@@ -15,6 +15,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             searchSourceId = MangaSourceCatalog.resolveSourceId(
                 prefs.getString(KEY_SEARCH_SOURCE_ID, null),
             ),
+            discoveryEnabled = prefs.getBoolean(KEY_DISCOVERY_ENABLED, false),
             autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
             autoDownloadTriggerChapters = prefs
                 .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
@@ -57,6 +58,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
     fun persist(settings: AppSettings) {
         prefs.edit()
             .putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
+            .putBoolean(KEY_DISCOVERY_ENABLED, settings.discoveryEnabled)
             .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
             .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
             .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
@@ -85,6 +87,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
     companion object {
         const val PREFS_NAME = "manga_downloader_prefs"
         const val KEY_SEARCH_SOURCE_ID = "search_source_id"
+        const val KEY_DISCOVERY_ENABLED = "discovery_enabled"
         const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
         const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"

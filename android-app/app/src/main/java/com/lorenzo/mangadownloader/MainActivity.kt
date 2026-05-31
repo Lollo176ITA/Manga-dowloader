@@ -30,6 +30,7 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -249,15 +250,19 @@ private fun MangaDownloaderAppContent(
         }
     }
 
+    val visibleTabs = state.visibleTabs()
+    // pageCount letto live dal pager (la lambda persiste): rememberUpdatedState evita di
+    // catturare un conteggio stantio quando la tab Scopri viene attivata/disattivata.
+    val visibleTabCount by rememberUpdatedState(visibleTabs.size)
     val pagerState = rememberPagerState(
-        initialPage = state.currentTab.ordinal,
-        pageCount = { AppTab.entries.size },
+        initialPage = state.tabPageIndex(state.currentTab),
+        pageCount = { visibleTabCount },
     )
     val showPager = state.currentScreen() == Screen.Tabs
     val visiblePagerTab = when {
         !showPager -> state.currentTab
-        pagerState.isScrollInProgress -> AppTab.entries[pagerState.targetPage]
-        else -> AppTab.entries[pagerState.currentPage]
+        pagerState.isScrollInProgress -> visibleTabs.getOrElse(pagerState.targetPage) { state.currentTab }
+        else -> visibleTabs.getOrElse(pagerState.currentPage) { state.currentTab }
     }
     val canHandleBack = state.canHandleBack()
     val privacyDimAlpha = readerPrivacyDimAlpha(
@@ -292,7 +297,7 @@ private fun MangaDownloaderAppContent(
             state.currentTab != AppTab.SEARCH
         if (!requiresSearchUnlock) {
             scope.launch {
-                pagerState.animateScrollToPage(AppTab.SEARCH.ordinal)
+                pagerState.animateScrollToPage(state.tabPageIndex(AppTab.SEARCH))
             }
         }
     }
@@ -314,15 +319,15 @@ private fun MangaDownloaderAppContent(
             showPager &&
             !pagerState.isScrollInProgress &&
             state.pendingSearchAccessReturnTab == null &&
-            pagerState.currentPage != state.currentTab.ordinal
+            pagerState.currentPage != state.tabPageIndex(state.currentTab)
         ) {
-            pagerState.animateScrollToPage(state.currentTab.ordinal)
+            pagerState.animateScrollToPage(state.tabPageIndex(state.currentTab))
         }
     }
 
     LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
         if (!pagerState.isScrollInProgress) {
-            val newTab = AppTab.entries[pagerState.currentPage]
+            val newTab = visibleTabs.getOrElse(pagerState.currentPage) { state.currentTab }
             if (state.currentTab != newTab) {
                 viewModel.selectTab(newTab)
             }
@@ -346,13 +351,13 @@ private fun MangaDownloaderAppContent(
                 TutorialAnchor.FAVORITES_TAB -> {
                     viewModel.selectTab(AppTab.FAVORITES)
                     scope.launch {
-                        pagerState.animateScrollToPage(AppTab.FAVORITES.ordinal)
+                        pagerState.animateScrollToPage(state.tabPageIndex(AppTab.FAVORITES))
                     }
                 }
                 TutorialAnchor.LIBRARY_TAB -> {
                     viewModel.selectTab(AppTab.LIBRARY)
                     scope.launch {
-                        pagerState.animateScrollToPage(AppTab.LIBRARY.ordinal)
+                        pagerState.animateScrollToPage(state.tabPageIndex(AppTab.LIBRARY))
                     }
                 }
                 TutorialAnchor.LIBRARY_SERIES_FIRST -> {
@@ -396,6 +401,7 @@ private fun MangaDownloaderAppContent(
             if (showPager) {
                 AppBottomBar(
                     currentTab = visiblePagerTab,
+                    showDiscovery = state.settings.discoveryEnabled,
                     onSelect = { tab ->
                         viewModel.selectTab(tab)
                         val requiresSearchUnlock = tab == AppTab.SEARCH &&
@@ -403,7 +409,7 @@ private fun MangaDownloaderAppContent(
                             state.currentTab != AppTab.SEARCH
                         if (!requiresSearchUnlock) {
                             scope.launch {
-                                pagerState.animateScrollToPage(tab.ordinal)
+                                pagerState.animateScrollToPage(state.tabPageIndex(tab))
                             }
                         }
                     },
@@ -447,6 +453,7 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
+                    onToggleDiscovery = viewModel::setDiscoveryEnabled,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -512,7 +519,7 @@ private fun MangaDownloaderAppContent(
                     modifier = Modifier.fillMaxSize(),
                     userScrollEnabled = showPager,
                 ) { page ->
-                    when (AppTab.entries[page]) {
+                    when (visibleTabs.getOrElse(page) { AppTab.SEARCH }) {
                         AppTab.DISCOVERY -> DiscoveryScreen(
                             state = state,
                             padding = innerPadding,

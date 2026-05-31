@@ -92,6 +92,13 @@ fun DetailScreen(
                 coverModel = details.coverUrl,
                 title = details.title,
                 subtitle = "${chapters.size} ${readingUnitPlural(chapters)} disponibili",
+                status = details.status.displayLabel(),
+                statusColor = when (details.status) {
+                    MangaPublicationStatus.ONGOING -> MaterialTheme.colorScheme.primary
+                    MangaPublicationStatus.COMPLETED -> ReadGreen
+                    MangaPublicationStatus.DROPPED -> MaterialTheme.colorScheme.error
+                    MangaPublicationStatus.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
 
             if (isLoading && chapters.isEmpty()) {

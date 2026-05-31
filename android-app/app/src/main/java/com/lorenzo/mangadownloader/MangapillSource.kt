@@ -155,6 +155,7 @@ class MangapillSource(
                 coverUrl = cover,
                 mangaUrl = canonical,
                 chapters = chapters,
+                description = parseDescription(document),
                 status = mangaStatusFromText(statusTextNearLabel(document, "Status", "Stato")),
             )
         }

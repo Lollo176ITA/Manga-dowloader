@@ -19,9 +19,28 @@ class FavoriteUpdatesLogicTest {
         assertEquals(MangaPublicationStatus.ONGOING, mangaStatusFromText("In corso"))
         assertEquals(MangaPublicationStatus.ONGOING, mangaStatusFromText("Ongoing"))
         assertEquals(MangaPublicationStatus.ONGOING, mangaStatusFromText("Publishing"))
+        assertEquals(MangaPublicationStatus.ONGOING, mangaStatusFromText("On Hiatus"))
+        assertEquals(MangaPublicationStatus.ONGOING, mangaStatusFromText("In pausa"))
         assertEquals(MangaPublicationStatus.COMPLETED, mangaStatusFromText("Completato"))
         assertEquals(MangaPublicationStatus.COMPLETED, mangaStatusFromText("Concluso"))
         assertEquals(MangaPublicationStatus.COMPLETED, mangaStatusFromText("Finished"))
+        assertEquals(MangaPublicationStatus.COMPLETED, mangaStatusFromText("Terminato"))
+    }
+
+    @Test
+    fun mangaStatus_mapsDroppedAndAbandoned() {
+        assertEquals(MangaPublicationStatus.DROPPED, mangaStatusFromText("Droppato"))
+        assertEquals(MangaPublicationStatus.DROPPED, mangaStatusFromText("Abbandonato"))
+        assertEquals(MangaPublicationStatus.DROPPED, mangaStatusFromText("Cancelled"))
+        assertEquals(MangaPublicationStatus.DROPPED, mangaStatusFromText("Discontinued"))
+    }
+
+    @Test
+    fun statusDisplayLabel_italianLabelsOrNull() {
+        assertEquals("In corso", MangaPublicationStatus.ONGOING.displayLabel())
+        assertEquals("Terminato", MangaPublicationStatus.COMPLETED.displayLabel())
+        assertEquals("Abbandonato", MangaPublicationStatus.DROPPED.displayLabel())
+        assertNull(MangaPublicationStatus.UNKNOWN.displayLabel())
     }
 
     @Test
@@ -88,11 +107,12 @@ class FavoriteUpdatesLogicTest {
     }
 
     @Test
-    fun shouldPoll_trueUnlessKnownCompleted() {
+    fun shouldPoll_trueUnlessConcludedOrDropped() {
         assertTrue(shouldPollFavorite(null))
         assertTrue(shouldPollFavorite(FavoriteSeenState("5", MangaPublicationStatus.ONGOING.name)))
         assertTrue(shouldPollFavorite(FavoriteSeenState("5", MangaPublicationStatus.UNKNOWN.name)))
         assertFalse(shouldPollFavorite(FavoriteSeenState("5", MangaPublicationStatus.COMPLETED.name)))
+        assertFalse(shouldPollFavorite(FavoriteSeenState("5", MangaPublicationStatus.DROPPED.name)))
     }
 
     @Test

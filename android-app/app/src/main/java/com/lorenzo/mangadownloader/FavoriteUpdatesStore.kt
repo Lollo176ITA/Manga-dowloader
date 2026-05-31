@@ -54,9 +54,14 @@ fun computeFavoriteUpdate(
     )
 }
 
-/** Un preferito va ricontrollato online a meno che non lo si sappia già [MangaPublicationStatus.COMPLETED]. */
+/**
+ * Un preferito va ricontrollato online a meno che non lo si sappia già concluso o abbandonato:
+ * in quei casi non usciranno nuovi capitoli, quindi si risparmia rete/batteria.
+ */
 fun shouldPollFavorite(seen: FavoriteSeenState?): Boolean {
-    return seen?.status != MangaPublicationStatus.COMPLETED.name
+    val status = seen?.status
+    return status != MangaPublicationStatus.COMPLETED.name &&
+        status != MangaPublicationStatus.DROPPED.name
 }
 
 /**

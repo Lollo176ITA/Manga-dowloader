@@ -499,3 +499,19 @@ internal fun statusTextNearLabel(document: Document, vararg labels: String): Str
     }
     return null
 }
+
+/**
+ * Sinossi/descrizione di una pagina manga: prova prima i [selectors] specifici della fonte,
+ * poi ricade sui meta OpenGraph/description (presenti su quasi tutti i siti). `null` se nulla.
+ * Best-effort, usata dalle fonti HTML per riempire il pulsante info.
+ */
+internal fun parseDescription(document: Document, vararg selectors: String): String? {
+    for (selector in selectors) {
+        document.selectFirst(selector)?.text()?.trim()?.takeIf(String::isNotBlank)?.let { return it }
+    }
+    return firstNonBlankTrimmed(
+        document.selectFirst("""meta[property="og:description"]""")?.attr("content"),
+        document.selectFirst("""meta[name="description"]""")?.attr("content"),
+        document.selectFirst("""meta[name="twitter:description"]""")?.attr("content"),
+    )
+}

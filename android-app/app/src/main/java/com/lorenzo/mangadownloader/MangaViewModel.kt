@@ -204,6 +204,16 @@ class MangaViewModel internal constructor(
     private val settingsStore = SettingsStore(prefs)
     private val favoritesStore = FavoritesStore(prefs)
     private val recentSearchesStore = RecentSearchesStore(prefs)
+    private val favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs)
+
+    /**
+     * Cache in memoria delle trame (descrizioni) per `identityKey`: il pulsante info diventa
+     * istantaneo dopo il primo fetch o dopo aver aperto il manga, senza ri-scaricare la pagina.
+     * Per i **preferiti** è anche persistita su disco ([favoriteDescriptionsStore]) e ricaricata
+     * all'avvio, così la loro info è pronta anche dopo il riavvio. È solo testo.
+     */
+    private val mangaDescriptionCache = mutableMapOf<String, String>()
+
     private val initialFavorites = favoritesStore.read()
     private val initialSettings = settingsStore.read()
 
@@ -243,6 +253,8 @@ class MangaViewModel internal constructor(
         if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
             settingsStore.persist(initialSettings.copy(tutorialCompleted = true))
         }
+        // Trame dei preferiti persistite: pronte subito (info istantanea) anche dopo il riavvio.
+        mangaDescriptionCache.putAll(favoriteDescriptionsStore.read())
         observeQueryChanges()
         refreshLibrary()
         if (initialSettings.favoriteNewChapterNotificationsEnabled) {
@@ -859,6 +871,7 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
+                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
                 updateState {
                     copy(
                         selected = details,
@@ -884,6 +897,24 @@ class MangaViewModel internal constructor(
 
     fun showMangaInfo(result: MangaSearchResult) {
         infoJob?.cancel()
+        val key = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
+        mangaDescriptionCache[key]?.let { cached ->
+            // Trama già in cache (info "sempre pronta"): mostra subito, niente fetch né spinner.
+            updateState {
+                copy(
+                    mangaInfoDialog = MangaInfoDialogState(
+                        sourceId = result.sourceId,
+                        title = result.title,
+                        mangaUrl = result.mangaUrl,
+                        coverUrl = result.coverUrl,
+                        description = cached,
+                        isLoading = false,
+                    ),
+                    errorMessage = null,
+                )
+            }
+            return
+        }
         updateState {
             copy(
                 mangaInfoDialog = MangaInfoDialogState(
@@ -901,6 +932,7 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
+                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
                 updateState {
                     copy(
                         mangaInfoDialog = MangaInfoDialogState(
@@ -966,6 +998,25 @@ class MangaViewModel internal constructor(
                 favorites = current,
                 favoriteMangaKeys = current.identityKeys(),
             )
+        }
+        if (existingIndex < 0) {
+            // Appena aggiunto ai preferiti: se la trama è già in cache, persistila subito.
+            mangaDescriptionCache[targetKey]?.let { description ->
+                favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (targetKey to description))
+            }
+        }
+    }
+
+    /**
+     * Mette la trama in cache (info istantanea) e, se il manga è tra i preferiti, la persiste su
+     * disco così resta pronta anche dopo il riavvio dell'app.
+     */
+    private fun cacheMangaDescription(sourceId: String, mangaUrl: String, description: String?) {
+        val text = description?.trim()?.takeIf(String::isNotBlank) ?: return
+        val key = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+        mangaDescriptionCache[key] = text
+        if (key in _state.value.favoriteMangaKeys) {
+            favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (key to text))
         }
     }
 

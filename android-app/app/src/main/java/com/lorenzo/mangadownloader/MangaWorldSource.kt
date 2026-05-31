@@ -137,10 +137,7 @@ class MangaWorldSource(
                 document.selectFirst(".comic-info .thumb img")?.absUrl("src"),
                 document.selectFirst("""meta[property="og:image"]""")?.attr("content"),
             )
-            val description = document.selectFirst(".comic-description #noidungm")
-                ?.text()
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
+            val description = parseDescription(document, ".comic-description #noidungm")
             val chapters = parseChapters(document)
             return MangaDetails(
                 sourceId = MangaSourceIds.MANGA_WORLD,

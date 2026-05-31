@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -603,6 +604,77 @@ class MangaSourcesTest {
             "vymanga::https://vymanga.com/manga/kajiya-de-hajimeru-isekai-slow-life",
             identityKey,
         )
+    }
+
+    @Test
+    fun mangapillMangaDetails_readsDescriptionFromOgMeta() {
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><head>
+              <meta property="og:description" content="Gatsu, il Guerriero Nero, cerca vendetta.">
+            </head><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/12345-1/berserk-chapter-1" title="Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertEquals("Gatsu, il Guerriero Nero, cerca vendetta.", details.description)
+    }
+
+    @Test
+    fun hastaMangaDetails_readsDescriptionFromJson() {
+        val details = HastaTeamSource.parseMangaDetails(
+            """
+            {
+              "comic": {
+                "title": "Yotsuba&!",
+                "url": "/comics/yotsuba",
+                "description": "Le giornate di Yotsuba.",
+                "chapters": [
+                  { "chapter": 1, "subchapter": null, "url": "/read/yotsuba/it/vol/1/ch/1", "slug_lang_vol_ch_sub": "it-1-1-N" }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("Le giornate di Yotsuba.", details.description)
+    }
+
+    @Test
+    fun vyMangaMangaDetails_readsDescriptionFromOgMeta() {
+        val details = VyMangaSource.parseMangaDetails(
+            """
+            <html><head>
+              <meta property="og:description" content="Un fabbro inizia una slow life in un altro mondo.">
+            </head><body>
+              <h1 class="title">Kajiya</h1>
+              <div class="div-chapter">
+                <a class="list-chapter" id="chapter-1" href="https://aovheroes.com/rds/br/rdsd?data=X">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://vymanga.com/manga/kajiya",
+        )
+
+        assertEquals("Un fabbro inizia una slow life in un altro mondo.", details.description)
+    }
+
+    @Test
+    fun parseDescription_prefersSpecificSelectorThenOgFallback() {
+        val withSelector = org.jsoup.Jsoup.parse(
+            """<div class="syn">Trama specifica</div><meta property="og:description" content="OG">""",
+        )
+        assertEquals("Trama specifica", parseDescription(withSelector, ".syn"))
+
+        val ogOnly = org.jsoup.Jsoup.parse("""<meta property="og:description" content="Solo OG">""")
+        assertEquals("Solo OG", parseDescription(ogOnly, ".syn"))
+
+        assertNull(parseDescription(org.jsoup.Jsoup.parse("<div>niente meta</div>")))
     }
 
     @Test

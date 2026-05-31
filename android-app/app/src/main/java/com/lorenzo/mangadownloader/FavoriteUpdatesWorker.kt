@@ -48,6 +48,8 @@ class FavoriteUpdatesWorker(
 
         val store = FavoriteUpdatesStore(prefs)
         val seenMap = store.read().toMutableMap()
+        val descriptionsStore = FavoriteDescriptionsStore(prefs)
+        val descriptions = descriptionsStore.read().toMutableMap()
         val registry = sharedSourceRegistry(context)
         val notifier = FavoriteUpdateNotifier(context)
 
@@ -62,6 +64,9 @@ class FavoriteUpdatesWorker(
                     registry.resolve(favorite.sourceId, favorite.mangaUrl)
                         .fetchMangaDetails(favorite.mangaUrl)
                 }
+                // La trama dei preferiti viene scaricata comunque qui: salvala così il
+                // pulsante info è pronto anche dopo il riavvio dell'app (è solo testo).
+                details.description?.trim()?.takeIf(String::isNotBlank)?.let { descriptions[key] = it }
                 val latest = details.chapters.maxByOrNull { it.numberValue } ?: continue
                 val result = computeFavoriteUpdate(
                     seen = seen,
@@ -81,6 +86,7 @@ class FavoriteUpdatesWorker(
         }
 
         store.write(seenMap)
+        descriptionsStore.write(descriptions)
         return Result.success()
     }
 }

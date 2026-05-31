@@ -62,19 +62,34 @@ data class MangaDetails(
 enum class MangaPublicationStatus {
     ONGOING,
     COMPLETED,
+    DROPPED,
     UNKNOWN,
 }
 
-/** Mappa un testo di stato grezzo (IT/EN, da scraping) su [MangaPublicationStatus]. Best-effort. */
+/**
+ * Mappa un testo di stato grezzo (IT/EN, da scraping) su [MangaPublicationStatus]. Best-effort.
+ * Copre i valori reali delle fonti: MangaWorld (In corso/Finito/Droppato/In pausa), Mangapill
+ * (Publishing/Finished/On Hiatus/Cancelled), VyManga (Ongoing/Completed), HastaTeam (campo JSON).
+ * "In pausa"/hiatus è trattato come [ONGOING] (può riprendere). DROPPED va controllato per primo.
+ */
 fun mangaStatusFromText(raw: String?): MangaPublicationStatus {
     val text = raw?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return MangaPublicationStatus.UNKNOWN
     return when {
-        listOf("complet", "conclus", "finished", "finito", "ended", "fini", "drop", "abbandon", "cancel")
+        listOf("drop", "abbandon", "cancel", "discontinu").any { it in text } -> MangaPublicationStatus.DROPPED
+        listOf("complet", "conclus", "finished", "finito", "termin", "ended", "fini")
             .any { it in text } -> MangaPublicationStatus.COMPLETED
-        listOf("ongoing", "in corso", "publishing", "in pubblicazione", "releasing", "serializing", "in arrivo")
+        listOf("ongoing", "in corso", "publish", "in pubblicazione", "releasing", "serializ", "hiatus", "pausa", "in arrivo")
             .any { it in text } -> MangaPublicationStatus.ONGOING
         else -> MangaPublicationStatus.UNKNOWN
     }
+}
+
+/** Etichetta UI (IT) dello stato di pubblicazione, o `null` se sconosciuto (non si mostra nulla). */
+fun MangaPublicationStatus.displayLabel(): String? = when (this) {
+    MangaPublicationStatus.ONGOING -> "In corso"
+    MangaPublicationStatus.COMPLETED -> "Terminato"
+    MangaPublicationStatus.DROPPED -> "Abbandonato"
+    MangaPublicationStatus.UNKNOWN -> null
 }
 
 fun readingUnitSingular(chapters: List<ChapterEntry>): String {

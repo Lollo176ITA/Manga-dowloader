@@ -448,6 +448,64 @@ class MangaViewModel internal constructor(
         updateState { copy(favoriteCategories = updated) }
     }
 
+    /**
+     * Shortcut "Leggi" dai preferiti: scarica automaticamente i primi capitoli (fino a 3) così
+     * puoi iniziare a leggere offline dalla Libreria. Il **1° capitolo** ha priorità assoluta
+     * (accodato da solo prima dei successivi).
+     */
+    fun readNowFromFavorite(favorite: FavoriteManga) {
+        viewModelScope.launch {
+            updateState { copy(errorMessage = "Preparo i primi capitoli di ${favorite.title}…") }
+            try {
+                val details = withContext(Dispatchers.IO) {
+                    sourceRegistry.resolve(favorite.sourceId, favorite.mangaUrl)
+                        .fetchMangaDetails(favorite.mangaUrl)
+                }
+                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                val firstChapters = firstChaptersForReading(details.chapters, READ_NOW_CHAPTER_COUNT)
+                if (firstChapters.isEmpty()) {
+                    updateState { copy(errorMessage = "Nessun capitolo disponibile per ${details.title}") }
+                    return@launch
+                }
+                val app = getApplication<Application>()
+                // 1° capitolo da solo = priorità assoluta nella coda di download.
+                DownloadWorker.enqueue(
+                    context = app,
+                    firstUrl = firstChapters.first().url,
+                    lastUrl = firstChapters.first().url,
+                    sourceId = details.sourceId,
+                    seriesTitle = details.title,
+                    mangaUrl = details.mangaUrl,
+                    coverUrl = details.coverUrl,
+                )
+                // Eventuali capitoli successivi (2°-3°) accodati dopo il primo.
+                if (firstChapters.size > 1) {
+                    DownloadWorker.enqueue(
+                        context = app,
+                        firstUrl = firstChapters[1].url,
+                        lastUrl = firstChapters.last().url,
+                        sourceId = details.sourceId,
+                        seriesTitle = details.title,
+                        mangaUrl = details.mangaUrl,
+                        coverUrl = details.coverUrl,
+                    )
+                }
+                updateState {
+                    copy(
+                        errorMessage = "Scarico i primi ${firstChapters.size} capitoli di ${details.title}: " +
+                            "li trovi nella Libreria appena pronti.",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(errorMessage = exc.message ?: "Errore nel preparare la lettura")
+                }
+            }
+        }
+    }
+
     /** Elimina una categoria, ripulisce le assegnazioni orfane e azzera il filtro se era attivo. */
     fun removeFavoriteCategory(id: String) {
         val updatedCategories = removeCategory(_state.value.favoriteCategories, id)
@@ -2424,5 +2482,6 @@ class MangaViewModel internal constructor(
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
+        private const val READ_NOW_CHAPTER_COUNT = 3
     }
 }

@@ -23,8 +23,50 @@ data class FavoriteCategory(
     val order: Int = 0,
 )
 
-/** ID sintetico del filtro "Senza categoria" (preferiti senza assegnazione). */
+/** ID sintetico del filtro "Senza cartella" (preferiti senza assegnazione). */
 const val UNCATEGORIZED_CATEGORY_ID = "__uncategorized__"
+
+/**
+ * Etichetta di lettura **automatica** di un preferito, derivata dalla libreria scaricata
+ * (nessuna assegnazione manuale). È affidabile solo per i manga con capitoli scaricati/letti:
+ * un preferito non scaricato risulta [TO_START].
+ */
+enum class FavoriteReadingState(val label: String) {
+    TO_START("Da iniziare"),
+    IN_PROGRESS("In lettura"),
+    COMPLETED("Completato"),
+}
+
+/**
+ * I primi [count] capitoli da leggere (numeri più bassi), indipendentemente dall'ordine in cui
+ * la fonte li elenca. Usata dalla shortcut "Leggi" dei preferiti. Pura.
+ */
+fun firstChaptersForReading(chapters: List<ChapterEntry>, count: Int = 3): List<ChapterEntry> =
+    chapters.sortedBy { it.numberValue }.take(count.coerceAtLeast(0))
+
+/** Stato di lettura per una serie scaricata (o null = non in libreria → "Da iniziare"). Pura. */
+fun favoriteReadingState(series: DownloadedSeries?): FavoriteReadingState {
+    if (series == null) return FavoriteReadingState.TO_START
+    if (series.isFullyRead()) return FavoriteReadingState.COMPLETED
+    val started = series.readChapterCount() > 0 || series.chapters.any { it.hasReaderProgress() }
+    return if (started) FavoriteReadingState.IN_PROGRESS else FavoriteReadingState.TO_START
+}
+
+/** Mappa `identityKey -> stato di lettura` per i preferiti, abbinando per chiave la libreria. Pura. */
+fun favoriteReadingStatesByKey(
+    favorites: List<FavoriteManga>,
+    library: List<DownloadedSeries>,
+): Map<String, FavoriteReadingState> {
+    val seriesByKey = library
+        .mapNotNull { series ->
+            series.mangaUrl?.let { url -> MangaSourceCatalog.identityKey(series.sourceId, url) to series }
+        }
+        .toMap()
+    return favorites.associate { favorite ->
+        val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
+        key to favoriteReadingState(seriesByKey[key])
+    }
+}
 
 /** Categorie di default proposte al primo avvio (rinominabili / eliminabili dall'utente). */
 object DefaultFavoriteCategories {

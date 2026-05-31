@@ -94,6 +94,10 @@ private fun MangaDownloaderAppContent(
             .joinToString("|")
     }
     val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
+    // Etichette di lettura automatiche dei preferiti, derivate dalla libreria scaricata.
+    val favoriteReadingStates = remember(state.favorites, state.library) {
+        favoriteReadingStatesByKey(state.favorites, state.library)
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -594,6 +598,7 @@ private fun MangaDownloaderAppContent(
                             sort = state.settings.favoriteSort,
                             statusByKey = state.favoriteStatusByKey,
                             seenByKey = state.favoriteSeenStates,
+                            readingStateByKey = favoriteReadingStates,
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,
                             onSelect = { favorite ->
@@ -613,6 +618,7 @@ private fun MangaDownloaderAppContent(
                             onAddCategory = viewModel::addFavoriteCategory,
                             onRenameCategory = viewModel::renameFavoriteCategory,
                             onRemoveCategory = viewModel::removeFavoriteCategory,
+                            onReadNow = viewModel::readNowFromFavorite,
                         )
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,

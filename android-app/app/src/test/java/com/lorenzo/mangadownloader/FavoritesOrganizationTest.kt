@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader
 
+import java.io.File
+import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -124,6 +126,90 @@ class FavoritesOrganizationTest {
         val removed = removeCategory(DefaultFavoriteCategories.items, DefaultFavoriteCategories.ID_TO_READ)
         assertEquals(2, removed.size)
         assertFalse(removed.any { it.id == DefaultFavoriteCategories.ID_TO_READ })
+    }
+
+    // --- Etichette di lettura automatiche ---
+
+    private fun dlChapter(number: String, readerPageIndex: Int? = null) = DownloadedChapter(
+        title = "Cap $number",
+        numberText = number,
+        numberValue = number.toBigDecimalOrNull(),
+        volumeText = null,
+        labelPrefix = "Capitolo",
+        file = File("$number.cbz"),
+        relativePath = "s/$number.cbz",
+        chapterId = "id-$number",
+        isRead = false,
+        readerPageIndex = readerPageIndex,
+        readerPageCount = if (readerPageIndex != null) 10 else null,
+    )
+
+    private fun dlSeries(n: Int, chapters: List<DownloadedChapter>, total: Int, readIds: Set<String>) =
+        DownloadedSeries(
+            sourceId = "mangapill",
+            title = "T$n",
+            mangaUrl = "https://mangapill.com/manga/$n",
+            coverFile = null,
+            directory = File("T$n"),
+            chapters = chapters,
+            totalChapterCount = total,
+            readChapterIds = readIds,
+        )
+
+    @Test
+    fun readingState_nullSeriesIsToStart() {
+        assertEquals(FavoriteReadingState.TO_START, favoriteReadingState(null))
+    }
+
+    @Test
+    fun readingState_fullyReadIsCompleted() {
+        val series = dlSeries(1, listOf(dlChapter("1"), dlChapter("2")), total = 2, readIds = setOf("id-1", "id-2"))
+        assertEquals(FavoriteReadingState.COMPLETED, favoriteReadingState(series))
+    }
+
+    @Test
+    fun readingState_someReadIsInProgress() {
+        val series = dlSeries(1, listOf(dlChapter("1"), dlChapter("2"), dlChapter("3")), total = 3, readIds = setOf("id-1"))
+        assertEquals(FavoriteReadingState.IN_PROGRESS, favoriteReadingState(series))
+    }
+
+    @Test
+    fun readingState_downloadedButUnreadIsToStart() {
+        val series = dlSeries(1, listOf(dlChapter("1"), dlChapter("2")), total = 2, readIds = emptySet())
+        assertEquals(FavoriteReadingState.TO_START, favoriteReadingState(series))
+    }
+
+    @Test
+    fun readingState_readerProgressCountsAsInProgress() {
+        val series = dlSeries(1, listOf(dlChapter("1", readerPageIndex = 3), dlChapter("2")), total = 2, readIds = emptySet())
+        assertEquals(FavoriteReadingState.IN_PROGRESS, favoriteReadingState(series))
+    }
+
+    @Test
+    fun readingStatesByKey_matchesFavoritesToLibrary() {
+        val a = fav("A", 1)
+        val b = fav("B", 2)
+        val library = listOf(dlSeries(1, listOf(dlChapter("1"), dlChapter("2")), total = 2, readIds = setOf("id-1", "id-2")))
+        val states = favoriteReadingStatesByKey(listOf(a, b), library)
+        assertEquals(FavoriteReadingState.COMPLETED, states[key(a)])
+        assertEquals(FavoriteReadingState.TO_START, states[key(b)])
+    }
+
+    // --- Shortcut "Leggi": selezione primi capitoli ---
+
+    private fun chEntry(n: String) =
+        ChapterEntry(numberText = n, numberValue = BigDecimal(n), url = "https://x/$n", slug = n)
+
+    @Test
+    fun firstChaptersForReading_picksLowestThreeRegardlessOfSourceOrder() {
+        val chapters = listOf("5", "4", "3", "2", "1").map { chEntry(it) } // elencati newest-first
+        assertEquals(listOf("1", "2", "3"), firstChaptersForReading(chapters, 3).map { it.numberText })
+    }
+
+    @Test
+    fun firstChaptersForReading_handlesFewerThanCountAndEmpty() {
+        assertEquals(listOf("1", "2"), firstChaptersForReading(listOf(chEntry("2"), chEntry("1")), 3).map { it.numberText })
+        assertTrue(firstChaptersForReading(emptyList(), 3).isEmpty())
     }
 
     @Test

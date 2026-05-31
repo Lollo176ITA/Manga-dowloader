@@ -18,7 +18,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -279,7 +283,74 @@ fun ConfirmationDialog(
     )
 }
 
-/** Sceglie la categoria di un preferito (o nessuna). Tap su una voce = assegna e chiudi. */
+/** Azioni rapide su un preferito (long-press): leggi subito o spostalo in una cartella. */
+@Composable
+fun FavoriteActionsDialog(
+    title: String,
+    onRead: () -> Unit,
+    onMoveToFolder: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        shape = MaterialTheme.shapes.extraLarge,
+        text = {
+            Column {
+                FavoriteActionRow(
+                    icon = Icons.Default.PlayArrow,
+                    title = "Leggi",
+                    description = "Scarica i primi 3 capitoli (priorità al 1°)",
+                    onClick = onRead,
+                )
+                FavoriteActionRow(
+                    icon = Icons.Default.CreateNewFolder,
+                    title = "Sposta in cartella",
+                    description = null,
+                    onClick = onMoveToFolder,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Chiudi") }
+        },
+    )
+}
+
+@Composable
+private fun FavoriteActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String?,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyLarge)
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Sposta un preferito in una cartella (o nessuna). Tap su una voce = assegna e chiudi. */
 @Composable
 fun CategoryPickerDialog(
     categories: List<FavoriteCategory>,
@@ -289,7 +360,7 @@ fun CategoryPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Assegna categoria") },
+        title = { Text("Sposta in cartella") },
         shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -337,7 +408,7 @@ private fun CategoryPickerRow(
     }
 }
 
-/** Gestione delle categorie: rinomina (conferma con ✓), elimina e aggiunta in coda. */
+/** Gestione delle cartelle: rinomina (conferma con ✓), elimina e aggiunta in coda. */
 @Composable
 fun CategoryManagerDialog(
     categories: List<FavoriteCategory>,
@@ -349,7 +420,7 @@ fun CategoryManagerDialog(
     var newCategory by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gestisci categorie") },
+        title = { Text("Gestisci cartelle") },
         shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column(
@@ -370,7 +441,7 @@ fun CategoryManagerDialog(
                         value = newCategory,
                         onValueChange = { newCategory = it },
                         modifier = Modifier.weight(1f),
-                        label = { Text("Nuova categoria") },
+                        label = { Text("Nuova cartella") },
                         singleLine = true,
                     )
                     IconButton(
@@ -380,7 +451,7 @@ fun CategoryManagerDialog(
                         },
                         enabled = newCategory.isNotBlank(),
                     ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = "Aggiungi categoria")
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Aggiungi cartella")
                     }
                 }
             }
@@ -402,7 +473,9 @@ private fun CategoryEditRow(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .semantics { contentDescription = "Rinomina cartella ${category.name}" },
             singleLine = true,
             trailingIcon = {
                 if (name.trim().isNotBlank() && name.trim() != category.name) {
@@ -413,7 +486,7 @@ private fun CategoryEditRow(
             },
         )
         IconButton(onClick = { onRemove(category.id) }) {
-            Icon(imageVector = Icons.Default.Delete, contentDescription = "Elimina categoria")
+            Icon(imageVector = Icons.Default.Delete, contentDescription = "Elimina cartella")
         }
     }
 }

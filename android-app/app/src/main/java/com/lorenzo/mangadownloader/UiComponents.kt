@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -437,11 +439,18 @@ fun FavoriteCard(
     favorite: FavoriteManga,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    onMoreActions: (() -> Unit)? = null,
+    readingState: FavoriteReadingState? = null,
 ) {
     val clickModifier = if (onLongClick != null) {
-        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        Modifier.combinedClickable(
+            onClick = onClick,
+            onClickLabel = "Apri",
+            onLongClick = onLongClick,
+            onLongClickLabel = "Altre azioni",
+        )
     } else {
-        Modifier.clickable(onClick = onClick)
+        Modifier.clickable(onClick = onClick, onClickLabel = "Apri")
     }
     Card(
         modifier = Modifier
@@ -451,19 +460,41 @@ fun FavoriteCard(
         colors = appCardColors(),
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
-            CoverImage(
-                model = favorite.coverUrl,
-                title = favorite.title,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(MaterialTheme.shapes.large),
-            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                CoverImage(
+                    model = favorite.coverUrl,
+                    title = favorite.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2f / 3f)
+                        .clip(MaterialTheme.shapes.large),
+                )
+                if (onMoreActions != null) {
+                    IconButton(
+                        onClick = onMoreActions,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(2.dp)
+                            .size(32.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.45f),
+                                shape = CircleShape,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Altre azioni",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp),
+                    .heightIn(min = 40.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -479,6 +510,21 @@ fun FavoriteCard(
                     contentDescription = null,
                     tint = FavoriteYellow,
                     modifier = Modifier.size(16.dp),
+                )
+            }
+            if (readingState == FavoriteReadingState.IN_PROGRESS ||
+                readingState == FavoriteReadingState.COMPLETED
+            ) {
+                Text(
+                    text = readingState.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (readingState == FavoriteReadingState.COMPLETED) {
+                        ReadGreen
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

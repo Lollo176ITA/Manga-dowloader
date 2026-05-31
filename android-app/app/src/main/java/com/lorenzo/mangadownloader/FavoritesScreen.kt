@@ -43,6 +43,7 @@ fun FavoritesScreen(
     sort: FavoriteSort,
     statusByKey: Map<String, MangaPublicationStatus>,
     seenByKey: Map<String, FavoriteSeenState>,
+    readingStateByKey: Map<String, FavoriteReadingState>,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onSelect: (FavoriteManga) -> Unit,
@@ -53,6 +54,7 @@ fun FavoritesScreen(
     onAddCategory: (String) -> Unit,
     onRenameCategory: (String, String) -> Unit,
     onRemoveCategory: (String) -> Unit,
+    onReadNow: (FavoriteManga) -> Unit,
 ) {
     val displayed = remember(favorites, query, filterCategoryId, assignments, sort, statusByKey, seenByKey) {
         sortFavorites(
@@ -67,6 +69,7 @@ fun FavoritesScreen(
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var showManageCategories by remember { mutableStateOf(false) }
     var categoryPickerFor by remember { mutableStateOf<FavoriteManga?>(null) }
+    var actionsFor by remember { mutableStateOf<FavoriteManga?>(null) }
 
     Column(
         modifier = Modifier
@@ -113,7 +116,7 @@ fun FavoritesScreen(
                             FilterChip(
                                 selected = filterCategoryId == UNCATEGORIZED_CATEGORY_ID,
                                 onClick = { onSelectCategory(UNCATEGORIZED_CATEGORY_ID) },
-                                label = { Text("Senza categoria ($uncategorized)") },
+                                label = { Text("Senza cartella ($uncategorized)") },
                             )
                         }
                     }
@@ -148,7 +151,7 @@ fun FavoritesScreen(
                 IconButton(onClick = { showManageCategories = true }) {
                     Icon(
                         imageVector = Icons.Default.Edit,
-                        contentDescription = "Gestisci categorie",
+                        contentDescription = "Gestisci cartelle",
                     )
                 }
             }
@@ -191,13 +194,32 @@ fun FavoritesScreen(
                             FavoriteCard(
                                 favorite = favorite,
                                 onClick = { onSelect(favorite) },
-                                onLongClick = { categoryPickerFor = favorite },
+                                onLongClick = { actionsFor = favorite },
+                                onMoreActions = { actionsFor = favorite },
+                                readingState = readingStateByKey[
+                                    MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl),
+                                ],
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    actionsFor?.let { favorite ->
+        FavoriteActionsDialog(
+            title = favorite.title,
+            onRead = {
+                onReadNow(favorite)
+                actionsFor = null
+            },
+            onMoveToFolder = {
+                categoryPickerFor = favorite
+                actionsFor = null
+            },
+            onDismiss = { actionsFor = null },
+        )
     }
 
     categoryPickerFor?.let { favorite ->

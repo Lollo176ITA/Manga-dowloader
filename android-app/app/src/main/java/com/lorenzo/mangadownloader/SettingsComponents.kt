@@ -7,15 +7,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -118,6 +124,7 @@ private fun SettingRow(
 
 // --- Contenuti (senza card): le card sono composte in SettingsScreen raggruppando per tema. ---
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThemeModeContent(
     currentMode: ThemeMode,
@@ -125,25 +132,28 @@ fun ThemeModeContent(
     useDynamicColor: Boolean,
     onToggleDynamicColor: (Boolean) -> Unit,
 ) {
+    val options = listOf(
+        Triple(ThemeMode.AUTO, Icons.Default.BrightnessAuto, "Auto"),
+        Triple(ThemeMode.LIGHT, Icons.Default.LightMode, "Chiaro"),
+        Triple(ThemeMode.DARK, Icons.Default.DarkMode, "Scuro"),
+    )
     Column {
         SettingsSubheader("Tema")
-        Column(modifier = Modifier.selectableGroup()) {
-            ThemeMode.entries.forEach { mode ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = currentMode == mode,
-                        onClick = { onSelectMode(mode) },
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = when (mode) {
-                            ThemeMode.AUTO -> "Automatico (sistema)"
-                            ThemeMode.LIGHT -> "Chiaro"
-                            ThemeMode.DARK -> "Scuro"
-                        },
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (mode, icon, label) ->
+                SegmentedButton(
+                    selected = currentMode == mode,
+                    onClick = { onSelectMode(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    icon = {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    label = { Text(label) },
+                )
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -156,6 +166,7 @@ fun ThemeModeContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingModeContent(
     currentMode: ReadingMode,
@@ -163,19 +174,14 @@ fun ReadingModeContent(
 ) {
     Column {
         SettingsSubheader("Modalità di lettura")
-        Column(modifier = Modifier.selectableGroup()) {
-            ReadingMode.entries.forEach { mode ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = currentMode == mode,
-                        onClick = { onSelectMode(mode) },
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = mode.menuLabel,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            ReadingMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = currentMode == mode,
+                    onClick = { onSelectMode(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = ReadingMode.entries.size),
+                    label = { Text(mode.shortLabel) },
+                )
             }
         }
         Text(

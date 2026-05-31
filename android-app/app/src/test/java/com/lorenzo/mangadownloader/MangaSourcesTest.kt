@@ -646,6 +646,25 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun vyMangaMangaDetails_readsStatusFromPreTitleSpans() {
+        // Markup reale di VyManga: etichetta, ":" e valore in tre <span> distinti.
+        val details = VyMangaSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1 class="title">Kajiya</h1>
+              <p><span class="pre-title">Status</span><span class="space">:</span><span class="text-ongoing">Ongoing</span></p>
+              <div class="div-chapter">
+                <a class="list-chapter" id="chapter-1" href="https://aovheroes.com/rds/br/rdsd?data=X">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://vymanga.com/manga/kajiya",
+        )
+
+        assertEquals(MangaPublicationStatus.ONGOING, details.status)
+    }
+
+    @Test
     fun vyMangaMangaDetails_readsDescriptionFromOgMeta() {
         val details = VyMangaSource.parseMangaDetails(
             """

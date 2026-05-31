@@ -64,9 +64,9 @@ fun SettingsSection(
 @Composable
 fun SettingsSwitchRow(
     title: String,
-    description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    description: String? = null,
     switchEnabled: Boolean = true,
 ) {
     ListItem(
@@ -76,11 +76,13 @@ fun SettingsSwitchRow(
                 style = MaterialTheme.typography.bodyLarge,
             )
         },
-        supportingContent = {
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-            )
+        supportingContent = description?.takeIf { it.isNotBlank() }?.let { desc ->
+            {
+                Text(
+                    text = desc,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         },
         trailingContent = {
             Switch(

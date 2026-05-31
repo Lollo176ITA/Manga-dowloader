@@ -485,17 +485,29 @@ internal fun firstNonBlankTrimmed(vararg values: String?): String? {
  */
 internal fun statusTextNearLabel(document: Document, vararg labels: String): String? {
     for (label in labels) {
+        // Etichetta = elemento il cui testo proprio, prima dei due punti, è esattamente la label
+        // (cattura "Stato", "Stato:", "Stato: Valore").
         val element = document.allElements.firstOrNull { el ->
-            el.ownText().trim().removeSuffix(":").trim().equals(label, ignoreCase = true)
+            el.ownText().trim().substringBefore(":").trim().equals(label, ignoreCase = true)
         } ?: continue
-        element.nextElementSibling()?.text()?.trim()?.takeIf(String::isNotBlank)?.let { return it }
-        val parentText = element.parent()?.text()?.trim().orEmpty()
-        val withoutLabel = parentText.substringAfter(element.text(), "").trim()
-            .removePrefix(":")
-            .trim()
-        if (withoutLabel.isNotBlank()) {
-            return withoutLabel
+
+        // 1) Valore nello stesso elemento (anche dentro un figlio): "Status: <a>Completed</a>".
+        if (element.ownText().contains(":")) {
+            element.text().trim().substringAfter(":", "").trim()
+                .takeIf(String::isNotBlank)?.let { return it }
         }
+        // 2) Valore nei fratelli successivi, saltando i separatori (":", spazi). Es. VyManga:
+        //    <span>Status</span><span>:</span><span>Ongoing</span>.
+        var sibling = element.nextElementSibling()
+        while (sibling != null) {
+            sibling.text().trim().removePrefix(":").trim()
+                .takeIf(String::isNotBlank)?.let { return it }
+            sibling = sibling.nextElementSibling()
+        }
+        // 3) Valore nel testo del genitore, tolta l'etichetta.
+        element.parent()?.text()?.trim()
+            ?.substringAfter(element.text(), "")?.trim()?.removePrefix(":")?.trim()
+            ?.takeIf(String::isNotBlank)?.let { return it }
     }
     return null
 }

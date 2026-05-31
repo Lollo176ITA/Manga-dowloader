@@ -130,6 +130,23 @@ class FavoriteUpdatesLogicTest {
     }
 
     @Test
+    fun statusTextNearLabel_readsValueInsideChildLink() {
+        // Pattern "Etichetta: <a>valore</a>" sulla stessa riga — prima non lo prendeva.
+        val doc = Jsoup.parse("""<p class="mb-1">Status: <a href="/status/2">Completed</a></p>""")
+        assertEquals("Completed", statusTextNearLabel(doc, "Status", "Stato"))
+    }
+
+    @Test
+    fun statusTextNearLabel_skipsSeparatorSpanBetweenLabelAndValue() {
+        // Markup reale VyManga: <span>Status</span><span>:</span><span>Ongoing</span>.
+        // Il separatore ":" va saltato, altrimenti si leggeva ":" invece del valore.
+        val doc = Jsoup.parse(
+            """<p><span class="pre-title">Status</span><span class="space">:</span><span class="text-ongoing">Ongoing</span></p>""",
+        )
+        assertEquals("Ongoing", statusTextNearLabel(doc, "Status", "Stato"))
+    }
+
+    @Test
     fun statusTextNearLabel_nullWhenNoLabel() {
         val doc = Jsoup.parse("""<div><span>Genere</span><a>Azione</a></div>""")
         assertNull(statusTextNearLabel(doc, "Stato", "Status"))

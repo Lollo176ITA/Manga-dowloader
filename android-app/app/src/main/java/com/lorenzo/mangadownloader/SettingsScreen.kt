@@ -97,7 +97,6 @@ fun SettingsScreen(
         ) {
             SettingsSwitchRow(
                 title = "Avvisi nuovi capitoli dei preferiti",
-                description = "Controlla una volta al giorno (e all'apertura dell'app) se esce un nuovo capitolo dei manga che hai nei preferiti, e ti manda una notifica. I manga conclusi vengono ignorati.",
                 checked = settings.favoriteNewChapterNotificationsEnabled,
                 onCheckedChange = onToggleFavoriteNotifications,
             )

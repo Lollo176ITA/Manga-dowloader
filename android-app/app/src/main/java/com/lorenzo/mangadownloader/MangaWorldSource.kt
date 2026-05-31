@@ -149,6 +149,7 @@ class MangaWorldSource(
                 mangaUrl = canonical,
                 chapters = chapters,
                 description = description,
+                status = mangaStatusFromText(statusTextNearLabel(document, "Stato", "Status")),
             )
         }
 

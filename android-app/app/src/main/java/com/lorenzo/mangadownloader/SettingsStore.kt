@@ -50,6 +50,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             }.getOrDefault(ThemeMode.AUTO),
             useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
             tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
+            favoriteNewChapterNotificationsEnabled = prefs.getBoolean(KEY_FAVORITE_NOTIFICATIONS, false),
         )
     }
 
@@ -77,6 +78,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
+            .putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
             .apply()
     }
 
@@ -104,5 +106,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
+        const val KEY_FAVORITE_NOTIFICATIONS = "favorite_new_chapter_notifications"
     }
 }

@@ -214,6 +214,7 @@ class VyMangaSource(
                 coverUrl = cover,
                 mangaUrl = canonical,
                 chapters = chapters,
+                status = mangaStatusFromText(statusTextNearLabel(document, "Status", "Stato")),
             )
         }
 

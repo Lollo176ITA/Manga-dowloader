@@ -185,6 +185,7 @@ class HastaTeamSource(
                 coverUrl = comic["thumbnail"]?.jsonPrimitive?.contentOrNull?.let(::absolutize),
                 mangaUrl = mangaUrl,
                 chapters = chapters,
+                status = mangaStatusFromText(comic["status"]?.jsonPrimitive?.contentOrNull),
             )
         }
 

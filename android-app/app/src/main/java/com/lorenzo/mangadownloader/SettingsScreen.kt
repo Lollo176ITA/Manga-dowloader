@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Science
@@ -64,6 +65,7 @@ fun SettingsScreen(
     onToggleHighResImages: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
+    onToggleFavoriteNotifications: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
 ) {
     Column(
@@ -86,6 +88,18 @@ fun SettingsScreen(
             DynamicColorRow(
                 checked = settings.useDynamicColor,
                 onCheckedChange = onToggleDynamicColor,
+            )
+        }
+
+        SettingsSection(
+            title = "Notifiche",
+            icon = Icons.Default.Notifications,
+        ) {
+            SettingsSwitchRow(
+                title = "Avvisi nuovi capitoli dei preferiti",
+                description = "Controlla una volta al giorno (e all'apertura dell'app) se esce un nuovo capitolo dei manga che hai nei preferiti, e ti manda una notifica. I manga conclusi vengono ignorati.",
+                checked = settings.favoriteNewChapterNotificationsEnabled,
+                onCheckedChange = onToggleFavoriteNotifications,
             )
         }
 

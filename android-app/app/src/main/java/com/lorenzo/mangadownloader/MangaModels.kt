@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import java.io.File
 import java.math.BigDecimal
+import java.util.Locale
 
 data class ChapterEntry(
     val numberText: String,
@@ -50,7 +51,31 @@ data class MangaDetails(
     val mangaUrl: String,
     val chapters: List<ChapterEntry>,
     val description: String? = null,
+    val status: MangaPublicationStatus = MangaPublicationStatus.UNKNOWN,
 )
+
+/**
+ * Stato di pubblicazione di una serie, usato per le notifiche sui preferiti (non si
+ * controllano i manga [COMPLETED]). [UNKNOWN] è il default e viene trattato come "in corso":
+ * un parsing dello stato fallito non deve mai far perdere notifiche.
+ */
+enum class MangaPublicationStatus {
+    ONGOING,
+    COMPLETED,
+    UNKNOWN,
+}
+
+/** Mappa un testo di stato grezzo (IT/EN, da scraping) su [MangaPublicationStatus]. Best-effort. */
+fun mangaStatusFromText(raw: String?): MangaPublicationStatus {
+    val text = raw?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return MangaPublicationStatus.UNKNOWN
+    return when {
+        listOf("complet", "conclus", "finished", "finito", "ended", "fini", "drop", "abbandon", "cancel")
+            .any { it in text } -> MangaPublicationStatus.COMPLETED
+        listOf("ongoing", "in corso", "publishing", "in pubblicazione", "releasing", "serializing", "in arrivo")
+            .any { it in text } -> MangaPublicationStatus.ONGOING
+        else -> MangaPublicationStatus.UNKNOWN
+    }
+}
 
 fun readingUnitSingular(chapters: List<ChapterEntry>): String {
     return commonReadingPrefix(chapters)?.lowercase() ?: "elemento"

@@ -59,6 +59,7 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
     val tutorialCompleted: Boolean = false,
+    val favoriteNewChapterNotificationsEnabled: Boolean = false,
 )
 
 enum class ParentalAction {
@@ -244,6 +245,9 @@ class MangaViewModel internal constructor(
         }
         observeQueryChanges()
         refreshLibrary()
+        if (initialSettings.favoriteNewChapterNotificationsEnabled) {
+            FavoriteUpdatesScheduler.onAppStart(application)
+        }
     }
 
     @OptIn(FlowPreview::class)
@@ -664,6 +668,11 @@ class MangaViewModel internal constructor(
 
     fun setHighResImages(enabled: Boolean) {
         updateSettings { it.copy(highResImages = enabled) }
+    }
+
+    fun setFavoriteNotificationsEnabled(enabled: Boolean) {
+        updateSettings { it.copy(favoriteNewChapterNotificationsEnabled = enabled) }
+        FavoriteUpdatesScheduler.setEnabled(getApplication<Application>(), enabled)
     }
 
     fun setPrivacyBrightnessEnabled(enabled: Boolean) {

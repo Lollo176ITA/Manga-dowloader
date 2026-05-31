@@ -462,6 +462,18 @@ private fun MangaDownloaderAppContent(
                     onToggleHighResImages = viewModel::setHighResImages,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
+                    onToggleFavoriteNotifications = { enabled ->
+                        if (enabled &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        viewModel.setFavoriteNotificationsEnabled(enabled)
+                    },
                     onOpenStorageManager = viewModel::openStorageManager,
                 )
             }

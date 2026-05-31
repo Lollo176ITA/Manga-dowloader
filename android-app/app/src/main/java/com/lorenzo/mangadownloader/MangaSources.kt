@@ -14,6 +14,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.jsoup.nodes.Document
 
 data class MangaSourceDescriptor(
     val id: String,
@@ -471,6 +472,29 @@ internal fun firstNonBlankTrimmed(vararg values: String?): String? {
         val trimmed = value?.trim().orEmpty()
         if (trimmed.isNotBlank()) {
             return trimmed
+        }
+    }
+    return null
+}
+
+/**
+ * Valore testuale associato a un'etichetta tipo "Stato"/"Status" in una pagina, cercando
+ * sia il fratello successivo dell'etichetta sia il testo del genitore meno l'etichetta
+ * (pattern "Etichetta: valore"). Tollerante alla struttura; `null` se nessuna combacia.
+ * Usato dalle fonti per estrarre lo stato di pubblicazione in modo best-effort.
+ */
+internal fun statusTextNearLabel(document: Document, vararg labels: String): String? {
+    for (label in labels) {
+        val element = document.allElements.firstOrNull { el ->
+            el.ownText().trim().removeSuffix(":").trim().equals(label, ignoreCase = true)
+        } ?: continue
+        element.nextElementSibling()?.text()?.trim()?.takeIf(String::isNotBlank)?.let { return it }
+        val parentText = element.parent()?.text()?.trim().orEmpty()
+        val withoutLabel = parentText.substringAfter(element.text(), "").trim()
+            .removePrefix(":")
+            .trim()
+        if (withoutLabel.isNotBlank()) {
+            return withoutLabel
         }
     }
     return null

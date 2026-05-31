@@ -15,12 +15,15 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -63,6 +66,8 @@ fun AppTopBar(
     onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
+    unseenUpdatesCount: Int,
+    onOpenUpdates: () -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
@@ -77,35 +82,32 @@ fun AppTopBar(
     val readerChapter = state.readerChapter
     val selectedManga = state.selected
     val selectedSeries = state.selectedDownloadedSeries
-    val showBack = readerChapter != null ||
-        state.showStorageManager ||
-        state.showSettings ||
-        selectedManga != null ||
-        (state.currentTab == AppTab.LIBRARY && selectedSeries != null)
-    val title = when {
-        state.showStorageManager -> "Gestisci memoria"
-        state.showSettings -> "Impostazioni"
-        readerChapter != null -> readerChapter.title
-        selectedManga != null -> selectedManga.title
-        state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
-        visibleTab == AppTab.DISCOVERY -> "Scopri"
-        visibleTab == AppTab.SEARCH -> "Cerca"
-        visibleTab == AppTab.FAVORITES -> "Preferiti"
-        visibleTab == AppTab.LIBRARY -> "Libreria"
-        else -> "Manga Downloader"
+    // Unica fonte di verità: la schermata in primo piano derivata dallo stato (vedi Screen.kt).
+    // Evita di ri-ordinare a mano (e in modo divergente) la priorità delle schermate.
+    val screen = state.currentScreen()
+    val showBack = screen != Screen.Tabs
+    val title = when (screen) {
+        Screen.StorageManager -> "Gestisci memoria"
+        Screen.Backup -> "Backup"
+        Screen.Settings -> "Impostazioni"
+        Screen.Updates -> "Aggiornamenti"
+        Screen.Reader -> readerChapter?.title ?: "Manga Downloader"
+        Screen.Detail -> selectedManga?.title ?: "Manga Downloader"
+        Screen.DownloadedSeries -> selectedSeries?.title ?: "Manga Downloader"
+        Screen.Tabs -> when (visibleTab) {
+            AppTab.DISCOVERY -> "Scopri"
+            AppTab.SEARCH -> "Cerca"
+            AppTab.FAVORITES -> "Preferiti"
+            AppTab.LIBRARY -> "Libreria"
+        }
     }
     var overflowExpanded by remember { mutableStateOf(false) }
     var brightnessExpanded by remember(readerChapter?.relativePath) { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var serverSelectorExpanded by remember { mutableStateOf(false) }
 
-    val inDetail = selectedManga != null
-    val inSeries = state.currentTab == AppTab.LIBRARY && selectedSeries != null
-    val showOverflow = readerChapter == null &&
-        !state.showSettings &&
-        !state.showStorageManager &&
-        !inDetail &&
-        !inSeries
+    val showOverflow = screen == Screen.Tabs
+    val showUpdatesAction = visibleTab == AppTab.FAVORITES && screen == Screen.Tabs
 
     CenterAlignedTopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
@@ -171,6 +173,13 @@ fun AppTopBar(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
                     modifier = anchorFor(TutorialAnchor.DETAIL_FAVORITE),
+                )
+            }
+
+            if (showUpdatesAction) {
+                FavoriteUpdatesAction(
+                    unseenCount = unseenUpdatesCount,
+                    onClick = onOpenUpdates,
                 )
             }
 
@@ -392,6 +401,32 @@ private fun FavoriteToggleAction(
             imageVector = if (isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
             contentDescription = if (isFavorite) "Rimuovi dai preferiti" else "Aggiungi ai preferiti",
         )
+    }
+}
+
+/** Azione "Aggiornamenti" con badge del numero di nuovi capitoli non visti (tab Preferiti). */
+@Composable
+private fun FavoriteUpdatesAction(
+    unseenCount: Int,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        BadgedBox(
+            badge = {
+                if (unseenCount > 0) {
+                    Badge { Text(if (unseenCount > 99) "99+" else "$unseenCount") }
+                }
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = if (unseenCount > 0) {
+                    "Aggiornamenti, $unseenCount non letti"
+                } else {
+                    "Aggiornamenti"
+                },
+            )
+        }
     }
 }
 

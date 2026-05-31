@@ -30,6 +30,7 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -143,6 +144,19 @@ private fun MangaDownloaderAppContent(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { }
+
+    // Backup (Storage Access Framework): la modalità di import scelta viene ricordata tra il tap
+    // e il ritorno dal selettore di file. La sostituzione passa da una conferma esplicita.
+    // rememberSaveable: la scelta MERGE/REPLACE deve sopravvivere a una morte del processo
+    // mentre il selettore di file SAF è in primo piano (l'enum è Serializable).
+    var backupImportMode by rememberSaveable { mutableStateOf(BackupRestoreMode.MERGE) }
+    var showReplaceBackupConfirm by rememberSaveable { mutableStateOf(false) }
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri -> uri?.let(viewModel::exportBackup) }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let { viewModel.importBackup(it, backupImportMode) } }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -265,6 +279,15 @@ private fun MangaDownloaderAppContent(
         else -> visibleTabs.getOrElse(pagerState.currentPage) { state.currentTab }
     }
     val canHandleBack = state.canHandleBack()
+
+    // Quando si arriva sulla tab Preferiti (dove è visibile il badge "Aggiornamenti"), rilegge
+    // il feed così il conteggio riflette gli eventi scritti dal worker mentre l'app era aperta.
+    LaunchedEffect(visiblePagerTab) {
+        if (visiblePagerTab == AppTab.FAVORITES) {
+            viewModel.refreshUpdatesFeed()
+        }
+    }
+
     val privacyDimAlpha = readerPrivacyDimAlpha(
         enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
         brightness = state.settings.readerBrightness,
@@ -394,6 +417,8 @@ private fun MangaDownloaderAppContent(
                     onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
+                    unseenUpdatesCount = unseenCount(state.favoriteUpdates),
+                    onOpenUpdates = viewModel::openUpdates,
                 )
             }
         },
@@ -445,6 +470,25 @@ private fun MangaDownloaderAppContent(
                     onDeleteSeries = viewModel::deleteDownloadedSeries,
                 )
             }
+            Screen.Updates -> {
+                UpdatesScreen(
+                    events = state.favoriteUpdates,
+                    padding = innerPadding,
+                    onSelect = viewModel::openMangaFromUpdate,
+                    onBrowse = goToSearchTab,
+                )
+            }
+            Screen.Backup -> {
+                BackupScreen(
+                    padding = innerPadding,
+                    onExport = { createBackupLauncher.launch("manga-downloader-backup.json") },
+                    onImportMerge = {
+                        backupImportMode = BackupRestoreMode.MERGE
+                        importBackupLauncher.launch(arrayOf("application/json", "*/*"))
+                    },
+                    onImportReplace = { showReplaceBackupConfirm = true },
+                )
+            }
             Screen.Settings -> {
                 SettingsScreen(
                     settings = state.settings,
@@ -482,6 +526,7 @@ private fun MangaDownloaderAppContent(
                         viewModel.setFavoriteNotificationsEnabled(enabled)
                     },
                     onOpenStorageManager = viewModel::openStorageManager,
+                    onOpenBackup = viewModel::openBackup,
                 )
             }
             Screen.Detail -> if (selectedManga != null) {
@@ -543,6 +588,12 @@ private fun MangaDownloaderAppContent(
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
+                            categories = state.favoriteCategories,
+                            assignments = state.favoriteCategoryAssignments,
+                            filterCategoryId = state.favoriteFilterCategoryId,
+                            sort = state.settings.favoriteSort,
+                            statusByKey = state.favoriteStatusByKey,
+                            seenByKey = state.favoriteSeenStates,
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,
                             onSelect = { favorite ->
@@ -556,6 +607,12 @@ private fun MangaDownloaderAppContent(
                                 )
                             },
                             onBrowse = goToSearchTab,
+                            onSelectSort = viewModel::setFavoriteSort,
+                            onSelectCategory = viewModel::setFavoriteFilterCategory,
+                            onAssignCategory = viewModel::assignFavoriteCategory,
+                            onAddCategory = viewModel::addFavoriteCategory,
+                            onRenameCategory = viewModel::renameFavoriteCategory,
+                            onRemoveCategory = viewModel::removeFavoriteCategory,
                         )
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,
@@ -568,6 +625,7 @@ private fun MangaDownloaderAppContent(
                             onStopDownloads = {
                                 workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
                             },
+                            onResume = viewModel::openReader,
                         )
                     }
                 }
@@ -582,6 +640,20 @@ private fun MangaDownloaderAppContent(
             )
         }
     }
+    }
+
+    if (showReplaceBackupConfirm) {
+        ConfirmationDialog(
+            title = "Sostituisci dati",
+            text = "I preferiti e le impostazioni attuali verranno rimpiazzati con quelli del backup. Continuare?",
+            confirmLabel = "Sostituisci",
+            onDismiss = { showReplaceBackupConfirm = false },
+            onConfirm = {
+                showReplaceBackupConfirm = false
+                backupImportMode = BackupRestoreMode.REPLACE
+                importBackupLauncher.launch(arrayOf("application/json", "*/*"))
+            },
+        )
     }
 
     lastCrashReport?.let { report ->

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
@@ -42,6 +43,7 @@ fun SettingsScreen(
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
     onToggleFavoriteNotifications: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
+    onOpenBackup: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -111,6 +113,10 @@ fun SettingsScreen(
                 onRequestChangePin = onRequestChangeParentalPin,
                 onToggleBiometric = onToggleParentalBiometric,
             )
+        }
+
+        SettingsSection(title = "Backup", icon = Icons.Default.Backup) {
+            BackupContent(onOpenBackup = onOpenBackup)
         }
 
         SettingsSection(title = "Labs (sperimentale)", icon = Icons.Default.Science) {

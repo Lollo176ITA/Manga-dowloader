@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,6 +51,28 @@ class FavoritesPersistenceTest {
         assertEquals("Berserk", favorites.first().title)
         assertEquals("https://mangapill.com/manga/12345/berserk", favorites.first().mangaUrl)
         assertEquals("https://cdn.mangapill.com/cover/berserk.jpeg", favorites.first().coverUrl)
+    }
+
+    @Test
+    fun favorites_addedAtStampedOnAddAndZeroForLegacy() {
+        createViewModel().toggleFavorite(
+            FavoriteManga(
+                sourceId = MangaSourceIds.MANGAPILL,
+                title = "Vinland Saga",
+                mangaUrl = "https://mangapill.com/manga/77/vinland",
+                coverUrl = null,
+            ),
+        )
+        assertTrue(createViewModel().state.value.favorites.first().addedAt > 0L)
+
+        // Formato storico senza addedAt → default 0.
+        prefs().edit()
+            .putString(
+                "favorites_json",
+                """[{"sourceId":"mangapill","title":"Naruto","mangaUrl":"https://mangapill.com/manga/9/naruto"}]""",
+            )
+            .commit()
+        assertEquals(0L, createViewModel().state.value.favorites.first().addedAt)
     }
 
     @Test

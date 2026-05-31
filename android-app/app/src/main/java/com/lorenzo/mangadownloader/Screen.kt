@@ -17,6 +17,8 @@ sealed interface Screen {
     data object Reader : Screen
     data object Settings : Screen
     data object StorageManager : Screen
+    data object Backup : Screen
+    data object Updates : Screen
 }
 
 /**
@@ -27,7 +29,9 @@ sealed interface Screen {
 fun MangaUiState.currentScreen(): Screen = when {
     readerChapter != null -> Screen.Reader
     showStorageManager -> Screen.StorageManager
+    showBackup -> Screen.Backup
     showSettings -> Screen.Settings
+    showUpdates -> Screen.Updates
     selected != null -> Screen.Detail
     currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
     else -> Screen.Tabs

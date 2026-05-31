@@ -50,9 +50,12 @@ class FavoriteUpdatesWorker(
         val seenMap = store.read().toMutableMap()
         val descriptionsStore = FavoriteDescriptionsStore(prefs)
         val descriptions = descriptionsStore.read().toMutableMap()
+        val feedStore = FavoriteUpdatesFeedStore(prefs)
+        var feedEvents = feedStore.read()
         val registry = sharedSourceRegistry(context)
         val notifier = FavoriteUpdateNotifier(context)
 
+        try {
         for (favorite in favorites) {
             val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
             val seen = seenMap[key]
@@ -77,6 +80,20 @@ class FavoriteUpdatesWorker(
                 seenMap[key] = result.newState
                 result.newChapterLabel?.let { label ->
                     notifier.notifyNewChapter(favorite, label)
+                    feedEvents = appendUpdateEvent(
+                        feedEvents,
+                        FavoriteUpdateEvent(
+                            identityKey = key,
+                            title = favorite.title,
+                            sourceId = favorite.sourceId,
+                            mangaUrl = favorite.mangaUrl,
+                            chapterLabel = label,
+                            chapterNumber = latest.numberValue.stripTrailingZeros().toPlainString(),
+                            coverUrl = favorite.coverUrl,
+                            timestampMillis = System.currentTimeMillis(),
+                            seen = false,
+                        ),
+                    )
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -84,9 +101,13 @@ class FavoriteUpdatesWorker(
                 // Best-effort: rete/parsing fallito su un preferito → si riprova al giro dopo.
             }
         }
-
-        store.write(seenMap)
-        descriptionsStore.write(descriptions)
+        } finally {
+            // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà
+            // (es. rete caduta), così non si rinotificano i capitoli già avvisati al giro dopo.
+            store.write(seenMap)
+            descriptionsStore.write(descriptions)
+            feedStore.write(feedEvents)
+        }
         return Result.success()
     }
 }

@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.biometric.BiometricManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -54,11 +55,19 @@ data class FavoriteManga(
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
+    val addedAt: Long = 0L,
 )
 
 /** Chiavi d'identità dei preferiti (ordine d'inserimento preservato), per `favoriteMangaKeys`. */
 private fun List<FavoriteManga>.identityKeys(): Set<String> =
     mapTo(linkedSetOf()) { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) }
+
+/** Mappa `identityKey -> stato pubblicazione` derivata dalla baseline notifiche (per sort/filtro). */
+private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPublicationStatus> =
+    mapValues { (_, seen) ->
+        runCatching { MangaPublicationStatus.valueOf(seen.status) }
+            .getOrDefault(MangaPublicationStatus.UNKNOWN)
+    }
 
 data class AppSettings(
     val searchSourceId: String = MangaSourceIds.DEFAULT,
@@ -85,6 +94,7 @@ data class AppSettings(
     val useDynamicColor: Boolean = false,
     val tutorialCompleted: Boolean = false,
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
+    val favoriteSort: FavoriteSort = FavoriteSort.DATE_ADDED,
 )
 
 enum class ParentalAction {
@@ -167,6 +177,11 @@ data class MangaUiState(
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
+    val favoriteCategories: List<FavoriteCategory> = emptyList(),
+    val favoriteCategoryAssignments: Map<String, String> = emptyMap(),
+    val favoriteFilterCategoryId: String? = null,
+    val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
+    val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
     val isSearching: Boolean = false,
     val selected: MangaDetails? = null,
     val selectedMangaReadChapterIds: Set<String> = emptySet(),
@@ -188,6 +203,9 @@ data class MangaUiState(
     val isInstallingUpdate: Boolean = false,
     val showSettings: Boolean = false,
     val showStorageManager: Boolean = false,
+    val showBackup: Boolean = false,
+    val showUpdates: Boolean = false,
+    val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val isBiometricAvailable: Boolean = false,
     val isParentalAuthInProgress: Boolean = false,
@@ -235,6 +253,17 @@ class MangaViewModel internal constructor(
     private val favoritesStore = FavoritesStore(prefs)
     private val recentSearchesStore = RecentSearchesStore(prefs)
     private val favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs)
+    private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
+    private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
+    private val favoriteCategoriesStore = FavoriteCategoriesStore(prefs)
+    private val backupManager = BackupManager(
+        favoritesStore = favoritesStore,
+        favoriteUpdatesStore = favoriteUpdatesStore,
+        favoriteDescriptionsStore = favoriteDescriptionsStore,
+        recentSearchesStore = recentSearchesStore,
+        settingsStore = settingsStore,
+        appVersionName = BuildConfig.VERSION_NAME,
+    )
 
     /**
      * Cache in memoria delle trame (descrizioni) per `identityKey`: il pulsante info diventa
@@ -246,6 +275,7 @@ class MangaViewModel internal constructor(
 
     private val initialFavorites = favoritesStore.read()
     private val initialSettings = settingsStore.read()
+    private val initialFavoriteSeen = favoriteUpdatesStore.read()
 
     private val _state = MutableStateFlow(
         MangaUiState(
@@ -260,6 +290,11 @@ class MangaViewModel internal constructor(
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
+            favoriteCategories = favoriteCategoriesStore.readCategories(),
+            favoriteCategoryAssignments = favoriteCategoriesStore.readAssignments(),
+            favoriteSeenStates = initialFavoriteSeen,
+            favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
+            favoriteUpdates = favoriteUpdatesFeedStore.read(),
             settings = if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
                 initialSettings.copy(tutorialCompleted = true)
             } else {
@@ -380,6 +415,54 @@ class MangaViewModel internal constructor(
         updateState { copy(favoritesQuery = text) }
     }
 
+    // --- Organizzazione preferiti: ordinamento, filtro categoria, gestione categorie ---
+
+    fun setFavoriteSort(sort: FavoriteSort) {
+        updateSettings { it.copy(favoriteSort = sort) }
+    }
+
+    fun setFavoriteFilterCategory(categoryId: String?) {
+        updateState { copy(favoriteFilterCategoryId = categoryId) }
+    }
+
+    /** Assegna (o rimuove, con `categoryId = null`) la categoria a un preferito. */
+    fun assignFavoriteCategory(identityKey: String, categoryId: String?) {
+        val current = _state.value.favoriteCategoryAssignments
+        val updated = if (categoryId == null) current - identityKey else current + (identityKey to categoryId)
+        if (updated == current) return
+        favoriteCategoriesStore.writeAssignments(updated)
+        updateState { copy(favoriteCategoryAssignments = updated) }
+    }
+
+    fun addFavoriteCategory(name: String) {
+        val updated = addCategory(_state.value.favoriteCategories, name)
+        if (updated == _state.value.favoriteCategories) return
+        favoriteCategoriesStore.writeCategories(updated)
+        updateState { copy(favoriteCategories = updated) }
+    }
+
+    fun renameFavoriteCategory(id: String, name: String) {
+        val updated = renameCategory(_state.value.favoriteCategories, id, name)
+        if (updated == _state.value.favoriteCategories) return
+        favoriteCategoriesStore.writeCategories(updated)
+        updateState { copy(favoriteCategories = updated) }
+    }
+
+    /** Elimina una categoria, ripulisce le assegnazioni orfane e azzera il filtro se era attivo. */
+    fun removeFavoriteCategory(id: String) {
+        val updatedCategories = removeCategory(_state.value.favoriteCategories, id)
+        val updatedAssignments = _state.value.favoriteCategoryAssignments.filterValues { it != id }
+        favoriteCategoriesStore.writeCategories(updatedCategories)
+        favoriteCategoriesStore.writeAssignments(updatedAssignments)
+        updateState {
+            copy(
+                favoriteCategories = updatedCategories,
+                favoriteCategoryAssignments = updatedAssignments,
+                favoriteFilterCategoryId = favoriteFilterCategoryId.takeIf { it != id },
+            )
+        }
+    }
+
     fun onLibraryQueryChange(text: String) {
         updateState { copy(libraryQuery = text) }
     }
@@ -428,7 +511,87 @@ class MangaViewModel internal constructor(
     }
 
     fun closeSettings() {
-        updateState { copy(showSettings = false, showStorageManager = false) }
+        updateState { copy(showSettings = false, showStorageManager = false, showBackup = false) }
+    }
+
+    fun openBackup() {
+        updateState { copy(showBackup = true) }
+    }
+
+    fun closeBackup() {
+        updateState { copy(showBackup = false) }
+    }
+
+    /** Esporta il backup nel documento scelto (SAF). L'IO gira fuori dal main thread. */
+    fun exportBackup(uri: Uri) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    getApplication<Application>().contentResolver.openOutputStream(uri)?.use { out ->
+                        backupManager.export(out, System.currentTimeMillis())
+                    } ?: error("Stream di output nullo")
+                }.isSuccess
+            }
+            updateState {
+                copy(errorMessage = if (ok) "Backup esportato" else "Esportazione del backup non riuscita")
+            }
+        }
+    }
+
+    /** Importa un backup dal documento scelto (SAF) e riflette i dati ripristinati nello stato. */
+    fun importBackup(uri: Uri, mode: BackupRestoreMode) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                        backupManager.restore(input, mode)
+                    }
+                }.getOrNull()
+            }
+            if (result == null) {
+                updateState { copy(errorMessage = "File di backup non valido") }
+                return@launch
+            }
+            mangaDescriptionCache.putAll(result.favoriteDescriptions)
+            // Riallinea le mappe in memoria alla baseline appena ripristinata, così i sort
+            // "Stato"/"Ultimo capitolo" sono corretti subito (non solo dopo un riavvio).
+            val restoredSeen = favoriteUpdatesStore.read()
+            // Pota le assegnazioni di categoria orfane (chiavi non più tra i preferiti).
+            val validKeys = result.favorites.identityKeys()
+            val prunedAssignments = _state.value.favoriteCategoryAssignments.filterKeys { it in validKeys }
+            if (prunedAssignments != _state.value.favoriteCategoryAssignments) {
+                favoriteCategoriesStore.writeAssignments(prunedAssignments)
+            }
+            // REPLACE = ripartenza pulita: svuota anche il feed degli aggiornamenti.
+            val clearFeed = result.mode == BackupRestoreMode.REPLACE
+            if (clearFeed) {
+                favoriteUpdatesFeedStore.write(emptyList())
+            }
+            updateState {
+                copy(
+                    favorites = result.favorites,
+                    favoriteMangaKeys = result.favorites.identityKeys(),
+                    favoriteCategoryAssignments = prunedAssignments,
+                    favoriteSeenStates = restoredSeen,
+                    favoriteStatusByKey = restoredSeen.toStatusMap(),
+                    favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
+                    recentSearches = result.recentSearches,
+                    settings = result.settings,
+                    errorMessage = restoreMessage(result),
+                )
+            }
+            // Le notifiche potrebbero essere cambiate col ripristino: risincronizza lo scheduler.
+            FavoriteUpdatesScheduler.setEnabled(
+                getApplication<Application>(),
+                result.settings.favoriteNewChapterNotificationsEnabled,
+            )
+            refreshLibrary()
+        }
+    }
+
+    private fun restoreMessage(result: BackupRestoreResult): String = when (result.mode) {
+        BackupRestoreMode.MERGE -> "Backup unito: ${result.favoritesAdded} nuovi preferiti"
+        BackupRestoreMode.REPLACE -> "Backup ripristinato: ${result.favoritesTotal} preferiti"
     }
 
     fun openStorageManager() {
@@ -438,6 +601,50 @@ class MangaViewModel internal constructor(
 
     fun closeStorageManager() {
         updateState { copy(showStorageManager = false) }
+    }
+
+    /**
+     * Apre il feed "Aggiornamenti". Rilegge gli eventi da disco così compaiono anche quelli
+     * scritti dal [FavoriteUpdatesWorker] mentre l'app era già avviata.
+     */
+    fun openUpdates() {
+        updateState { copy(showUpdates = true, favoriteUpdates = favoriteUpdatesFeedStore.read()) }
+    }
+
+    /** Chiude il feed marcando tutto come visto (azzera il badge). */
+    fun closeUpdates() {
+        markAllUpdatesSeen()
+        updateState { copy(showUpdates = false) }
+    }
+
+    /**
+     * Rilegge il feed da disco SENZA marcare come visto: aggiorna il badge quando il worker
+     * scrive nuovi eventi mentre l'app è in primo piano (es. al ritorno in foreground).
+     */
+    fun refreshUpdatesFeed() {
+        updateState { copy(favoriteUpdates = favoriteUpdatesFeedStore.read()) }
+    }
+
+    /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
+    fun markAllUpdatesSeen() {
+        val seen = markAllSeen(_state.value.favoriteUpdates)
+        if (seen == _state.value.favoriteUpdates) return
+        favoriteUpdatesFeedStore.write(seen)
+        updateState { copy(favoriteUpdates = seen) }
+    }
+
+    /** Tap su una riga del feed: chiude il feed e apre il dettaglio del manga. */
+    fun openMangaFromUpdate(event: FavoriteUpdateEvent) {
+        markAllUpdatesSeen()
+        updateState { copy(showUpdates = false) }
+        selectManga(
+            MangaSearchResult(
+                sourceId = event.sourceId,
+                title = event.title,
+                mangaUrl = event.mangaUrl,
+                coverUrl = event.coverUrl,
+            ),
+        )
     }
 
     fun setParentalControlEnabled(enabled: Boolean) {
@@ -929,6 +1136,14 @@ class MangaViewModel internal constructor(
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
                 cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                // Se è un preferito, aggiorna in memoria lo stato di pubblicazione per i sort/filtri
+                // (utile quando le notifiche non hanno ancora popolato la baseline).
+                val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
+                val updatedStatusByKey = if (detailsKey in _state.value.favoriteMangaKeys) {
+                    _state.value.favoriteStatusByKey + (detailsKey to details.status)
+                } else {
+                    _state.value.favoriteStatusByKey
+                }
                 updateState {
                     copy(
                         selected = details,
@@ -936,6 +1151,7 @@ class MangaViewModel internal constructor(
                             details.sourceId,
                             details.mangaUrl,
                         ),
+                        favoriteStatusByKey = updatedStatusByKey,
                         isLoadingDetails = false,
                     )
                 }
@@ -1047,13 +1263,22 @@ class MangaViewModel internal constructor(
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
         } else {
-            current.add(0, manga)
+            current.add(0, manga.copy(addedAt = System.currentTimeMillis()))
         }
         favoritesStore.persist(current)
+        // Rimuovendo un preferito, scarta anche l'eventuale assegnazione di categoria orfana.
+        val assignments = if (existingIndex >= 0 && targetKey in _state.value.favoriteCategoryAssignments) {
+            (_state.value.favoriteCategoryAssignments - targetKey).also {
+                favoriteCategoriesStore.writeAssignments(it)
+            }
+        } else {
+            _state.value.favoriteCategoryAssignments
+        }
         updateState {
             copy(
                 favorites = current,
                 favoriteMangaKeys = current.identityKeys(),
+                favoriteCategoryAssignments = assignments,
             )
         }
         if (existingIndex < 0) {
@@ -1386,10 +1611,13 @@ class MangaViewModel internal constructor(
         // Unico punto di persistenza: stessa chiave (relativePath) per scaricati e streaming.
         // Scrittura immediata (prefs.apply è già asincrono): la posizione deve essere durevole
         // anche se l'app viene chiusa subito dopo, senza attendere alcun boundary.
+        // Il timestamp di lettura si scrive SOLO qui (avanzamento reale di pagina), non nei
+        // restore di apertura, così "Continua a leggere" ordina per lettura, non per apertura.
         libraryRepository.saveReaderPagePosition(
             relativePath = chapter.relativePath,
             pageIndex = nextPageIndex,
             pageCount = safePageCount,
+            lastReadAtMillis = System.currentTimeMillis(),
         )
 
         // A fine capitolo marca "letto" nello store giusto (metadata per gli scaricati,
@@ -1530,7 +1758,9 @@ class MangaViewModel internal constructor(
         when (_state.value.currentScreen()) {
             Screen.Reader -> closeReader()
             Screen.StorageManager -> closeStorageManager()
+            Screen.Backup -> closeBackup()
             Screen.Settings -> closeSettings()
+            Screen.Updates -> closeUpdates()
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
             Screen.Tabs -> Unit

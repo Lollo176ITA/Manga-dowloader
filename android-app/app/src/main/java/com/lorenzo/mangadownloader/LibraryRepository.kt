@@ -34,11 +34,13 @@ data class DownloadedChapter(
     val isRead: Boolean,
     val readerPageIndex: Int?,
     val readerPageCount: Int?,
+    val lastReadAtMillis: Long? = null,
 )
 
 data class ReaderPagePosition(
     val pageIndex: Int,
     val pageCount: Int?,
+    val lastReadAtMillis: Long? = null,
 )
 
 data class DownloadedSeries(
@@ -357,6 +359,7 @@ object LibraryScanner {
                     isRead = chapterIsRead,
                     readerPageIndex = pagePosition?.pageIndex,
                     readerPageCount = pagePosition?.pageCount,
+                    lastReadAtMillis = pagePosition?.lastReadAtMillis,
                 )
             }
             .sortedWith(DownloadStorage.chapterComparator())
@@ -558,9 +561,13 @@ class LibraryRepository(
         val pageCount = prefs
             .getInt(readerPageCountPrefKey(relativePath), -1)
             .takeIf { it > 0 }
+        val lastReadAtMillis = prefs
+            .getLong(readerReadAtPrefKey(relativePath), 0L)
+            .takeIf { it > 0L }
         return ReaderPagePosition(
             pageIndex = pageIndex,
             pageCount = pageCount,
+            lastReadAtMillis = lastReadAtMillis,
         )
     }
 
@@ -568,12 +575,16 @@ class LibraryRepository(
         relativePath: String,
         pageIndex: Int,
         pageCount: Int?,
+        lastReadAtMillis: Long? = null,
     ) {
         prefs.edit()
             .putInt(readerPageIndexPrefKey(relativePath), pageIndex.coerceAtLeast(0))
             .apply {
                 if (pageCount != null && pageCount > 0) {
                     putInt(readerPageCountPrefKey(relativePath), pageCount)
+                }
+                if (lastReadAtMillis != null && lastReadAtMillis > 0L) {
+                    putLong(readerReadAtPrefKey(relativePath), lastReadAtMillis)
                 }
             }
             .apply()
@@ -731,11 +742,13 @@ class LibraryRepository(
                 .remove(readPrefKey(relativePath))
                 .remove(readerPageIndexPrefKey(relativePath))
                 .remove(readerPageCountPrefKey(relativePath))
+                .remove(readerReadAtPrefKey(relativePath))
                 .apply()
         } else {
             prefs.edit()
                 .remove(readerPageIndexPrefKey(relativePath))
                 .remove(readerPageCountPrefKey(relativePath))
+                .remove(readerReadAtPrefKey(relativePath))
                 .apply()
         }
         val cacheDir = File(
@@ -750,6 +763,7 @@ class LibraryRepository(
     private fun readPrefKey(relativePath: String): String = "read::$relativePath"
     private fun readerPageIndexPrefKey(relativePath: String): String = "reader_page_index::$relativePath"
     private fun readerPageCountPrefKey(relativePath: String): String = "reader_page_count::$relativePath"
+    private fun readerReadAtPrefKey(relativePath: String): String = "reader_read_at::$relativePath"
     private fun streamingReadPrefKey(sourceId: String, mangaUrl: String): String {
         return "streaming_read::${MangaSourceCatalog.identityKey(sourceId, mangaUrl)}"
     }

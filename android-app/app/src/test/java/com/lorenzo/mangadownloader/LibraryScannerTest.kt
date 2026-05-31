@@ -6,6 +6,7 @@ import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -117,6 +118,29 @@ class LibraryScannerTest {
         assertEquals(2, series.chapters.first().readerPageIndex)
         assertEquals(10, series.chapters.first().readerPageCount)
         assertEquals("1", series.resumeChapter()?.numberText)
+    }
+
+    @Test
+    fun scan_threadsLastReadAtMillis_andNullWhenAbsent() {
+        val root = createTempDirectory()
+        val seriesDir = File(root, "my_series").apply { mkdirs() }
+        File(seriesDir, "chapter_001.cbz").writeText("chapter1")
+        File(seriesDir, "chapter_002.cbz").writeText("chapter2")
+
+        val series = LibraryScanner.scan(
+            root = root,
+            isRead = { false },
+            readerPagePosition = { relativePath ->
+                if (relativePath.endsWith("chapter_001.cbz")) {
+                    ReaderPagePosition(pageIndex = 2, pageCount = 10, lastReadAtMillis = 123_456L)
+                } else {
+                    ReaderPagePosition(pageIndex = 0, pageCount = 10, lastReadAtMillis = null)
+                }
+            },
+        ).first()
+
+        assertEquals(123_456L, series.chapters.first().lastReadAtMillis)
+        assertNull(series.chapters.last().lastReadAtMillis)
     }
 
     @Test

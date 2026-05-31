@@ -52,6 +52,12 @@ class SettingsStore(private val prefs: SharedPreferences) {
             useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
             tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
             favoriteNewChapterNotificationsEnabled = prefs.getBoolean(KEY_FAVORITE_NOTIFICATIONS, false),
+            favoriteSort = runCatching {
+                FavoriteSort.valueOf(
+                    prefs.getString(KEY_FAVORITE_SORT, FavoriteSort.DATE_ADDED.name)
+                        ?: FavoriteSort.DATE_ADDED.name,
+                )
+            }.getOrDefault(FavoriteSort.DATE_ADDED),
         )
     }
 
@@ -81,6 +87,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             .putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
+            .putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
             .apply()
     }
 
@@ -110,5 +117,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         const val KEY_FAVORITE_NOTIFICATIONS = "favorite_new_chapter_notifications"
+        const val KEY_FAVORITE_SORT = "favorite_sort"
     }
 }

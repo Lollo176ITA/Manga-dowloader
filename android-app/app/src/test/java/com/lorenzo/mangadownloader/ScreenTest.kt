@@ -45,6 +45,38 @@ class ScreenTest {
     }
 
     @Test
+    fun currentScreen_backupAboveSettingsBelowStorage() {
+        assertEquals(
+            Screen.Backup,
+            MangaUiState(showSettings = true, showBackup = true).currentScreen(),
+        )
+        assertEquals(
+            Screen.StorageManager,
+            MangaUiState(showBackup = true, showStorageManager = true).currentScreen(),
+        )
+    }
+
+    @Test
+    fun currentScreen_updatesAboveTabsBelowDetail() {
+        assertEquals(Screen.Updates, MangaUiState(showUpdates = true).currentScreen())
+        // Aprendo un manga dal feed: showUpdates viene azzerato e selected impostato → Detail.
+        assertEquals(
+            Screen.Detail,
+            MangaUiState(showUpdates = false, selected = details()).currentScreen(),
+        )
+        // Le impostazioni stanno sopra il feed.
+        assertEquals(
+            Screen.Settings,
+            MangaUiState(showUpdates = true, showSettings = true).currentScreen(),
+        )
+    }
+
+    @Test
+    fun canHandleBack_trueWhenUpdatesOpen() {
+        assertTrue(MangaUiState(showUpdates = true).canHandleBack())
+    }
+
+    @Test
     fun currentScreen_readerWinsOverEverything() {
         assertEquals(
             Screen.Reader,

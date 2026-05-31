@@ -32,6 +32,7 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                         title = title,
                         mangaUrl = mangaUrl,
                         coverUrl = entry.coverUrl,
+                        addedAt = entry.addedAt,
                     )
                 }
             }
@@ -47,6 +48,7 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                 title = it.title,
                 mangaUrl = it.mangaUrl,
                 coverUrl = it.coverUrl,
+                addedAt = it.addedAt,
             )
         }
         prefs.edit()
@@ -61,6 +63,7 @@ class FavoritesStore(private val prefs: SharedPreferences) {
         val title: String = "",
         val mangaUrl: String = "",
         val coverUrl: String? = null,
+        val addedAt: Long = 0L,
     )
 
     private companion object {

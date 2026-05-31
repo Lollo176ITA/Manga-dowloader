@@ -1,8 +1,10 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -429,15 +431,22 @@ fun FavoriteToggleBadge(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FavoriteCard(
     favorite: FavoriteManga,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
+    val clickModifier = if (onLongClick != null) {
+        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .then(clickModifier),
         shape = MaterialTheme.shapes.extraLarge,
         colors = appCardColors(),
     ) {

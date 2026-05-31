@@ -32,6 +32,7 @@ fun LibraryScreen(
     onQueryChange: (String) -> Unit,
     onBrowse: () -> Unit,
     onStopDownloads: () -> Unit,
+    onResume: (DownloadedChapter) -> Unit,
 ) {
     val rows = remember(state.library, state.libraryQuery, downloadStatuses) {
         buildLibraryRowItems(
@@ -43,6 +44,8 @@ fun LibraryScreen(
     val hasActiveDownloads = remember(downloadStatuses) {
         downloadStatuses.values.any(::isActiveDownload)
     }
+    // "Continua a leggere": mostrata solo senza filtro di ricerca attivo.
+    val continueItem = remember(state.library) { state.library.mostRecentInProgressChapter() }
 
     Box(
         modifier = Modifier
@@ -90,6 +93,14 @@ fun LibraryScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        if (continueItem != null && state.libraryQuery.isBlank()) {
+                            item(key = "continue-reading") {
+                                ContinueReadingCard(
+                                    item = continueItem,
+                                    onResume = onResume,
+                                )
+                            }
+                        }
                         items(rows, key = { it.key }) { row ->
                             val rowModifier = if (row.key == firstKey) {
                                 anchorFor(TutorialAnchor.LIBRARY_SERIES_FIRST)

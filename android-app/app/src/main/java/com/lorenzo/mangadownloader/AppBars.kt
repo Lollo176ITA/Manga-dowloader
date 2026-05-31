@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -87,6 +88,7 @@ fun AppTopBar(
         readerChapter != null -> readerChapter.title
         selectedManga != null -> selectedManga.title
         state.currentTab == AppTab.LIBRARY && selectedSeries != null -> selectedSeries.title
+        visibleTab == AppTab.DISCOVERY -> "Scopri"
         visibleTab == AppTab.SEARCH -> "Cerca"
         visibleTab == AppTab.FAVORITES -> "Preferiti"
         visibleTab == AppTab.LIBRARY -> "Libreria"
@@ -402,6 +404,13 @@ fun AppBottomBar(
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
+        AppTabEntry(
+            tab = AppTab.DISCOVERY,
+            selected = currentTab == AppTab.DISCOVERY,
+            icon = Icons.Default.Explore,
+            label = "Scopri",
+            onSelect = onSelect,
+        )
         AppTabEntry(
             tab = AppTab.SEARCH,
             selected = currentTab == AppTab.SEARCH,

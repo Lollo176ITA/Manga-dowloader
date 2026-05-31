@@ -513,6 +513,15 @@ private fun MangaDownloaderAppContent(
                     userScrollEnabled = showPager,
                 ) { page ->
                     when (AppTab.entries[page]) {
+                        AppTab.DISCOVERY -> DiscoveryScreen(
+                            state = state,
+                            padding = innerPadding,
+                            onLoad = viewModel::loadDiscovery,
+                            onSelectGenre = viewModel::selectDiscoveryGenre,
+                            onPick = viewModel::onPickAniListManga,
+                            onShowInfo = viewModel::showDiscoveryInfo,
+                            onDismissInfo = viewModel::dismissDiscoveryInfo,
+                        )
                         AppTab.SEARCH -> SearchScreen(
                             state = state,
                             padding = innerPadding,

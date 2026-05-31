@@ -10,6 +10,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,10 +23,31 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class AppTab {
+    DISCOVERY,
     SEARCH,
     FAVORITES,
     LIBRARY,
 }
+
+/**
+ * Stato della tab "Scopri" (AniList). AniList fornisce solo metadati: le tre sezioni a caroselli
+ * ([trending]/[topRated]/[newest]) e la ricerca per [selectedGenre] mostrano [AniListManga], che
+ * NON sono scaricabili direttamente — il tap fa il "ponte" verso le fonti reali (vedi
+ * [MangaViewModel.onPickAniListManga]). [info] è il manga di cui mostrare la trama nel dialog.
+ */
+data class DiscoveryUiState(
+    val trending: List<AniListManga> = emptyList(),
+    val topRated: List<AniListManga> = emptyList(),
+    val newest: List<AniListManga> = emptyList(),
+    val isLoadingSections: Boolean = false,
+    val sectionsError: String? = null,
+    val loaded: Boolean = false,
+    val selectedGenre: String? = null,
+    val genreResults: List<AniListManga> = emptyList(),
+    val isLoadingGenre: Boolean = false,
+    val genreError: String? = null,
+    val info: AniListManga? = null,
+)
 
 data class FavoriteManga(
     val sourceId: String,
@@ -136,6 +160,10 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
+    // Ricerca arrivata dalla tab Scopri (ponte AniList→fonti): aggrega TUTTE le fonti invece
+    // della sola fonte selezionata. Si disattiva appena l'utente ridigita nella barra.
+    val bridgeSearchActive: Boolean = false,
+    val discovery: DiscoveryUiState = DiscoveryUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
     val isSearching: Boolean = false,
@@ -195,6 +223,7 @@ class MangaViewModel internal constructor(
     constructor(application: Application) : this(application, AppUpdateRepository(application))
 
     private val sourceRegistry = sharedSourceRegistry(application)
+    private val aniListClient = AniListClient(SharedHttpClient.get(application))
     private val libraryRepository = sharedLibraryRepository(application)
     private val streamingCacheRepository = StreamingReaderCacheRepository(
         context = application,
@@ -219,7 +248,13 @@ class MangaViewModel internal constructor(
 
     private val _state = MutableStateFlow(
         MangaUiState(
-            currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
+            // Parental → Libreria (Cerca bloccato). Nuovi utenti col tutorial → Cerca (il
+            // tutorial guida la barra di ricerca). Tutti gli altri → Scopri, la vetrina.
+            currentTab = when {
+                initialSettings.parentalControlEnabled -> AppTab.LIBRARY
+                initialSettings.shouldStartTutorial(initialFavorites) -> AppTab.SEARCH
+                else -> AppTab.DISCOVERY
+            },
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
@@ -239,6 +274,8 @@ class MangaViewModel internal constructor(
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var discoveryJob: Job? = null
+    private var discoveryGenreJob: Job? = null
     private var detailJob: Job? = null
     private var infoJob: Job? = null
     private var libraryJob: Job? = null
@@ -266,10 +303,15 @@ class MangaViewModel internal constructor(
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { it.query.trim() to it.settings.searchSourceId }
+                .map { Triple(it.query.trim(), it.settings.searchSourceId, it.bridgeSearchActive) }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (q, sourceId) ->
+                .collect { (q, sourceId, bridge) ->
+                    if (bridge) {
+                        // Ponte dalla tab Scopri: cerca su tutte le fonti, ignora la fonte singola.
+                        if (q.isNotEmpty()) runAggregatedSearch(q)
+                        return@collect
+                    }
                     val searchConfig = MangaSourceCatalog.searchConfig(sourceId)
                     when {
                         q.isEmpty() && searchConfig.showAllOnEmptyQuery -> runSearch("")
@@ -299,11 +341,16 @@ class MangaViewModel internal constructor(
     }
 
     fun onQueryChange(text: String) {
-        updateState { copy(query = text) }
+        // Digitare nella barra esce dalla modalità "ponte" e torna alla ricerca per fonte singola.
+        updateState { copy(query = text, bridgeSearchActive = false) }
     }
 
     fun submitSearch() {
         val q = _state.value.query.trim()
+        if (_state.value.bridgeSearchActive) {
+            if (q.isNotEmpty()) runAggregatedSearch(q)
+            return
+        }
         val searchConfig = MangaSourceCatalog.searchConfig(_state.value.settings.searchSourceId)
         if (q.isEmpty() && searchConfig.showAllOnEmptyQuery) {
             runSearch("")
@@ -1679,6 +1726,172 @@ class MangaViewModel internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Ricerca aggregata su TUTTE le fonti, usata dal ponte AniList→fonti (tab Scopri): lo stesso
+     * titolo può esistere su fonti diverse e l'utente sceglie quale scaricare. Ogni fonte è
+     * interrogata in parallelo e i fallimenti della singola fonte sono ignorati (best-effort),
+     * così una fonte down non azzera i risultati delle altre.
+     */
+    private fun runAggregatedSearch(query: String) {
+        searchJob?.cancel()
+        updateState { copy(isSearching = true, errorMessage = null) }
+        searchJob = viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        MangaSourceCatalog.descriptors
+                            .map { descriptor ->
+                                async {
+                                    runCatching {
+                                        sourceRegistry.requireById(descriptor.id).searchManga(query)
+                                    }.getOrDefault(emptyList())
+                                }
+                            }
+                            .awaitAll()
+                            .flatten()
+                    }
+                }
+                updateState { copy(results = results, isSearching = false) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        isSearching = false,
+                        errorMessage = exc.message ?: "Errore di ricerca",
+                    )
+                }
+            }
+        }
+    }
+
+    // --- Tab Scopri (AniList) -------------------------------------------------------------
+
+    /** Carica le tre sezioni a caroselli (tendenze, più votati, novità). Idempotente. */
+    fun loadDiscovery(forceRefresh: Boolean = false) {
+        val current = _state.value.discovery
+        if (!forceRefresh && (current.loaded || current.isLoadingSections)) {
+            return
+        }
+        discoveryJob?.cancel()
+        updateState { copy(discovery = discovery.copy(isLoadingSections = true, sectionsError = null)) }
+        discoveryJob = viewModelScope.launch {
+            try {
+                val sections = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        val trending = async { aniListClient.fetchMedia(AniListSort.TRENDING) }
+                        val topRated = async { aniListClient.fetchMedia(AniListSort.TOP_RATED) }
+                        val newest = async { aniListClient.fetchMedia(AniListSort.NEWEST) }
+                        Triple(trending.await(), topRated.await(), newest.await())
+                    }
+                }
+                updateState {
+                    copy(
+                        discovery = discovery.copy(
+                            trending = sections.first,
+                            topRated = sections.second,
+                            newest = sections.third,
+                            isLoadingSections = false,
+                            loaded = true,
+                            sectionsError = null,
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        discovery = discovery.copy(
+                            isLoadingSections = false,
+                            sectionsError = exc.message ?: "Errore caricamento Scopri",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Filtra per genere (o azzera il filtro con `null`), caricando i più popolari del genere. */
+    fun selectDiscoveryGenre(genre: String?) {
+        discoveryGenreJob?.cancel()
+        if (genre == null) {
+            updateState {
+                copy(
+                    discovery = discovery.copy(
+                        selectedGenre = null,
+                        genreResults = emptyList(),
+                        isLoadingGenre = false,
+                        genreError = null,
+                    ),
+                )
+            }
+            return
+        }
+        updateState {
+            copy(
+                discovery = discovery.copy(
+                    selectedGenre = genre,
+                    genreResults = emptyList(),
+                    isLoadingGenre = true,
+                    genreError = null,
+                ),
+            )
+        }
+        discoveryGenreJob = viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    aniListClient.fetchMedia(AniListSort.POPULAR, genre = genre)
+                }
+                updateState {
+                    // Scarta i risultati se nel frattempo il genere selezionato è cambiato.
+                    if (discovery.selectedGenre != genre) this
+                    else copy(discovery = discovery.copy(genreResults = results, isLoadingGenre = false))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    if (discovery.selectedGenre != genre) this
+                    else copy(
+                        discovery = discovery.copy(
+                            isLoadingGenre = false,
+                            genreError = exc.message ?: "Errore caricamento genere",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Ponte AniList→fonti: prende il titolo del manga scoperto (English→romaji) e lo cerca su
+     * tutte le fonti reali, portando l'utente nella tab Cerca. Rispetta il parental control
+     * (Cerca passa dallo sblocco), riusando [selectTab].
+     */
+    fun onPickAniListManga(manga: AniListManga) {
+        val title = manga.searchTitle() ?: return
+        updateState {
+            copy(
+                query = title,
+                bridgeSearchActive = true,
+                results = emptyList(),
+                isSearching = true,
+                errorMessage = null,
+                discovery = discovery.copy(info = null),
+            )
+        }
+        selectTab(AppTab.SEARCH)
+    }
+
+    fun showDiscoveryInfo(manga: AniListManga) {
+        updateState { copy(discovery = discovery.copy(info = manga)) }
+    }
+
+    fun dismissDiscoveryInfo() {
+        updateState { copy(discovery = discovery.copy(info = null)) }
     }
 
     private fun requestSearchAccess() {

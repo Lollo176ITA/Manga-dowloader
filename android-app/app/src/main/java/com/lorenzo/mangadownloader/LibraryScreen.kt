@@ -58,12 +58,7 @@ fun LibraryScreen(
 
             when {
                 state.isLoadingLibrary && rows.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.TopCenter,
-                    ) {
-                        AppLoadingIndicator(modifier = Modifier.padding(top = 24.dp))
-                    }
+                    FullScreenLoading()
                 }
                 rows.isEmpty() && state.library.isEmpty() && downloadStatuses.isEmpty() -> {
                     EmptyState(

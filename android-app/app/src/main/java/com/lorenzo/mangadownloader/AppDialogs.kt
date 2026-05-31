@@ -172,23 +172,15 @@ fun ParentalPinSetupDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Scegli un PIN numerico di 6 cifre per proteggere Cerca.")
-                OutlinedTextField(
+                PinTextField(
                     value = state.pin,
                     onValueChange = onPinChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("PIN") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    label = "PIN",
                 )
-                OutlinedTextField(
+                PinTextField(
                     value = state.confirmPin,
                     onValueChange = onConfirmPinChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Conferma PIN") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    label = "Conferma PIN",
                 )
                 state.errorMessage?.let { message ->
                     Text(text = message)
@@ -222,14 +214,10 @@ fun ParentalPinEntryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Inserisci il PIN parental di 6 cifre.")
-                OutlinedTextField(
+                PinTextField(
                     value = state.pin,
                     onValueChange = onPinChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("PIN") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    label = "PIN",
                 )
                 state.errorMessage?.let { message ->
                     Text(text = message)
@@ -249,8 +237,12 @@ fun ParentalPinEntryDialog(
     )
 }
 
+/**
+ * Dialog di conferma riusabile (titolo + testo + azione di conferma + "Annulla").
+ * Usato da [DeleteChapterDialog] e dai dialog di eliminazione serie (libreria, archivio).
+ */
 @Composable
-private fun ConfirmationDialog(
+fun ConfirmationDialog(
     title: String,
     text: String,
     confirmLabel: String,
@@ -272,5 +264,24 @@ private fun ConfirmationDialog(
                 Text("Annulla")
             }
         },
+    )
+}
+
+/** Campo di testo per un PIN numerico (mascherato, tastiera numerica). Riusato dai dialog parental. */
+@Composable
+private fun PinTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
     )
 }

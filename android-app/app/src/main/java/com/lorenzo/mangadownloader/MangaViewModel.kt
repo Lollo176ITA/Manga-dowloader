@@ -32,6 +32,10 @@ data class FavoriteManga(
     val coverUrl: String?,
 )
 
+/** Chiavi d'identità dei preferiti (ordine d'inserimento preservato), per `favoriteMangaKeys`. */
+private fun List<FavoriteManga>.identityKeys(): Set<String> =
+    mapTo(linkedSetOf()) { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) }
+
 data class AppSettings(
     val searchSourceId: String = MangaSourceIds.DEFAULT,
     val autoDownloadEnabled: Boolean = false,
@@ -207,9 +211,7 @@ class MangaViewModel internal constructor(
             currentTab = if (initialSettings.parentalControlEnabled) AppTab.LIBRARY else AppTab.SEARCH,
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
-            favoriteMangaKeys = initialFavorites.mapTo(linkedSetOf()) {
-                MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
-            },
+            favoriteMangaKeys = initialFavorites.identityKeys(),
             settings = if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
                 initialSettings.copy(tutorialCompleted = true)
             } else {
@@ -751,15 +753,17 @@ class MangaViewModel internal constructor(
                     mangaUrl = match.mangaUrl,
                     coverUrl = match.coverUrl,
                 )
-                _state.value = _state.value.copy(
-                    query = "One Piece",
-                    results = results,
-                    isSearching = false,
-                    tutorialState = _state.value.tutorialState.copy(
-                        phase = TutorialPhase.AwaitingSearchBar,
-                        sample = sample,
-                    ),
-                )
+                updateState {
+                    copy(
+                        query = "One Piece",
+                        results = results,
+                        isSearching = false,
+                        tutorialState = tutorialState.copy(
+                            phase = TutorialPhase.AwaitingSearchBar,
+                            sample = sample,
+                        ),
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -785,9 +789,7 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(
                     favorites = current,
-                    favoriteMangaKeys = current.mapTo(linkedSetOf()) {
-                        MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
-                    },
+                    favoriteMangaKeys = current.identityKeys(),
                 )
             }
         }
@@ -829,99 +831,113 @@ class MangaViewModel internal constructor(
         }
         detailJob?.cancel()
         val readChapterIds = libraryRepository.streamingReadChapterIds(result.sourceId, result.mangaUrl)
-        _state.value = _state.value.copy(
-            isLoadingDetails = true,
-            errorMessage = null,
-            selectedMangaReadChapterIds = readChapterIds,
-            selected = MangaDetails(
-                sourceId = result.sourceId,
-                title = result.title,
-                coverUrl = result.coverUrl,
-                mangaUrl = result.mangaUrl,
-                chapters = emptyList(),
-            ),
-        )
+        updateState {
+            copy(
+                isLoadingDetails = true,
+                errorMessage = null,
+                selectedMangaReadChapterIds = readChapterIds,
+                selected = MangaDetails(
+                    sourceId = result.sourceId,
+                    title = result.title,
+                    coverUrl = result.coverUrl,
+                    mangaUrl = result.mangaUrl,
+                    chapters = emptyList(),
+                ),
+            )
+        }
         detailJob = viewModelScope.launch {
             try {
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                _state.value = _state.value.copy(
-                    selected = details,
-                    selectedMangaReadChapterIds = libraryRepository.streamingReadChapterIds(
-                        details.sourceId,
-                        details.mangaUrl,
-                    ),
-                    isLoadingDetails = false,
-                )
+                updateState {
+                    copy(
+                        selected = details,
+                        selectedMangaReadChapterIds = libraryRepository.streamingReadChapterIds(
+                            details.sourceId,
+                            details.mangaUrl,
+                        ),
+                        isLoadingDetails = false,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingDetails = false,
-                    errorMessage = exc.message ?: "Errore caricamento manga",
-                )
+                updateState {
+                    copy(
+                        isLoadingDetails = false,
+                        errorMessage = exc.message ?: "Errore caricamento manga",
+                    )
+                }
             }
         }
     }
 
     fun showMangaInfo(result: MangaSearchResult) {
         infoJob?.cancel()
-        _state.value = _state.value.copy(
-            mangaInfoDialog = MangaInfoDialogState(
-                sourceId = result.sourceId,
-                title = result.title,
-                mangaUrl = result.mangaUrl,
-                coverUrl = result.coverUrl,
-                isLoading = true,
-            ),
-            errorMessage = null,
-        )
+        updateState {
+            copy(
+                mangaInfoDialog = MangaInfoDialogState(
+                    sourceId = result.sourceId,
+                    title = result.title,
+                    mangaUrl = result.mangaUrl,
+                    coverUrl = result.coverUrl,
+                    isLoading = true,
+                ),
+                errorMessage = null,
+            )
+        }
         infoJob = viewModelScope.launch {
             try {
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                _state.value = _state.value.copy(
-                    mangaInfoDialog = MangaInfoDialogState(
-                        sourceId = details.sourceId,
-                        title = details.title,
-                        mangaUrl = details.mangaUrl,
-                        coverUrl = details.coverUrl,
-                        description = details.description,
-                        isLoading = false,
-                    ),
-                )
+                updateState {
+                    copy(
+                        mangaInfoDialog = MangaInfoDialogState(
+                            sourceId = details.sourceId,
+                            title = details.title,
+                            mangaUrl = details.mangaUrl,
+                            coverUrl = details.coverUrl,
+                            description = details.description,
+                            isLoading = false,
+                        ),
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    mangaInfoDialog = MangaInfoDialogState(
-                        sourceId = result.sourceId,
-                        title = result.title,
-                        mangaUrl = result.mangaUrl,
-                        coverUrl = result.coverUrl,
-                        isLoading = false,
-                        errorMessage = exc.message ?: "Errore caricamento trama",
-                    ),
-                )
+                updateState {
+                    copy(
+                        mangaInfoDialog = MangaInfoDialogState(
+                            sourceId = result.sourceId,
+                            title = result.title,
+                            mangaUrl = result.mangaUrl,
+                            coverUrl = result.coverUrl,
+                            isLoading = false,
+                            errorMessage = exc.message ?: "Errore caricamento trama",
+                        ),
+                    )
+                }
             }
         }
     }
 
     fun dismissMangaInfo() {
         infoJob?.cancel()
-        _state.value = _state.value.copy(mangaInfoDialog = null)
+        updateState { copy(mangaInfoDialog = null) }
     }
 
     fun clearSelection() {
         detailJob?.cancel()
-        _state.value = _state.value.copy(
-            selected = null,
-            selectedMangaReadChapterIds = emptySet(),
-            isLoadingDetails = false,
-            errorMessage = null,
-        )
+        updateState {
+            copy(
+                selected = null,
+                selectedMangaReadChapterIds = emptySet(),
+                isLoadingDetails = false,
+                errorMessage = null,
+            )
+        }
     }
 
     fun toggleFavorite(manga: FavoriteManga) {
@@ -939,9 +955,7 @@ class MangaViewModel internal constructor(
         updateState {
             copy(
                 favorites = current,
-                favoriteMangaKeys = current.mapTo(linkedSetOf()) {
-                    MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
-                },
+                favoriteMangaKeys = current.identityKeys(),
             )
         }
     }
@@ -964,14 +978,16 @@ class MangaViewModel internal constructor(
         libraryJob = viewModelScope.launch {
             try {
                 val snapshot = scanLibrarySnapshot(forceRefresh)
-                _state.value = _state.value.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
+                updateState { withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingLibrary = false,
-                    errorMessage = exc.message ?: "Errore caricamento libreria",
-                )
+                updateState {
+                    copy(
+                        isLoadingLibrary = false,
+                        errorMessage = exc.message ?: "Errore caricamento libreria",
+                    )
+                }
             }
         }
     }
@@ -1045,39 +1061,45 @@ class MangaViewModel internal constructor(
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
         val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
 
-        _state.value = _state.value.copy(
-            readerChapter = initialReaderChapter,
-            readerPreviousChapter = null,
-            readerNextChapter = null,
-            readerPages = emptyList(),
-            readerInitialPageIndex = savedPageIndex,
-            readerSeriesKey = seriesKey,
-            readerReadingMode = resolveReadingMode(seriesKey),
-            isLoadingReader = true,
-            errorMessage = null,
-        )
-            .withReaderProgress(chapter.relativePath, pageIndex = savedPageIndex, pageCount = chapter.readerPageCount)
-            .withReaderAdjacency(chapter.relativePath)
+        updateState {
+            copy(
+                readerChapter = initialReaderChapter,
+                readerPreviousChapter = null,
+                readerNextChapter = null,
+                readerPages = emptyList(),
+                readerInitialPageIndex = savedPageIndex,
+                readerSeriesKey = seriesKey,
+                readerReadingMode = resolveReadingMode(seriesKey),
+                isLoadingReader = true,
+                errorMessage = null,
+            )
+                .withReaderProgress(chapter.relativePath, pageIndex = savedPageIndex, pageCount = chapter.readerPageCount)
+                .withReaderAdjacency(chapter.relativePath)
+        }
 
         readerJob = viewModelScope.launch {
             try {
                 val pages = libraryRepository.extractReaderPages(chapter)
                 val restoredPageIndex = savedPageIndex.coerceIn(0, pages.lastIndex.coerceAtLeast(0))
                 libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
-                _state.value = _state.value.copy(
-                    readerPages = pages.map(ReaderPage::Local),
-                    readerInitialPageIndex = restoredPageIndex,
-                    isLoadingReader = false,
-                )
-                    .withReaderProgress(chapter.relativePath, pageIndex = restoredPageIndex, pageCount = pages.size)
-                    .withReaderAdjacency(chapter.relativePath)
+                updateState {
+                    copy(
+                        readerPages = pages.map(ReaderPage::Local),
+                        readerInitialPageIndex = restoredPageIndex,
+                        isLoadingReader = false,
+                    )
+                        .withReaderProgress(chapter.relativePath, pageIndex = restoredPageIndex, pageCount = pages.size)
+                        .withReaderAdjacency(chapter.relativePath)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingReader = false,
-                    errorMessage = exc.message ?: "Impossibile aprire il reader",
-                )
+                updateState {
+                    copy(
+                        isLoadingReader = false,
+                        errorMessage = exc.message ?: "Impossibile aprire il reader",
+                    )
+                }
             }
         }
 
@@ -1114,18 +1136,20 @@ class MangaViewModel internal constructor(
         )
         val savedPageIndex = libraryRepository.readerPagePosition(readerChapter.relativePath)?.pageIndex ?: 0
         val seriesKey = seriesKeyForStreaming(streamingChapter.sourceId, streamingChapter.mangaUrl)
-        _state.value = _state.value.copy(
-            readerChapter = readerChapter.copy(readerPageIndex = savedPageIndex),
-            readerPreviousChapter = null,
-            readerNextChapter = null,
-            readerPages = emptyList(),
-            readerInitialPageIndex = savedPageIndex,
-            readerSeriesKey = seriesKey,
-            readerReadingMode = resolveReadingMode(seriesKey),
-            isLoadingReader = true,
-            errorMessage = null,
-            selectedMangaReadChapterIds = streamingReadChapterIds,
-        ).withStreamingReaderAdjacency(streamingChapter)
+        updateState {
+            copy(
+                readerChapter = readerChapter.copy(readerPageIndex = savedPageIndex),
+                readerPreviousChapter = null,
+                readerNextChapter = null,
+                readerPages = emptyList(),
+                readerInitialPageIndex = savedPageIndex,
+                readerSeriesKey = seriesKey,
+                readerReadingMode = resolveReadingMode(seriesKey),
+                isLoadingReader = true,
+                errorMessage = null,
+                selectedMangaReadChapterIds = streamingReadChapterIds,
+            ).withStreamingReaderAdjacency(streamingChapter)
+        }
 
         readerJob = viewModelScope.launch {
             try {
@@ -1218,10 +1242,12 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingReader = false,
-                    errorMessage = exc.message ?: "Impossibile aprire il reader online",
-                )
+                updateState {
+                    copy(
+                        isLoadingReader = false,
+                        errorMessage = exc.message ?: "Impossibile aprire il reader online",
+                    )
+                }
             }
         }
     }
@@ -1359,7 +1385,7 @@ class MangaViewModel internal constructor(
                     libraryRepository.deleteChapters(series, chaptersToDelete)
                 }
                 val snapshot = scanLibrarySnapshot()
-                _state.value = _state.value.withLibrarySnapshot(snapshot)
+                updateState { withLibrarySnapshot(snapshot) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1407,16 +1433,19 @@ class MangaViewModel internal constructor(
                     libraryRepository.deleteChapters(series, listOf(chapter))
                 }
                 val snapshot = scanLibrarySnapshot()
-                _state.value = _state.value
-                    .withLibrarySnapshot(snapshot)
-                    .copy(isLoadingLibrary = false)
+                updateState {
+                    withLibrarySnapshot(snapshot)
+                        .copy(isLoadingLibrary = false)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingLibrary = false,
-                    errorMessage = exc.message ?: "Errore eliminazione capitolo",
-                )
+                updateState {
+                    copy(
+                        isLoadingLibrary = false,
+                        errorMessage = exc.message ?: "Errore eliminazione capitolo",
+                    )
+                }
             }
         }
     }
@@ -1435,17 +1464,20 @@ class MangaViewModel internal constructor(
                     libraryRepository.deleteSeries(targetSeries)
                 }
                 val snapshot = scanLibrarySnapshot()
-                _state.value = _state.value
-                    .clearedReaderState()
-                    .withLibrarySnapshot(snapshot)
-                    .copy(isLoadingLibrary = false)
+                updateState {
+                    clearedReaderState()
+                        .withLibrarySnapshot(snapshot)
+                        .copy(isLoadingLibrary = false)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isLoadingLibrary = false,
-                    errorMessage = exc.message ?: "Errore eliminazione manga",
-                )
+                updateState {
+                    copy(
+                        isLoadingLibrary = false,
+                        errorMessage = exc.message ?: "Errore eliminazione manga",
+                    )
+                }
             }
         }
     }
@@ -1489,7 +1521,7 @@ class MangaViewModel internal constructor(
             }
         }
 
-        _state.value = _state.value.copy(isCheckingUpdate = true)
+        updateState { copy(isCheckingUpdate = true) }
         updateJob = viewModelScope.launch {
             var stableCheckCompleted = false
             try {
@@ -1497,10 +1529,12 @@ class MangaViewModel internal constructor(
                     includePreview = includePreview,
                 )
                 stableCheckCompleted = true
-                _state.value = _state.value.copy(
-                    availableUpdate = update,
-                    isCheckingUpdate = false,
-                )
+                updateState {
+                    copy(
+                        availableUpdate = update,
+                        isCheckingUpdate = false,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -1529,32 +1563,38 @@ class MangaViewModel internal constructor(
     fun installAvailableUpdate() {
         val update = _state.value.availableUpdate ?: return
         updateJob?.cancel()
-        _state.value = _state.value.copy(isInstallingUpdate = true, errorMessage = null)
+        updateState { copy(isInstallingUpdate = true, errorMessage = null) }
         updateJob = viewModelScope.launch {
             try {
                 val context = getApplication<Application>()
                 if (!AppUpdateInstaller.canInstallPackages(context)) {
                     AppUpdateInstaller.openInstallPermissionSettings(context)
-                    _state.value = _state.value.copy(
-                        isInstallingUpdate = false,
-                        errorMessage = "Abilita l'installazione da questa app e riprova",
-                    )
+                    updateState {
+                        copy(
+                            isInstallingUpdate = false,
+                            errorMessage = "Abilita l'installazione da questa app e riprova",
+                        )
+                    }
                     return@launch
                 }
 
                 val apkFile = appUpdateRepository.downloadUpdateApk(update)
                 AppUpdateInstaller.installApk(context, apkFile)
-                _state.value = _state.value.copy(
-                    isInstallingUpdate = false,
-                    availableUpdate = null,
-                )
+                updateState {
+                    copy(
+                        isInstallingUpdate = false,
+                        availableUpdate = null,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isInstallingUpdate = false,
-                    errorMessage = exc.message ?: "Errore installazione aggiornamento",
-                )
+                updateState {
+                    copy(
+                        isInstallingUpdate = false,
+                        errorMessage = exc.message ?: "Errore installazione aggiornamento",
+                    )
+                }
             }
         }
     }
@@ -1567,14 +1607,16 @@ class MangaViewModel internal constructor(
                 val results = withContext(Dispatchers.IO) {
                     sourceRegistry.requireById(_state.value.settings.searchSourceId).searchManga(q)
                 }
-                _state.value = _state.value.copy(results = results, isSearching = false)
+                updateState { copy(results = results, isSearching = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = _state.value.copy(
-                    isSearching = false,
-                    errorMessage = exc.message ?: "Errore di ricerca",
-                )
+                updateState {
+                    copy(
+                        isSearching = false,
+                        errorMessage = exc.message ?: "Errore di ricerca",
+                    )
+                }
             }
         }
     }

@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,7 +28,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,12 +85,7 @@ fun StorageScreen(
     ) {
         when {
             storageItems == null -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    AppLoadingIndicator(modifier = Modifier.padding(top = 24.dp))
-                }
+                FullScreenLoading()
             }
             storageItems.isNullOrEmpty() -> {
                 EmptyState(
@@ -138,23 +131,14 @@ fun StorageScreen(
     }
 
     pendingDeletion?.let { series ->
-        AlertDialog(
-            onDismissRequest = { pendingDeletion = null },
-            title = { Text("Elimina manga") },
-            text = { Text("Vuoi eliminare ${series.title} dalla memoria del telefono? I capitoli scaricati verranno rimossi.") },
-            shape = MaterialTheme.shapes.extraLarge,
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingDeletion = null
-                    onDeleteSeries(series)
-                }) {
-                    Text("Elimina")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeletion = null }) {
-                    Text("Annulla")
-                }
+        ConfirmationDialog(
+            title = "Elimina manga",
+            text = "Vuoi eliminare ${series.title} dalla memoria del telefono? I capitoli scaricati verranno rimossi.",
+            confirmLabel = "Elimina",
+            onDismiss = { pendingDeletion = null },
+            onConfirm = {
+                pendingDeletion = null
+                onDeleteSeries(series)
             },
         )
     }
@@ -169,9 +153,7 @@ private fun StorageHeader(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
+        colors = appCardColors(),
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(

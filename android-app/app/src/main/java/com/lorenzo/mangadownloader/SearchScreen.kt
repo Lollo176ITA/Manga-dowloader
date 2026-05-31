@@ -23,7 +23,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -66,11 +65,7 @@ fun SearchScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
                     state.isSearching && state.results.isEmpty() -> {
-                        AppLoadingIndicator(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 24.dp),
-                        )
+                        FullScreenLoading()
                     }
                     state.results.isNotEmpty() -> {
                         val anchorFor = LocalTutorialAnchor.current

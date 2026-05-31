@@ -132,7 +132,7 @@ class VyMangaSource(
         /** URL del token (cloaker) per il capitolo con id [chapterId] dato l'HTML della pagina manga. */
         fun extractChapterToken(mangaHtml: String, chapterId: String): String? {
             val anchor = Jsoup.parse(mangaHtml, BASE_URL).getElementById(chapterId) ?: return null
-            return firstNonBlankStatic(anchor.absUrl("href"), anchor.attr("href"))
+            return firstNonBlankTrimmed(anchor.absUrl("href"), anchor.attr("href"))
         }
 
         /**
@@ -154,7 +154,7 @@ class VyMangaSource(
             )
             for (selector in selectors) {
                 for (image in document.select(selector)) {
-                    val src = firstNonBlankStatic(image.attr("data-src"), image.attr("src")) ?: continue
+                    val src = firstNonBlankTrimmed(image.attr("data-src"), image.attr("src")) ?: continue
                     if (!src.startsWith("http", ignoreCase = true)) continue
                     if (isPlaceholderImage(src)) continue
                     ordered.add(src)
@@ -172,14 +172,14 @@ class VyMangaSource(
             for (anchor in document.select("""div.book-list .comic-item a[href*="/manga/"]""")) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
                 val image = anchor.selectFirst("img")
-                val title = firstNonBlankStatic(
+                val title = firstNonBlankTrimmed(
                     anchor.selectFirst(".comic-title")?.text(),
                     image?.attr("title"),
                     image?.attr("alt"),
                 ) ?: mangaUrl.substringAfterLast('/').replace('-', ' ').trim()
                 if (title.isBlank()) continue
                 val cover = image?.let {
-                    firstNonBlankStatic(it.absUrl("data-src"), it.absUrl("src"), it.attr("data-src"))
+                    firstNonBlankTrimmed(it.absUrl("data-src"), it.absUrl("src"), it.attr("data-src"))
                 }?.takeUnless(::isPlaceholderImage)
                 results.putIfAbsent(
                     mangaUrl,
@@ -197,11 +197,11 @@ class VyMangaSource(
         private fun parseMangaDetails(document: Document, mangaUrl: String): MangaDetails {
             val canonical = canonicalSeriesUrl(mangaUrl)
                 ?: throw IllegalArgumentException("URL manga VyManga non valido")
-            val title = firstNonBlankStatic(
+            val title = firstNonBlankTrimmed(
                 document.selectFirst("h1.title")?.text(),
                 document.selectFirst("h1")?.text(),
             ) ?: "manga"
-            val cover = firstNonBlankStatic(
+            val cover = firstNonBlankTrimmed(
                 document.selectFirst("div.img-manga img")?.absUrl("src"),
                 document.selectFirst("div.img-manga img")?.attr("src"),
                 document.selectFirst("""meta[property="og:image"]""")?.attr("content"),
@@ -222,7 +222,7 @@ class VyMangaSource(
             for (anchor in document.select("div.div-chapter a.list-chapter")) {
                 val chapterId = anchor.id().trim()
                 if (chapterId.isBlank() || !chapterId.startsWith("chapter-", ignoreCase = true)) continue
-                val numberText = firstNonBlankStatic(
+                val numberText = firstNonBlankTrimmed(
                     chapterId.removePrefix("chapter-").takeIf { DownloadStorage.parseChapterValueOrNull(it) != null },
                     chapterNumberInText.find(anchor.text())?.groupValues?.getOrNull(1),
                 ) ?: continue
@@ -248,14 +248,5 @@ class VyMangaSource(
                 "blank.gif" in lowered
         }
 
-        private fun firstNonBlankStatic(vararg values: String?): String? {
-            for (value in values) {
-                val trimmed = value?.trim().orEmpty()
-                if (trimmed.isNotBlank()) {
-                    return trimmed
-                }
-            }
-            return null
-        }
     }
 }

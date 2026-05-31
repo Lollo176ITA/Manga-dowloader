@@ -114,7 +114,7 @@ class MangapillSource(
                 }
 
                 val anchorText = anchor.text().trim()
-                val titleCandidate = firstNonBlankStatic(
+                val titleCandidate = firstNonBlankTrimmed(
                     image?.attr("alt"),
                     anchor.attr("title"),
                     anchorText.takeIf { it.isNotBlank() },
@@ -245,13 +245,5 @@ class MangapillSource(
             return alt.isNotBlank() && alt != "logo"
         }
 
-        private fun firstNonBlankStatic(vararg values: String?): String? {
-            for (value in values) {
-                if (!value.isNullOrBlank()) {
-                    return value
-                }
-            }
-            return null
-        }
     }
 }

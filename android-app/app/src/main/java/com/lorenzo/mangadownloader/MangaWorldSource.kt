@@ -107,7 +107,7 @@ class MangaWorldSource(
             for (anchor in document.select(selectors)) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
                 val entry = anchor.closest(".entry")
-                val title = firstNonBlankStatic(
+                val title = firstNonBlankTrimmed(
                     anchor.attr("title"),
                     anchor.text(),
                     entry?.selectFirst(".manga-title")?.text(),
@@ -115,7 +115,7 @@ class MangaWorldSource(
                 ) ?: continue
                 val cover = entry?.selectFirst("img")
                     ?.let { image ->
-                        firstNonBlankStatic(image.absUrl("src"), image.absUrl("data-src"))
+                        firstNonBlankTrimmed(image.absUrl("src"), image.absUrl("data-src"))
                     }
                 results[mangaUrl] = MangaSearchResult(
                     sourceId = MangaSourceIds.MANGA_WORLD,
@@ -133,7 +133,7 @@ class MangaWorldSource(
             val title = document.selectFirst("h1.name")?.text()?.trim()
                 ?: document.selectFirst("h1")?.text()?.trim()
                 ?: "manga"
-            val cover = firstNonBlankStatic(
+            val cover = firstNonBlankTrimmed(
                 document.selectFirst(".comic-info .thumb img")?.absUrl("src"),
                 document.selectFirst("""meta[property="og:image"]""")?.attr("content"),
             )
@@ -187,7 +187,7 @@ class MangaWorldSource(
             for (anchor in anchors) {
                 val href = anchor.absUrl("href").ifBlank { anchor.attr("href").trim() }
                 val chapterUrl = chapterReaderUrl(href) ?: continue
-                val title = firstNonBlankStatic(
+                val title = firstNonBlankTrimmed(
                     anchor.selectFirst("span")?.text(),
                     anchor.attr("title"),
                     anchor.text(),
@@ -215,7 +215,7 @@ class MangaWorldSource(
         private fun parsePageImageUrls(document: Document, chapterUrl: String): List<String> {
             val ordered = linkedSetOf<String>()
             for (image in document.select("""#page img.page-image, img.page-image""")) {
-                val src = firstNonBlankStatic(
+                val src = firstNonBlankTrimmed(
                     image.absUrl("data-src"),
                     image.absUrl("src"),
                     image.attr("data-src"),
@@ -261,14 +261,5 @@ class MangaWorldSource(
             return "capitolo-$chapter-$id"
         }
 
-        private fun firstNonBlankStatic(vararg values: String?): String? {
-            for (value in values) {
-                val trimmed = value?.trim().orEmpty()
-                if (trimmed.isNotBlank()) {
-                    return trimmed
-                }
-            }
-            return null
-        }
     }
 }

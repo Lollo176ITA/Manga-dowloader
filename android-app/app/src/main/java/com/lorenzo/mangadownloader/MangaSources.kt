@@ -365,24 +365,6 @@ abstract class BaseMangaSource(
 
     protected fun absolutize(baseUrl: String, value: String) = networkClient.absolutize(baseUrl, value)
 
-    protected fun parseChapterNumber(text: String) = DownloadStorage.parseChapterValueOrNull(text)
-        ?: throw IllegalArgumentException("Numero capitolo non valido: $text")
-
-    protected fun firstNonBlank(vararg values: String?): String? {
-        for (value in values) {
-            if (!value.isNullOrBlank()) {
-                return value
-            }
-        }
-        return null
-    }
-
-    protected fun extractImageExtension(url: String): String {
-        val raw = url.substringBefore('?').substringAfterLast('.', "jpg")
-        val cleaned = raw.lowercase(Locale.US).filter { it.isLetterOrDigit() }
-        return if (cleaned.isBlank()) "jpg" else cleaned
-    }
-
     /** Spazio libero sul volume di [dir]. Overridabile nei test per simulare il disco pieno. */
     protected open fun availableSpaceBytes(dir: File): Long = DownloadStorage.freeSpaceBytes(dir)
 
@@ -408,7 +390,7 @@ abstract class BaseMangaSource(
         pageUrls.mapIndexed { index, pageUrl ->
             async(Dispatchers.IO) {
                 semaphore.withPermit {
-                    val extension = extractImageExtension(pageUrl)
+                    val extension = DownloadStorage.imageExtension(pageUrl)
                     val finalName = "${(index + 1).toString().padStart(3, '0')}.$extension"
                     val tempName = "$finalName.part"
                     val tempFile = File(outputDir, tempName)
@@ -450,7 +432,7 @@ abstract class BaseMangaSource(
             return null
         }
 
-        val extension = extractImageExtension(coverUrl)
+        val extension = DownloadStorage.imageExtension(coverUrl)
         val finalFile = File(outputDir, "cover.$extension")
         val tempFile = File(outputDir, "${finalFile.name}.part")
         tempFile.outputStream().buffered().use { output ->
@@ -479,3 +461,17 @@ private data class DownloadedPageTempFile(
     val index: Int,
     val file: File,
 )
+
+/**
+ * Primo valore non-bianco (trimmato) tra quelli passati, o `null`. Usata dai parser
+ * statici delle fonti (companion object), che non vedono i metodi d'istanza della base.
+ */
+internal fun firstNonBlankTrimmed(vararg values: String?): String? {
+    for (value in values) {
+        val trimmed = value?.trim().orEmpty()
+        if (trimmed.isNotBlank()) {
+            return trimmed
+        }
+    }
+    return null
+}

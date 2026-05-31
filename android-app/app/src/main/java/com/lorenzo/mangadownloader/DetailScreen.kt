@@ -95,9 +95,7 @@ fun DetailScreen(
             )
 
             if (isLoading && chapters.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                    AppLoadingIndicator(modifier = Modifier.padding(top = 24.dp))
-                }
+                FullScreenLoading()
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

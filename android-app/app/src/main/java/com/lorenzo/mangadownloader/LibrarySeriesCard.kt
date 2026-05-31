@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,9 +49,7 @@ fun LibrarySeriesCard(
             Modifier.fillMaxWidth()
         },
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
+        colors = appCardColors(),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -137,23 +134,14 @@ fun LibrarySeriesCard(
     }
 
     if (showDeleteDialog && series != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Elimina manga") },
-            text = { Text("Vuoi eliminare ${series.title} dalla memoria del telefono?") },
-            shape = MaterialTheme.shapes.extraLarge,
-            confirmButton = {
-                TextButton(onClick = {
-                    showDeleteDialog = false
-                    onDelete()
-                }) {
-                    Text("Elimina")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Annulla")
-                }
+        ConfirmationDialog(
+            title = "Elimina manga",
+            text = "Vuoi eliminare ${series.title} dalla memoria del telefono?",
+            confirmLabel = "Elimina",
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                showDeleteDialog = false
+                onDelete()
             },
         )
     }

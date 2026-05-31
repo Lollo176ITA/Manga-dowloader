@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -72,6 +73,30 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import coil.compose.AsyncImage
+
+/**
+ * Colori standard delle card "contenitore" dell'app (sfondo `surfaceContainerHigh`).
+ * Punto unico per il token colore: usato da `ResultCard`/`FavoriteCard`/`LibrarySeriesCard`/
+ * `SettingsSection`/`StorageHeader`. La `shape` resta scelta dal singolo call site.
+ */
+@Composable
+fun appCardColors(): CardColors = CardDefaults.cardColors(
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+)
+
+/**
+ * Indicatore di caricamento a tutta pagina, centrato in alto. Stato di "loading" condiviso
+ * tra le schermate (ricerca, libreria, archivio, dettaglio).
+ */
+@Composable
+fun FullScreenLoading(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        AppLoadingIndicator(modifier = Modifier.padding(top = 24.dp))
+    }
+}
 
 @Composable
 fun SearchField(
@@ -305,9 +330,7 @@ fun ResultCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
+        colors = appCardColors(),
     ) {
         Column {
             Box(modifier = Modifier.fillMaxWidth()) {
@@ -416,9 +439,7 @@ fun FavoriteCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
+        colors = appCardColors(),
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
             CoverImage(

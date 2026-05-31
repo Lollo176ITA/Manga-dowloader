@@ -4,7 +4,6 @@ import android.content.Context
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
-import java.util.Locale
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -178,7 +177,7 @@ class StreamingReaderCacheRepository(
 
         return try {
             val pageNames = pageUrls.mapIndexed { index, url ->
-                val extension = extractImageExtension(url)
+                val extension = DownloadStorage.imageExtension(url)
                 val finalName = "${(index + 1).toString().padStart(3, '0')}.$extension"
                 val finalFile = File(directory, finalName)
                 val tempFile = File(directory, "$finalName.part")
@@ -227,12 +226,6 @@ class StreamingReaderCacheRepository(
         cached
             .dropLast(maxCachedChapters.coerceAtLeast(0))
             .forEach { (directory, _) -> directory.deleteRecursively() }
-    }
-
-    private fun extractImageExtension(url: String): String {
-        val raw = url.substringBefore('?').substringAfterLast('.', "jpg")
-        val cleaned = raw.lowercase(Locale.US).filter { it.isLetterOrDigit() }
-        return if (cleaned.isBlank()) "jpg" else cleaned
     }
 
     companion object {

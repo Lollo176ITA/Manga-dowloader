@@ -2,7 +2,6 @@ package com.lorenzo.mangadownloader
 
 import java.io.IOException
 import java.net.URI
-import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -10,7 +9,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
 class MangaNetworkClient(
-    private val httpClient: OkHttpClient = defaultHttpClient(),
+    private val httpClient: OkHttpClient,
 ) {
     fun fetchDocument(
         url: String,
@@ -108,13 +107,5 @@ class MangaNetworkClient(
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-
-        private fun defaultHttpClient(): OkHttpClient {
-            return OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
-                .callTimeout(120, TimeUnit.SECONDS)
-                .build()
-        }
     }
 }

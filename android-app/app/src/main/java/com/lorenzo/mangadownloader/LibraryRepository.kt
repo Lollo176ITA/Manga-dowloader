@@ -134,6 +134,13 @@ object DownloadStorage {
         return numericRegex.find(raw)?.value?.toBigDecimalOrNull()
     }
 
+    /** Estensione immagine (minuscola, solo alfanumerici) dall'URL; `jpg` se assente. */
+    fun imageExtension(url: String): String {
+        val raw = url.substringBefore('?').substringAfterLast('.', "jpg")
+        val cleaned = raw.lowercase(Locale.US).filter { it.isLetterOrDigit() }
+        return if (cleaned.isBlank()) "jpg" else cleaned
+    }
+
     fun stableChapterId(
         numberText: String,
         url: String?,

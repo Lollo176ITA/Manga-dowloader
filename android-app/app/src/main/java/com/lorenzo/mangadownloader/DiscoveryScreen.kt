@@ -26,7 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -44,6 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -312,18 +314,19 @@ private fun ScoreBadge(
         modifier = modifier
             .clip(MaterialTheme.shapes.large)
             .background(Color.Black.copy(alpha = 0.55f))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .semantics { contentDescription = "Valutazione $score percento" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Icon(
-            imageVector = Icons.Default.Star,
+            imageVector = Icons.Default.ThumbUp,
             contentDescription = null,
             tint = FavoriteYellow,
-            modifier = Modifier.size(13.dp),
+            modifier = Modifier.size(12.dp),
         )
         Text(
-            text = "$score",
+            text = "$score%",
             style = MaterialTheme.typography.labelSmall,
             color = Color.White,
             fontWeight = FontWeight.SemiBold,

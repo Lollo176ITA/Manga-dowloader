@@ -43,6 +43,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
                     prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name) ?: ReadingMode.VERTICAL.name,
                 )
             }.getOrDefault(ReadingMode.VERTICAL),
+            doubleTapZoomEnabled = prefs.getBoolean(KEY_DOUBLE_TAP_ZOOM, false),
             allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
             themeMode = runCatching {
                 ThemeMode.valueOf(
@@ -82,6 +83,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
             .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
             .putString(KEY_READING_MODE, settings.readingMode.name)
+            .putBoolean(KEY_DOUBLE_TAP_ZOOM, settings.doubleTapZoomEnabled)
             .putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
@@ -112,6 +114,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
         const val KEY_READER_BRIGHTNESS = "reader_brightness"
         const val KEY_READING_MODE = "reading_mode"
+        const val KEY_DOUBLE_TAP_ZOOM = "double_tap_zoom"
         const val KEY_ALLOW_LANDSCAPE_ROTATION = "allow_landscape_rotation"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"

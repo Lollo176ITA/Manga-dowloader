@@ -89,6 +89,7 @@ data class AppSettings(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    val doubleTapZoomEnabled: Boolean = false,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
@@ -1019,6 +1020,10 @@ class MangaViewModel internal constructor(
 
     fun setAllowLandscapeRotation(enabled: Boolean) {
         updateSettings { it.copy(allowLandscapeRotation = enabled) }
+    }
+
+    fun setDoubleTapZoomEnabled(enabled: Boolean) {
+        updateSettings { it.copy(doubleTapZoomEnabled = enabled) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

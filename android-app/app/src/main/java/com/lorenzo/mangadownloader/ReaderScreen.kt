@@ -83,6 +83,7 @@ fun ReaderScreen(
     pages: List<ReaderPage>,
     isLoading: Boolean,
     readingMode: ReadingMode,
+    doubleTapZoomEnabled: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -114,6 +115,7 @@ fun ReaderScreen(
             pages = pages,
             isLoading = isLoading,
             readingMode = readingMode,
+            doubleTapZoomEnabled = doubleTapZoomEnabled,
             padding = padding,
             initialPageIndex = initialPageIndex,
             onOpenPrevious = onOpenPrevious,
@@ -133,6 +135,7 @@ private fun ReaderContent(
     pages: List<ReaderPage>,
     isLoading: Boolean,
     readingMode: ReadingMode,
+    doubleTapZoomEnabled: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -165,6 +168,7 @@ private fun ReaderContent(
                 previousChapter = previousChapter,
                 nextChapter = nextChapter,
                 pages = pages,
+                doubleTapZoomEnabled = doubleTapZoomEnabled,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -180,6 +184,7 @@ private fun ReaderContent(
                 previousChapter = previousChapter,
                 nextChapter = nextChapter,
                 pages = pages,
+                doubleTapZoomEnabled = doubleTapZoomEnabled,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -198,6 +203,7 @@ private fun VerticalReader(
     previousChapter: ReaderChapter?,
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
+    doubleTapZoomEnabled: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -450,31 +456,37 @@ private fun VerticalReader(
             .pointerInput(chapterKey) {
                 detectTapGestures(
                     onTap = { onToggleFullscreen() },
-                    onDoubleTap = { tapOffset ->
-                        if (readerScale > minScale) {
-                            readerScale = minScale
-                            readerOffsetX = 0f
-                            readerOffsetY = 0f
-                        } else {
-                            val nextScale = 2f
-                            val zoomChange = nextScale / readerScale
-                            val viewportCenter = Offset(
-                                x = viewportSize.width / 2f,
-                                y = viewportSize.height / 2f,
-                            )
-                            val zoomFocus = tapOffset - viewportCenter
-                            val targetOffsetX =
-                                readerOffsetX * zoomChange +
-                                    zoomFocus.x * (1f - zoomChange)
-                            val targetOffsetY =
-                                readerOffsetY * zoomChange +
-                                    zoomFocus.y * (1f - zoomChange)
-                            readerScale = nextScale
-                            applyZoomedOffset(
-                                scale = nextScale,
-                                offsetX = targetOffsetX,
-                                offsetY = targetOffsetY,
-                            )
+                    // Quando il doppio-tap è disattivato passiamo null: così onTap non
+                    // attende l'eventuale secondo tap e la barra risponde subito.
+                    onDoubleTap = if (!doubleTapZoomEnabled) {
+                        null
+                    } else {
+                        { tapOffset ->
+                            if (readerScale > minScale) {
+                                readerScale = minScale
+                                readerOffsetX = 0f
+                                readerOffsetY = 0f
+                            } else {
+                                val nextScale = 2f
+                                val zoomChange = nextScale / readerScale
+                                val viewportCenter = Offset(
+                                    x = viewportSize.width / 2f,
+                                    y = viewportSize.height / 2f,
+                                )
+                                val zoomFocus = tapOffset - viewportCenter
+                                val targetOffsetX =
+                                    readerOffsetX * zoomChange +
+                                        zoomFocus.x * (1f - zoomChange)
+                                val targetOffsetY =
+                                    readerOffsetY * zoomChange +
+                                        zoomFocus.y * (1f - zoomChange)
+                                readerScale = nextScale
+                                applyZoomedOffset(
+                                    scale = nextScale,
+                                    offsetX = targetOffsetX,
+                                    offsetY = targetOffsetY,
+                                )
+                            }
                         }
                     },
                 )
@@ -539,6 +551,7 @@ private fun PagedReader(
     previousChapter: ReaderChapter?,
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
+    doubleTapZoomEnabled: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -605,6 +618,7 @@ private fun PagedReader(
                 else -> ZoomablePage(
                     page = pages[index - ReaderPageItemOffset],
                     contentDescription = chapter.title,
+                    doubleTapZoomEnabled = doubleTapZoomEnabled,
                     onToggleFullscreen = onToggleFullscreen,
                 )
             }
@@ -668,6 +682,7 @@ private fun BoxScope.ReaderPageIndicator(
 private fun ZoomablePage(
     page: ReaderPage,
     contentDescription: String,
+    doubleTapZoomEnabled: Boolean,
     onToggleFullscreen: () -> Unit,
 ) {
     val minScale = 1f
@@ -731,18 +746,24 @@ private fun ZoomablePage(
             .pointerInput(page.stableKey) {
                 detectTapGestures(
                     onTap = { onToggleFullscreen() },
-                    onDoubleTap = { tapOffset ->
-                        if (scale > minScale) {
-                            scale = minScale
-                            offsetX = 0f
-                            offsetY = 0f
-                        } else {
-                            scale = 2f
-                            val center = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
-                            val focus = tapOffset - center
-                            offsetX = -focus.x
-                            offsetY = -focus.y
-                            clamp()
+                    // Con doppio-tap disattivato passiamo null così il tap singolo
+                    // (toggle barra) non resta in attesa del secondo tap.
+                    onDoubleTap = if (!doubleTapZoomEnabled) {
+                        null
+                    } else {
+                        { tapOffset ->
+                            if (scale > minScale) {
+                                scale = minScale
+                                offsetX = 0f
+                                offsetY = 0f
+                            } else {
+                                scale = 2f
+                                val center = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
+                                val focus = tapOffset - center
+                                offsetX = -focus.x
+                                offsetY = -focus.y
+                                clamp()
+                            }
                         }
                     },
                 )

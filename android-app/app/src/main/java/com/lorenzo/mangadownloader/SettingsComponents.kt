@@ -195,6 +195,19 @@ fun ReadingModeContent(
 }
 
 @Composable
+fun DoubleTapZoomContent(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    SettingRow(
+        title = "Doppio tap per zoomare",
+        description = "Tocca due volte una pagina per ingrandirla. Lo zoom con due dita resta sempre attivo.",
+        checked = enabled,
+        onCheckedChange = onToggle,
+    )
+}
+
+@Composable
 fun StreamingReaderContent(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,

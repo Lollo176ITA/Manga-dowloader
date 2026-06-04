@@ -296,7 +296,10 @@ private fun MangaDownloaderAppContent(
         enabled = state.readerChapter != null && state.settings.privacyBrightnessEnabled,
         brightness = state.settings.readerBrightness,
     )
-    var isReaderFullscreen by remember(state.readerChapter?.relativePath) { mutableStateOf(false) }
+    // Keyed sull'apertura del reader (null → non-null), non sulla singola relativePath:
+    // così il fullscreen si azzera solo quando apri il reader da fuori, mentre resta
+    // invariato passando a capitolo successivo/precedente.
+    var isReaderFullscreen by remember(state.readerChapter != null) { mutableStateOf(false) }
 
     // Vero schermo intero: quando il reader è in fullscreen nascondiamo anche le barre
     // di sistema (status + navigation), così la pagina occupa davvero tutto lo schermo.
@@ -460,6 +463,7 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
+                    navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,
                     initialPageIndex = state.readerInitialPageIndex,
                     onOpenPrevious = viewModel::openPreviousReaderChapter,

@@ -11,7 +11,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,7 +38,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -84,6 +92,7 @@ fun ReaderScreen(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    navBarVisible: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -91,38 +100,136 @@ fun ReaderScreen(
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
 ) {
-    AnimatedContent(
-        targetState = chapter?.relativePath,
-        transitionSpec = {
-            val slideSpec = spring<IntOffset>(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessMediumLow,
-            )
-            (slideInHorizontally(animationSpec = slideSpec) { full -> full } +
-                fadeIn(animationSpec = tween(220)))
-                .togetherWith(
-                    slideOutHorizontally(animationSpec = slideSpec) { full -> -full } +
-                        fadeOut(animationSpec = tween(180)),
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = chapter?.relativePath,
+            transitionSpec = {
+                val slideSpec = spring<IntOffset>(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
                 )
-        },
-        label = "readerChapterTransition",
-    ) { targetChapterPath ->
-        ReaderContent(
-            chapterKey = targetChapterPath,
-            chapter = chapter,
+                (slideInHorizontally(animationSpec = slideSpec) { full -> full } +
+                    fadeIn(animationSpec = tween(220)))
+                    .togetherWith(
+                        slideOutHorizontally(animationSpec = slideSpec) { full -> -full } +
+                            fadeOut(animationSpec = tween(180)),
+                    )
+            },
+            label = "readerChapterTransition",
+        ) { targetChapterPath ->
+            ReaderContent(
+                chapterKey = targetChapterPath,
+                chapter = chapter,
+                previousChapter = previousChapter,
+                nextChapter = nextChapter,
+                pages = pages,
+                isLoading = isLoading,
+                readingMode = readingMode,
+                doubleTapZoomEnabled = doubleTapZoomEnabled,
+                padding = padding,
+                initialPageIndex = initialPageIndex,
+                onOpenPrevious = onOpenPrevious,
+                onOpenNext = onOpenNext,
+                onPageVisible = onPageVisible,
+                onToggleFullscreen = onToggleFullscreen,
+            )
+        }
+
+        // Barra di navigazione capitoli fissa in basso: resta sopra al contenuto del
+        // reader (sia scroll verticale che a pagine) e segue lo stato del fullscreen
+        // tramite [navBarVisible], così con un tap immersivo sparisce insieme alle barre.
+        ReaderBottomNavBar(
+            visible = navBarVisible &&
+                chapter != null &&
+                !isLoading &&
+                (previousChapter != null || nextChapter != null),
+            currentTitle = chapter?.title.orEmpty(),
             previousChapter = previousChapter,
             nextChapter = nextChapter,
-            pages = pages,
-            isLoading = isLoading,
-            readingMode = readingMode,
-            doubleTapZoomEnabled = doubleTapZoomEnabled,
-            padding = padding,
-            initialPageIndex = initialPageIndex,
             onOpenPrevious = onOpenPrevious,
             onOpenNext = onOpenNext,
-            onPageVisible = onPageVisible,
-            onToggleFullscreen = onToggleFullscreen,
+            contentPadding = padding,
+            modifier = Modifier.align(Alignment.BottomCenter),
         )
+    }
+}
+
+@Composable
+private fun ReaderBottomNavBar(
+    visible: Boolean,
+    currentTitle: String,
+    previousChapter: ReaderChapter?,
+    nextChapter: ReaderChapter?,
+    onOpenPrevious: () -> Unit,
+    onOpenNext: () -> Unit,
+    contentPadding: PaddingValues,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 },
+        modifier = modifier,
+    ) {
+        Surface(
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.padding(
+                start = 16.dp,
+                end = 16.dp,
+                bottom = contentPadding.calculateBottomPadding() + 12.dp,
+            ),
+        ) {
+            // Frecce ai lati + etichetta "CAPITOLO" e titolo al centro: così è evidente
+            // che questi controlli cambiano il capitolo, non scorrono le pagine.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = onOpenPrevious,
+                    enabled = previousChapter != null,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Capitolo precedente",
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "CAPITOLO",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = currentTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                IconButton(
+                    onClick = onOpenNext,
+                    enabled = nextChapter != null,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Capitolo successivo",
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -165,14 +272,10 @@ private fun ReaderContent(
             PagedReader(
                 chapterKey = chapterKey,
                 chapter = chapter,
-                previousChapter = previousChapter,
-                nextChapter = nextChapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
-                onOpenPrevious = onOpenPrevious,
-                onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
                 onToggleFullscreen = onToggleFullscreen,
             )
@@ -548,23 +651,19 @@ private fun VerticalReader(
 private fun PagedReader(
     chapterKey: String?,
     chapter: ReaderChapter,
-    previousChapter: ReaderChapter?,
-    nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
-    onOpenPrevious: () -> Unit,
-    onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
 ) {
-    // Pagine logiche: una "pagina di navigazione" all'inizio e una alla fine, come
-    // le righe prev/successivo del reader verticale. L'offset 1 allinea gli indici.
-    val pageCount = pages.size + 2
+    // Solo le pagine reali: niente più "pagine di navigazione" all'inizio/fine. Il salto
+    // al capitolo precedente/successivo vive nella barra fissa in basso (ReaderBottomNavBar),
+    // così lo swipe resta dedicato alle pagine e l'indicatore "x/y" non si confonde col capitolo.
     val pagerState = rememberPagerState(
-        initialPage = initialPageIndex.coerceIn(0, pages.lastIndex) + ReaderPageItemOffset,
-        pageCount = { pageCount },
+        initialPage = initialPageIndex.coerceIn(0, pages.lastIndex),
+        pageCount = { pages.size },
     )
     var hasMoved by remember(chapterKey) { mutableStateOf(false) }
 
@@ -578,7 +677,7 @@ private fun PagedReader(
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { settled ->
-                val pageIndex = (settled - ReaderPageItemOffset).coerceIn(0, pages.lastIndex)
+                val pageIndex = settled.coerceIn(0, pages.lastIndex)
                 onPageVisible(pageIndex, pages.size, hasMoved)
             }
     }
@@ -592,47 +691,24 @@ private fun PagedReader(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            key = { index ->
-                when (index) {
-                    0 -> "reader-nav-top"
-                    pageCount - 1 -> "reader-nav-bottom"
-                    else -> pages[index - ReaderPageItemOffset].stableKey
-                }
-            },
+            key = { index -> pages[index].stableKey },
         ) { index ->
-            when (index) {
-                0 -> ReaderPagedNavPage(
-                    isStart = true,
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
-                pageCount - 1 -> ReaderPagedNavPage(
-                    isStart = false,
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
-                else -> ZoomablePage(
-                    page = pages[index - ReaderPageItemOffset],
-                    contentDescription = chapter.title,
-                    doubleTapZoomEnabled = doubleTapZoomEnabled,
-                    onToggleFullscreen = onToggleFullscreen,
-                )
-            }
+            ZoomablePage(
+                page = pages[index],
+                contentDescription = chapter.title,
+                doubleTapZoomEnabled = doubleTapZoomEnabled,
+                onToggleFullscreen = onToggleFullscreen,
+            )
         }
 
-        // Indicatore di pagina discreto: appare al cambio pagina e svanisce da solo,
-        // così non resta sempre davanti agli occhi. Solo sulle pagine reali, non sulle
-        // schermate di inizio/fine capitolo.
-        val currentRealPage = pagerState.currentPage - ReaderPageItemOffset
+        // Indicatore di pagina discreto: appare al cambio pagina e svanisce da solo.
+        // Sta in alto, separato dalla barra capitolo in basso: così "x/y" è chiaramente
+        // la pagina e non si sovrappone alla navigazione capitoli.
         ReaderPageIndicator(
-            currentPageIndex = currentRealPage,
+            currentPageIndex = pagerState.currentPage,
             pageCount = pages.size,
             isScrolling = pagerState.isScrollInProgress,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.align(Alignment.TopCenter),
         )
     }
 }
@@ -662,7 +738,7 @@ private fun BoxScope.ReaderPageIndicator(
         visible = visible && visiblePage,
         enter = fadeIn(),
         exit = fadeOut(),
-        modifier = modifier.padding(bottom = 20.dp),
+        modifier = modifier.padding(top = 20.dp),
     ) {
         Surface(
             color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
@@ -783,40 +859,6 @@ private fun ZoomablePage(
                 },
             contentScale = ContentScale.Fit,
         )
-    }
-}
-
-@Composable
-private fun ReaderPagedNavPage(
-    isStart: Boolean,
-    previousChapter: ReaderChapter?,
-    nextChapter: ReaderChapter?,
-    onOpenPrevious: () -> Unit,
-    onOpenNext: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(
-                text = if (isStart) "Inizio del capitolo" else "Fine del capitolo",
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-            )
-            ReaderChapterNavigationRow(
-                previousChapter = previousChapter,
-                nextChapter = nextChapter,
-                onOpenPrevious = onOpenPrevious,
-                onOpenNext = onOpenNext,
-            )
-        }
     }
 }
 

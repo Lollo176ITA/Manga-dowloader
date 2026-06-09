@@ -26,7 +26,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -182,7 +181,7 @@ private fun ReaderBottomNavBar(
                 bottom = contentPadding.calculateBottomPadding() + 12.dp,
             ),
         ) {
-            // Frecce ai lati + etichetta "CAPITOLO" e titolo al centro: così è evidente
+            // Frecce ai lati + titolo del capitolo al centro: il titolo basta a chiarire
             // che questi controlli cambiano il capitolo, non scorrono le pagine.
             Row(
                 modifier = Modifier
@@ -199,26 +198,17 @@ private fun ReaderBottomNavBar(
                         contentDescription = "Capitolo precedente",
                     )
                 }
-                Column(
+                Text(
+                    text = currentTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = "CAPITOLO",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = currentTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                )
                 IconButton(
                     onClick = onOpenNext,
                     enabled = nextChapter != null,

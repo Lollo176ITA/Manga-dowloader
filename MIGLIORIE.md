@@ -1,6 +1,6 @@
 # Migliorie — Manga Downloader
 
-> Lista di todo generata da un'analisi del progetto (architettura, test/robustezza, client Python, CI) e **revisionata file per file** il 2026-05-26.
+> Lista di todo generata da un'analisi del progetto (architettura, test/robustezza, client Python, CI) e **revisionata file per file** il 2026-05-26. Aggiornata il 2026-06-09 con l'audit del codice nuovo (notifiche aggiornamenti preferiti, reader).
 > Legenda stato verifica: ✅ = controllato sul codice reale · 🔎 = valutazione/da confermare prima di intervenire.
 > Tag: **Impatto** Alto/Medio/Basso · **Sforzo** Basso/Medio/Alto.
 
@@ -21,6 +21,16 @@
 ---
 
 ## 🟢 Bug & quick win (alto rapporto valore/sforzo)
+
+- [ ] **Race sul feed aggiornamenti: il worker sovrascrive il "visto" dell'utente** ✅ *(verificato 2026-06-09)*
+  - Dove: `FavoriteUpdatesWorker.doWork` legge il feed all'inizio [FavoriteUpdatesWorker.kt:54] e lo riscrive **per intero** nel `finally` [FavoriteUpdatesWorker.kt:109]; nel frattempo l'app può scrivere lo stesso feed con `markAllUpdatesSeen()` [MangaViewModel.kt:688-693].
+  - Perché: il loop del worker fa rete per ogni preferito (può durare decine di secondi). Se mentre gira l'utente apre "Aggiornamenti" e azzera il badge, il `finally` del worker riscrive la copia stantia con `seen=false` → il badge "non visto" risorge e gli eventi marcati visti tornano non visti. Stessa finestra anche per il caso opposto (worker in-process e refresh in foreground).
+  - Cosa fare: nel `finally` fare **read-merge-write**: rileggere il feed da disco, fare merge con gli eventi nuovi del worker (dedup già esistente su identityKey+chapterNumber) preservando i flag `seen` più recenti, e scrivere il risultato. In alternativa appendere/persistere subito a ogni evento invece di accumulare. Impatto Medio/Alto · Sforzo Basso.
+
+- [ ] **Notifica inviata prima di persistere l'evento nel feed** ✅ *(verificato 2026-06-09)*
+  - Dove: `notifyNewChapter` parte a [FavoriteUpdatesWorker.kt:82], l'evento entra nel feed dopo [FavoriteUpdatesWorker.kt:83-96] e la persistenza è solo nel `finally`.
+  - Perché: se il processo muore tra notifica e `finally`, l'utente ha ricevuto la notifica ma il feed (e il `seenMap`) non la registrano → al giro dopo ri-notifica lo stesso capitolo e il feed resta vuoto rispetto alla notifica vista.
+  - Cosa fare: persistere evento + `seenMap` **prima** di chiamare `notifyNewChapter` (o subito dopo ogni iterazione). Si combina bene col read-merge-write dell'item sopra. Impatto Basso · Sforzo Basso.
 
 - [x] **Referer immagini sbagliato per fonti diverse da Mangapill** ✅ — *fatto (2026-05-26): le pagine `Remote` passano il proprio Referer via Coil `ImageRequest`; l'interceptor mette il default mangapill solo se assente (copertine invariate).*
   - Dove: header `Referer: https://mangapill.com/` fisso su **tutte** le immagini Coil [MangaApplication.kt:21]; le pagine streaming iniziali sono `ReaderPage.Remote` [MangaViewModel.kt:1179-1184] ma `ReaderScreen` usa solo `page.url` [ReaderScreen.kt:509, 745] e ignora il campo `Remote.referer` [ReaderModels.kt:46].

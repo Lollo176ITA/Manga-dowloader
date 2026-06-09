@@ -2386,7 +2386,16 @@ class MangaViewModel internal constructor(
     }
 
     private fun MangaUiState.withReaderAdjacency(relativePath: String?): MangaUiState {
-        val chapters = selectedDownloadedSeries?.chapters.orEmpty()
+        // Il reader può essere aperto senza passare dalla schermata serie (es. "Riprendi"
+        // dalla libreria): in quel caso selectedDownloadedSeries è null, quindi i capitoli
+        // adiacenti vanno cercati nella serie di appartenenza dentro la libreria.
+        val chapters = relativePath?.let { path ->
+            selectedDownloadedSeries?.chapters
+                ?.takeIf { list -> list.any { it.relativePath == path } }
+                ?: library.firstOrNull { series ->
+                    series.chapters.any { it.relativePath == path }
+                }?.chapters
+        }.orEmpty()
         val currentIndex = relativePath?.let { path ->
             chapters.indexOfFirst { it.relativePath == path }
         } ?: -1

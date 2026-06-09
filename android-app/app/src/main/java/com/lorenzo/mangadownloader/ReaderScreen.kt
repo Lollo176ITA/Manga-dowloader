@@ -46,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,9 +68,11 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -269,6 +272,7 @@ private fun ReaderContent(
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
                 pageSpacing = pageSpacing,
+                rightToLeft = readingMode.isRightToLeft,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onPageVisible = onPageVisible,
@@ -651,6 +655,7 @@ private fun PagedReader(
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
     pageSpacing: Dp,
+    rightToLeft: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -686,19 +691,27 @@ private fun PagedReader(
             .padding(padding)
             .background(Color.Black),
     ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            // Visibile solo durante lo swipe: separa otticamente le pagine come in un volume.
-            pageSpacing = pageSpacing,
-            key = { index -> pages[index].stableKey },
-        ) { index ->
-            ZoomablePage(
-                page = pages[index],
-                contentDescription = chapter.title,
-                doubleTapZoomEnabled = doubleTapZoomEnabled,
-                onToggleFullscreen = onToggleFullscreen,
-            )
+        // In modalità manga forziamo il layout RTL solo sul pager: così pagina 1 sta a
+        // destra e lo swipe procede da destra verso sinistra. Le immagini e l'indicatore
+        // "x/y" (fuori da questo provider) restano in layout normale, quindi non si
+        // specchiano. Le coordinate dei gesti di zoom/pan sono in pixel, indipendenti dalla
+        // direzione, quindi ZoomablePage funziona identico nelle due modalità.
+        val pagerLayoutDirection = if (rightToLeft) LayoutDirection.Rtl else LayoutDirection.Ltr
+        CompositionLocalProvider(LocalLayoutDirection provides pagerLayoutDirection) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                // Visibile solo durante lo swipe: separa otticamente le pagine come in un volume.
+                pageSpacing = pageSpacing,
+                key = { index -> pages[index].stableKey },
+            ) { index ->
+                ZoomablePage(
+                    page = pages[index],
+                    contentDescription = chapter.title,
+                    doubleTapZoomEnabled = doubleTapZoomEnabled,
+                    onToggleFullscreen = onToggleFullscreen,
+                )
+            }
         }
 
         // Indicatore di pagina discreto: appare al cambio pagina e svanisce da solo.

@@ -300,7 +300,7 @@ fun FavoriteActionsDialog(
                 FavoriteActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = "Leggi",
-                    description = "Scarica i primi 3 capitoli (priorità al 1°)",
+                    description = null,
                     onClick = onRead,
                 )
                 FavoriteActionRow(

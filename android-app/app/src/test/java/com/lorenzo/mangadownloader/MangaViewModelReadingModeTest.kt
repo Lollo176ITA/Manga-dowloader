@@ -38,6 +38,33 @@ class MangaViewModelReadingModeTest {
     }
 
     @Test
+    fun readingModeFlags_distinguishPagedAndRightToLeft() {
+        assertEquals(false, ReadingMode.VERTICAL.isPaged)
+        assertEquals(false, ReadingMode.VERTICAL.isRightToLeft)
+
+        assertEquals(true, ReadingMode.PAGED.isPaged)
+        assertEquals(false, ReadingMode.PAGED.isRightToLeft)
+
+        // La modalità manga è "a pagine" (stesso reader del pager) ma da destra a sinistra.
+        assertEquals(true, ReadingMode.PAGED_RTL.isPaged)
+        assertEquals(true, ReadingMode.PAGED_RTL.isRightToLeft)
+    }
+
+    @Test
+    fun setReaderReadingMode_pagedRtl_isRememberedPerSeries() {
+        createViewModel().also { viewModel ->
+            viewModel.openStreamingReader(seriesA(), seriesA().chapters.first())
+            viewModel.setReaderReadingMode(ReadingMode.PAGED_RTL)
+            assertEquals(ReadingMode.PAGED_RTL, viewModel.state.value.readerReadingMode)
+        }
+
+        // Nuovo ViewModel (come dopo un riavvio): l'override manga è ancora su disco.
+        val recreated = createViewModel()
+        recreated.openStreamingReader(seriesA(), seriesA().chapters.first())
+        assertEquals(ReadingMode.PAGED_RTL, recreated.state.value.readerReadingMode)
+    }
+
+    @Test
     fun setReadingMode_updatesGlobalDefaultAndPersists() {
         createViewModel().setReadingMode(ReadingMode.PAGED)
 

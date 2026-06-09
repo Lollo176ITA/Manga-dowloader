@@ -22,15 +22,15 @@
 
 ## 🟢 Bug & quick win (alto rapporto valore/sforzo)
 
-- [ ] **Race sul feed aggiornamenti: il worker sovrascrive il "visto" dell'utente** ✅ *(verificato 2026-06-09)*
-  - Dove: `FavoriteUpdatesWorker.doWork` legge il feed all'inizio [FavoriteUpdatesWorker.kt:54] e lo riscrive **per intero** nel `finally` [FavoriteUpdatesWorker.kt:109]; nel frattempo l'app può scrivere lo stesso feed con `markAllUpdatesSeen()` [MangaViewModel.kt:688-693].
-  - Perché: il loop del worker fa rete per ogni preferito (può durare decine di secondi). Se mentre gira l'utente apre "Aggiornamenti" e azzera il badge, il `finally` del worker riscrive la copia stantia con `seen=false` → il badge "non visto" risorge e gli eventi marcati visti tornano non visti. Stessa finestra anche per il caso opposto (worker in-process e refresh in foreground).
-  - Cosa fare: nel `finally` fare **read-merge-write**: rileggere il feed da disco, fare merge con gli eventi nuovi del worker (dedup già esistente su identityKey+chapterNumber) preservando i flag `seen` più recenti, e scrivere il risultato. In alternativa appendere/persistere subito a ogni evento invece di accumulare. Impatto Medio/Alto · Sforzo Basso.
+- [x] **Race sul feed aggiornamenti: il worker sovrascrive il "visto" dell'utente** ✅ — *fatto (2026-06-09)*
+  - Dove: `FavoriteUpdatesWorker.doWork` leggeva il feed all'inizio e lo riscriveva **per intero** nel `finally`; nel frattempo l'app può scrivere lo stesso feed con `markAllUpdatesSeen()`.
+  - Perché: il loop del worker fa rete per ogni preferito (può durare decine di secondi). Se mentre gira l'utente apre "Aggiornamenti" e azzera il badge, il `finally` del worker riscriveva la copia stantia con `seen=false` → il badge "non visto" risorgeva.
+  - **Fatto:** `FavoriteUpdatesFeedStore` ora espone `update(transform)` — read-transform-write **atomico** sotto un lock condiviso tra tutte le istanze (ViewModel e worker girano nello stesso processo). Il worker appende ogni evento con `feedStore.update { appendUpdateEvent(...) }` al momento della rilevazione (niente più copia tenuta in mano per tutto il giro di rete, niente riscrittura nel `finally`); `markAllUpdatesSeen()` usa lo stesso `update(::markAllSeen)`, partendo dal disco e non dallo stato in memoria. Test: `update_readsFreshStateFromDisk_notAStaleCopy` in `FavoriteUpdatesFeedStoreTest`.
 
-- [ ] **Notifica inviata prima di persistere l'evento nel feed** ✅ *(verificato 2026-06-09)*
-  - Dove: `notifyNewChapter` parte a [FavoriteUpdatesWorker.kt:82], l'evento entra nel feed dopo [FavoriteUpdatesWorker.kt:83-96] e la persistenza è solo nel `finally`.
-  - Perché: se il processo muore tra notifica e `finally`, l'utente ha ricevuto la notifica ma il feed (e il `seenMap`) non la registrano → al giro dopo ri-notifica lo stesso capitolo e il feed resta vuoto rispetto alla notifica vista.
-  - Cosa fare: persistere evento + `seenMap` **prima** di chiamare `notifyNewChapter` (o subito dopo ogni iterazione). Si combina bene col read-merge-write dell'item sopra. Impatto Basso · Sforzo Basso.
+- [x] **Notifica inviata prima di persistere l'evento nel feed** ✅ — *fatto (2026-06-09)*
+  - Dove: `notifyNewChapter` partiva prima che l'evento entrasse nel feed, e la persistenza era solo nel `finally`.
+  - Perché: se il processo muore tra notifica e `finally`, l'utente ha ricevuto la notifica ma feed e baseline non la registrano → al giro dopo ri-notifica lo stesso capitolo.
+  - **Fatto:** ordine invertito nel worker: baseline (`store.write(seenMap)`) e feed (`feedStore.update { ... }`) vengono persistiti **prima** di `notifyNewChapter`, per ogni evento.
 
 - [x] **Referer immagini sbagliato per fonti diverse da Mangapill** ✅ — *fatto (2026-05-26): le pagine `Remote` passano il proprio Referer via Coil `ImageRequest`; l'interceptor mette il default mangapill solo se assente (copertine invariate).*
   - Dove: header `Referer: https://mangapill.com/` fisso su **tutte** le immagini Coil [MangaApplication.kt:21]; le pagine streaming iniziali sono `ReaderPage.Remote` [MangaViewModel.kt:1179-1184] ma `ReaderScreen` usa solo `page.url` [ReaderScreen.kt:509, 745] e ignora il campo `Remote.referer` [ReaderModels.kt:46].
@@ -79,10 +79,11 @@
   - Dove: [DownloadWorker.kt:41-186] — `doWork`, `enqueue`, retry/cancellazione, concorrenza con `Semaphore`/`Mutex`.
   - Cosa fare: test di `enqueue` (constraint/tag) con `WorkManagerTestInitHelper`, e/o estrarre l'orchestrazione in una classe testabile con `MangaSource` fake (come `StreamingReadStateTest.TestMangaSource`). Impatto Alto · Sforzo Medio/Alto.
 
-- [ ] **Download lunghi (100+ capitoli) interrotti a schermo spento se manca il permesso notifiche** ✅ *(verificato sul codice 2026-06-04)*
+- [x] **Download lunghi (100+ capitoli) interrotti a schermo spento se manca il permesso notifiche** ✅ — *fatto (2026-06-09, vedi nota in fondo all'item)*
   - Dove: `DownloadWorker.safeSetForeground` → `canShowForegroundNotification()` [DownloadWorker.kt:229-250]; fallback "continua in background" [DownloadWorker.kt:236-239]; stop di sistema → `DownloadStoppedException` → **`Result.success`** ("Fermato") [DownloadWorker.kt:167-175, 202-206]; permesso dichiarato [AndroidManifest.xml:6] e service `dataSync` [AndroidManifest.xml:19-22].
   - Perché: il worker è un long-running worker promosso a **foreground service** (`FOREGROUND_SERVICE_TYPE_DATA_SYNC`). Il foreground service tiene CPU/rete vive a schermo spento ed è esente da Doze → con il permesso notifiche concesso, 100+ capitoli completano anche a schermo spento (lenti, batteria, ma OK ✅; retry su `IOException` riprende grazie allo `SKIPPED_EXISTING`). **MA** se l'utente ha negato `POST_NOTIFICATIONS` (Android 13+), `canShowForegroundNotification()` ritorna `false`, `safeSetForeground` esce subito e **non** chiama mai `setForeground`: il worker gira come job di background normale. A quel punto: (a) WorkManager impone ~10 min di esecuzione ai worker **non** foreground → su 100 capitoli viene fermato; (b) a schermo spento Doze sospende rete/esecuzione. Lo stop di sistema setta `isStopped` → `ensureActiveDownload()` lancia `DownloadStoppedException`, gestita come **`Result.success`** ("Fermato") → **niente auto-retry**: il download si ferma a metà in silenzio.
   - Cosa fare: (1) chiedere il permesso notifiche **prima** di avviare un download grosso (oggi serve per il foreground service, non solo per la notifica); (2) distinguere stop utente da stop di sistema (`getStopReason()`, WorkManager 2.9+) e in caso di stop di sistema restituire **`Result.retry()`** invece di `success`, così WorkManager riprende quando le condizioni lo permettono (idempotente via skip-existing); (3) opzionale: guidare l'utente all'esenzione dalla battery optimization sugli OEM aggressivi. Impatto Alto (per chi scarica serie lunghe) · Sforzo Medio.
+  - **Fatto (2026-06-09):** implementato il punto (1): `onStartDownload` in `MainActivity` richiede `POST_NOTIFICATIONS` al momento dell'avvio del download (Android 13+) e, se negato, mostra uno snackbar che spiega che i download lunghi possono essere interrotti dal sistema; il worker ri-controlla il permesso a ogni progresso, quindi concederlo a download in corso lo promuove comunque a foreground. Il punto (2) è stato **scartato dopo verifica sui doc ufficiali**: "WorkManager ignores the Result set by a Worker that has received the onStop signal" e, per gli stop di sistema, "the work is scheduled for retry at a later time" — cioè il `Result.success` del ramo `DownloadStoppedException` è già ignorato quando il worker viene fermato, e il retry su stop di sistema avviene comunque da solo; cambiare il Result non avrebbe alcun effetto. Il punto (3) resta come follow-up opzionale.
 
 - [x] **Gestire lo spazio disco insufficiente** ✅ — *fatto (2026-05-26)*
   - Dove: scrittura pagine [MangaSources.kt], estrazione [LibraryRepository.kt:575-577], cache streaming.
@@ -134,9 +135,9 @@
   - **Fatto (serializzazione):** aggiunto il plugin `org.jetbrains.kotlin.plugin.serialization` (2.0.21, allineato a Kotlin); favoriti via `@Serializable data class FavoriteEntryJson` + `Json.encode/decodeFromString`, recenti come `List<String>` tipizzata, al posto dei `buildJsonObject`/`jsonArray` a mano. Formato su disco invariato (retrocompatibile). Test `FavoritesPersistenceTest` (round-trip + lettura del vecchio JSON senza cover).
   - **Debounce scartato:** un test esistente (`ReaderProgressTest.streamingReader_positionSurvivesNewViewModel`) garantisce che la posizione sia **durevole subito** dopo il salvataggio (simula riavvio app con un nuovo ViewModel). Il debounce rompe questa garanzia e introduce perdita di dato su process-death; inoltre `prefs.apply()` è già asincrono (nessun jank sul main thread) e il vero costo per-pagina è il remap di stato in `withReaderProgress` — affrontato nell'item ricomposizioni. Mantenuta quindi la scrittura immediata.
 
-- [ ] **Uniformare gli aggiornamenti di stato** 🔎
+- [x] **Uniformare gli aggiornamenti di stato** ✅ — *fatto (2026-06-09)*
   - Dove: ~30 `_state.value = _state.value.copy(...)` diretti vs l'esistente `updateState { copy(...) }`.
-  - Cosa fare: uniformare su `updateState` (o `_state.update { }` di kotlinx per atomicità). Refactor meccanico. Impatto Basso · Sforzo Basso.
+  - **Fatto:** alla verifica del 2026-06-09 ne restava **uno solo** (il ramo d'errore di `checkForAppUpdate`) — gli altri erano già stati uniformati nei refactor precedenti. Convertito anche quello: ora l'unico `_state.value =` è dentro `updateState` stesso.
 
 ---
 

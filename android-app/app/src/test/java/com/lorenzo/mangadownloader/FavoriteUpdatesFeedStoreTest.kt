@@ -68,6 +68,37 @@ class FavoriteUpdatesFeedStoreTest {
     }
 
     @Test
+    fun update_readsFreshStateFromDisk_notAStaleCopy() {
+        // Scenario della race worker/app: un'altra istanza (l'app) marca tutto come visto
+        // mentre il "chiamante" ha in mano una copia vecchia. L'update deve partire dal
+        // disco, quindi il flag seen sopravvive all'append del worker.
+        val workerStore = FavoriteUpdatesFeedStore(prefs())
+        val appStore = FavoriteUpdatesFeedStore(prefs())
+        val original = FavoriteUpdateEvent(
+            identityKey = "k1",
+            title = "Berserk",
+            chapterNumber = "12",
+            timestampMillis = 1L,
+            seen = false,
+        )
+        workerStore.write(listOf(original))
+
+        appStore.update(::markAllSeen)
+
+        val newEvent = FavoriteUpdateEvent(
+            identityKey = "k2",
+            title = "One Piece",
+            chapterNumber = "1100",
+            timestampMillis = 2L,
+            seen = false,
+        )
+        val result = workerStore.update { events -> appendUpdateEvent(events, newEvent) }
+
+        assertEquals(listOf(newEvent, original.copy(seen = true)), result)
+        assertEquals(result, FavoriteUpdatesFeedStore(prefs()).read())
+    }
+
+    @Test
     fun read_toleratesUnknownExtraField() {
         // Avanti-compatibilità: un campo extra non deve impedire la lettura.
         prefs().edit().putString(

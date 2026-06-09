@@ -686,9 +686,9 @@ class MangaViewModel internal constructor(
 
     /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
     fun markAllUpdatesSeen() {
-        val seen = markAllSeen(_state.value.favoriteUpdates)
-        if (seen == _state.value.favoriteUpdates) return
-        favoriteUpdatesFeedStore.write(seen)
+        // Update atomico su disco (non sullo stato in memoria): così non si perdono gli
+        // eventi che il worker ha appena aggiunto e che lo stato non ha ancora visto.
+        val seen = favoriteUpdatesFeedStore.update(::markAllSeen)
         updateState { copy(favoriteUpdates = seen) }
     }
 
@@ -1948,13 +1948,15 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = if (force) {
-                    _state.value.copy(
-                        isCheckingUpdate = false,
-                        errorMessage = exc.message ?: "Errore controllo aggiornamenti",
-                    )
-                } else {
-                    _state.value.copy(isCheckingUpdate = false)
+                updateState {
+                    if (force) {
+                        copy(
+                            isCheckingUpdate = false,
+                            errorMessage = exc.message ?: "Errore controllo aggiornamenti",
+                        )
+                    } else {
+                        copy(isCheckingUpdate = false)
+                    }
                 }
             } finally {
                 if (shouldRecordStableCheck && stableCheckCompleted) {

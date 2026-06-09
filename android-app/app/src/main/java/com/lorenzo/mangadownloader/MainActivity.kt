@@ -233,6 +233,24 @@ private fun MangaDownloaderAppContent(
         prompt.authenticate(promptInfo)
     }
 
+    // Senza POST_NOTIFICATIONS (Android 13+) il worker non può promuoversi a foreground
+    // service: i download lunghi vengono fermati dal sistema (~10 minuti) e ripresi solo a
+    // singhiozzo sotto Doze. Richiediamo il permesso nel momento in cui serve davvero
+    // (avvio di un download) e, se negato, spieghiamo la conseguenza. Il worker ri-controlla
+    // il permesso a ogni aggiornamento di progresso, quindi concederlo a download già
+    // partito lo promuove comunque a foreground.
+    val downloadNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    "Senza notifiche i download lunghi possono essere interrotti dal sistema",
+                )
+            }
+        }
+    }
+
     val onStartDownload: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit = { details, startChapter, endChapter ->
         val firstUrl = startChapter.url.trim()
         val lastUrl = endChapter.url.trim()
@@ -242,6 +260,14 @@ private fun MangaDownloaderAppContent(
             }
         } else {
             try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        appContext,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    downloadNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
                 DownloadWorker.enqueue(
                     context = appContext,
                     firstUrl = firstUrl,

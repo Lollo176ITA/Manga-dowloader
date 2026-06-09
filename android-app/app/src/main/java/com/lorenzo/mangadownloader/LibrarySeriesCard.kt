@@ -31,6 +31,7 @@ fun LibrarySeriesCard(
     row: LibraryRowItem,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onDeleteReadChapters: () -> Unit,
     onStopDownloads: () -> Unit,
 ) {
     val series = row.series
@@ -39,6 +40,9 @@ fun LibrarySeriesCard(
     var menuExpanded by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showDeleteReadDialog by remember { mutableStateOf(false) }
+    // Capitoli letti eliminabili: se zero, la voce di menu non compare.
+    val readChapters = remember(series) { series?.readDownloadedChapters().orEmpty() }
 
     Card(
         modifier = if (series != null) {
@@ -113,6 +117,14 @@ fun LibrarySeriesCard(
                             menuExpanded = false
                             showDeleteDialog = true
                         },
+                        onDeleteReadChapters = if (readChapters.isNotEmpty()) {
+                            {
+                                menuExpanded = false
+                                showDeleteReadDialog = true
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             }
@@ -142,6 +154,20 @@ fun LibrarySeriesCard(
             onConfirm = {
                 showDeleteDialog = false
                 onDelete()
+            },
+        )
+    }
+
+    if (showDeleteReadDialog && series != null) {
+        val freedBytes = remember(series) { readChapters.sumOf { it.file.length() } }
+        DeleteReadChaptersDialog(
+            seriesTitle = series.title,
+            readCount = readChapters.size,
+            freedBytes = freedBytes,
+            onDismiss = { showDeleteReadDialog = false },
+            onConfirm = {
+                showDeleteReadDialog = false
+                onDeleteReadChapters()
             },
         )
     }

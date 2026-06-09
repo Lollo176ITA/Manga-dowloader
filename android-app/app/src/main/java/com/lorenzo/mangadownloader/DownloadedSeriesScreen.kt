@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +30,18 @@ fun DownloadedSeriesScreen(
     val firstChapter = remember(series) { series.chapters.firstOrNull() }
     val resumeChapter = remember(series) { series.resumeChapter() }
 
+    // All'apertura della serie atterra sul punto di lettura, non sempre sul capitolo 1: con
+    // centinaia di capitoli il segnalibro può essere molto più in basso. Una riga di contesto
+    // sopra. Keyed sulla cartella (identità serie) così non riscrolla a ogni refresh/eliminazione.
+    val listState = rememberLazyListState()
+    LaunchedEffect(series.directory.absolutePath) {
+        val resume = series.resumeChapter() ?: return@LaunchedEffect
+        val index = series.chapters.indexOf(resume)
+        if (index > 0) {
+            listState.scrollToItem((index - 1).coerceAtLeast(0))
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -44,6 +58,7 @@ fun DownloadedSeriesScreen(
         val anchorFor = LocalTutorialAnchor.current
         val firstChapterPath = series.chapters.firstOrNull()?.relativePath
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),

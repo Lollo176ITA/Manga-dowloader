@@ -504,7 +504,9 @@ private fun MangaDownloaderAppContent(
                 StorageScreen(
                     library = state.library,
                     padding = innerPadding,
+                    onOpenSeries = viewModel::selectDownloadedSeries,
                     onDeleteSeries = viewModel::deleteDownloadedSeries,
+                    onDeleteReadChapters = viewModel::deleteReadChapters,
                 )
             }
             Screen.Updates -> {
@@ -661,6 +663,7 @@ private fun MangaDownloaderAppContent(
                             padding = innerPadding,
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
+                            onDeleteReadChapters = viewModel::deleteReadChapters,
                             onQueryChange = viewModel::onLibraryQueryChange,
                             onBrowse = goToSearchTab,
                             onStopDownloads = {

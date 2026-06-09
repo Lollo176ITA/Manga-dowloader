@@ -1413,6 +1413,10 @@ class MangaViewModel internal constructor(
             copy(
                 selectedDownloadedSeries = series,
                 currentTab = AppTab.LIBRARY,
+                // Chiude eventuali overlay sopra: aprendo la serie dalla Gestione memoria
+                // (raggiunta dalle Impostazioni) si deve atterrare sulla schermata serie.
+                showStorageManager = false,
+                showSettings = false,
                 errorMessage = null,
             )
         }
@@ -1865,6 +1869,45 @@ class MangaViewModel internal constructor(
                     copy(
                         isLoadingLibrary = false,
                         errorMessage = exc.message ?: "Errore eliminazione capitolo",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Elimina i soli capitoli già **letti** di [series] (tiene quello in corso e i non letti),
+     * liberando spazio senza smontare la serie. Riusa lo stesso percorso di [deleteDownloadedChapter]
+     * ma su una lista, e funziona per qualunque serie della libreria (non solo quella selezionata),
+     * così è invocabile sia dalla Libreria sia dalla Gestione memoria. La baseline "letto" resta nei
+     * metadati (vedi [LibraryRepository.deleteChapters]): i capitoli si possono riscaricare restando
+     * segnati come letti. Se tutti i capitoli sono letti, la cartella viene rimossa del tutto.
+     */
+    fun deleteReadChapters(series: DownloadedSeries) {
+        val readChapters = series.chapters.filter { it.isRead }
+        if (readChapters.isEmpty()) return
+
+        libraryJob?.cancel()
+        streamingCacheJob?.cancel()
+        smartCleanupJob?.cancel()
+        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
+        libraryJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteChapters(series, readChapters)
+                }
+                val snapshot = scanLibrarySnapshot()
+                updateState {
+                    withLibrarySnapshot(snapshot)
+                        .copy(isLoadingLibrary = false)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        isLoadingLibrary = false,
+                        errorMessage = exc.message ?: "Errore eliminazione capitoli letti",
                     )
                 }
             }

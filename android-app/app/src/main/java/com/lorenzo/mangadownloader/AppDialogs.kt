@@ -58,6 +58,31 @@ fun DeleteChapterDialog(
     )
 }
 
+/**
+ * Conferma per "Elimina capitoli letti": anticipa il beneficio (quanti capitoli e quanto
+ * spazio liberato) e rassicura che il progresso non si perde. [freedBytes] è la somma delle
+ * dimensioni dei capitoli letti, calcolata dal chiamante.
+ */
+@Composable
+fun DeleteReadChaptersDialog(
+    seriesTitle: String,
+    readCount: Int,
+    freedBytes: Long,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val capitoli = if (readCount == 1) "1 capitolo letto" else "$readCount capitoli letti"
+    ConfirmationDialog(
+        title = "Elimina capitoli letti",
+        text = "Eliminerai $capitoli di $seriesTitle, liberando ${formatBytes(freedBytes)}. " +
+            "Restano segnati come letti e potrai riscaricarli; il capitolo in corso e quelli " +
+            "non ancora letti non vengono toccati.",
+        confirmLabel = "Elimina letti",
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+    )
+}
+
 @Composable
 fun CrashReportDialog(
     report: String,

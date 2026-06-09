@@ -11,7 +11,7 @@ import java.io.File
 enum class ReadingMode(val menuLabel: String, val shortLabel: String) {
     VERTICAL("Scroll verticale", "Verticale"),
     PAGED("A pagine", "Pagine"),
-    PAGED_RTL("A pagine (manga, da destra)", "Manga");
+    PAGED_RTL("A pagine (da destra)", "Manga");
 
     /** Vero per entrambe le modalità a pagine (occidentale e manga). */
     val isPaged: Boolean get() = this == PAGED || this == PAGED_RTL

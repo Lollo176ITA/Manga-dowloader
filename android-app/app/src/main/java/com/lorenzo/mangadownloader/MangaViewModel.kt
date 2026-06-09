@@ -69,6 +69,10 @@ private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPubli
             .getOrDefault(MangaPublicationStatus.UNKNOWN)
     }
 
+/** Interspazio (dp) tra le pagine del reader: 8 è il valore storico dell'app. */
+const val DEFAULT_READER_PAGE_SPACING_DP = 8
+const val MAX_READER_PAGE_SPACING_DP = 24
+
 data class AppSettings(
     val searchSourceId: String = MangaSourceIds.DEFAULT,
     val discoveryEnabled: Boolean = false,
@@ -89,6 +93,7 @@ data class AppSettings(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
@@ -1016,6 +1021,12 @@ class MangaViewModel internal constructor(
 
     fun setReaderBrightness(brightness: Float) {
         updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
+    }
+
+    fun setReaderPageSpacing(spacingDp: Int) {
+        updateSettings {
+            it.copy(readerPageSpacingDp = spacingDp.coerceIn(0, MAX_READER_PAGE_SPACING_DP))
+        }
     }
 
     fun setAllowLandscapeRotation(enabled: Boolean) {

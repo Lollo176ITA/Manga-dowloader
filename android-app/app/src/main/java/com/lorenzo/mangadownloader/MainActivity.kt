@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -489,6 +490,7 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
+                    pageSpacing = state.settings.readerPageSpacingDp.dp,
                     navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,
                     initialPageIndex = state.readerInitialPageIndex,
@@ -540,6 +542,7 @@ private fun MangaDownloaderAppContent(
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                     onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
+                    onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,

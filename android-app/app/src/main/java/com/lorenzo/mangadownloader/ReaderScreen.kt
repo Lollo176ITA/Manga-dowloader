@@ -69,6 +69,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -91,6 +92,7 @@ fun ReaderScreen(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     navBarVisible: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -125,6 +127,7 @@ fun ReaderScreen(
                 isLoading = isLoading,
                 readingMode = readingMode,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -233,6 +236,7 @@ private fun ReaderContent(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -264,6 +268,7 @@ private fun ReaderContent(
                 chapter = chapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onPageVisible = onPageVisible,
@@ -278,6 +283,7 @@ private fun ReaderContent(
                 nextChapter = nextChapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -297,6 +303,7 @@ private fun VerticalReader(
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -606,7 +613,7 @@ private fun VerticalReader(
                     translationY = readerOffsetY
                 },
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(pageSpacing),
         ) {
             item("reader-nav-top") {
                 ReaderChapterNavigationRow(
@@ -643,6 +650,7 @@ private fun PagedReader(
     chapter: ReaderChapter,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -681,6 +689,8 @@ private fun PagedReader(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
+            // Visibile solo durante lo swipe: separa otticamente le pagine come in un volume.
+            pageSpacing = pageSpacing,
             key = { index -> pages[index].stableKey },
         ) { index ->
             ZoomablePage(

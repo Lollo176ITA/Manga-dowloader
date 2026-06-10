@@ -29,6 +29,7 @@ fun LibraryScreen(
     padding: PaddingValues,
     onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
+    onDeleteReadChapters: (DownloadedSeries) -> Unit,
     onQueryChange: (String) -> Unit,
     onBrowse: () -> Unit,
     onStopDownloads: () -> Unit,
@@ -112,6 +113,7 @@ fun LibraryScreen(
                                     row = row,
                                     onClick = { row.series?.let(onOpenSeries) },
                                     onDelete = { row.series?.let(onDeleteSeries) },
+                                    onDeleteReadChapters = { row.series?.let(onDeleteReadChapters) },
                                     onStopDownloads = onStopDownloads,
                                 )
                             }

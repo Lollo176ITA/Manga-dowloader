@@ -69,6 +69,10 @@ private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPubli
             .getOrDefault(MangaPublicationStatus.UNKNOWN)
     }
 
+/** Interspazio (dp) tra le pagine del reader: 8 è il valore storico dell'app. */
+const val DEFAULT_READER_PAGE_SPACING_DP = 8
+const val MAX_READER_PAGE_SPACING_DP = 24
+
 data class AppSettings(
     val searchSourceId: String = MangaSourceIds.DEFAULT,
     val discoveryEnabled: Boolean = false,
@@ -89,6 +93,7 @@ data class AppSettings(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
@@ -686,9 +691,9 @@ class MangaViewModel internal constructor(
 
     /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
     fun markAllUpdatesSeen() {
-        val seen = markAllSeen(_state.value.favoriteUpdates)
-        if (seen == _state.value.favoriteUpdates) return
-        favoriteUpdatesFeedStore.write(seen)
+        // Update atomico su disco (non sullo stato in memoria): così non si perdono gli
+        // eventi che il worker ha appena aggiunto e che lo stato non ha ancora visto.
+        val seen = favoriteUpdatesFeedStore.update(::markAllSeen)
         updateState { copy(favoriteUpdates = seen) }
     }
 
@@ -1016,6 +1021,12 @@ class MangaViewModel internal constructor(
 
     fun setReaderBrightness(brightness: Float) {
         updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
+    }
+
+    fun setReaderPageSpacing(spacingDp: Int) {
+        updateSettings {
+            it.copy(readerPageSpacingDp = spacingDp.coerceIn(0, MAX_READER_PAGE_SPACING_DP))
+        }
     }
 
     fun setAllowLandscapeRotation(enabled: Boolean) {
@@ -1402,6 +1413,10 @@ class MangaViewModel internal constructor(
             copy(
                 selectedDownloadedSeries = series,
                 currentTab = AppTab.LIBRARY,
+                // Chiude eventuali overlay sopra: aprendo la serie dalla Gestione memoria
+                // (raggiunta dalle Impostazioni) si deve atterrare sulla schermata serie.
+                showStorageManager = false,
+                showSettings = false,
                 errorMessage = null,
             )
         }
@@ -1860,6 +1875,45 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * Elimina i soli capitoli già **letti** di [series] (tiene quello in corso e i non letti),
+     * liberando spazio senza smontare la serie. Riusa lo stesso percorso di [deleteDownloadedChapter]
+     * ma su una lista, e funziona per qualunque serie della libreria (non solo quella selezionata),
+     * così è invocabile sia dalla Libreria sia dalla Gestione memoria. La baseline "letto" resta nei
+     * metadati (vedi [LibraryRepository.deleteChapters]): i capitoli si possono riscaricare restando
+     * segnati come letti. Se tutti i capitoli sono letti, la cartella viene rimossa del tutto.
+     */
+    fun deleteReadChapters(series: DownloadedSeries) {
+        val readChapters = series.chapters.filter { it.isRead }
+        if (readChapters.isEmpty()) return
+
+        libraryJob?.cancel()
+        streamingCacheJob?.cancel()
+        smartCleanupJob?.cancel()
+        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
+        libraryJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    libraryRepository.deleteChapters(series, readChapters)
+                }
+                val snapshot = scanLibrarySnapshot()
+                updateState {
+                    withLibrarySnapshot(snapshot)
+                        .copy(isLoadingLibrary = false)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        isLoadingLibrary = false,
+                        errorMessage = exc.message ?: "Errore eliminazione capitoli letti",
+                    )
+                }
+            }
+        }
+    }
+
     fun deleteDownloadedSeries(series: DownloadedSeries? = _state.value.selectedDownloadedSeries) {
         val targetSeries = series ?: return
 
@@ -1948,13 +2002,15 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
-                _state.value = if (force) {
-                    _state.value.copy(
-                        isCheckingUpdate = false,
-                        errorMessage = exc.message ?: "Errore controllo aggiornamenti",
-                    )
-                } else {
-                    _state.value.copy(isCheckingUpdate = false)
+                updateState {
+                    if (force) {
+                        copy(
+                            isCheckingUpdate = false,
+                            errorMessage = exc.message ?: "Errore controllo aggiornamenti",
+                        )
+                    } else {
+                        copy(isCheckingUpdate = false)
+                    }
                 }
             } finally {
                 if (shouldRecordStableCheck && stableCheckCompleted) {
@@ -2386,7 +2442,16 @@ class MangaViewModel internal constructor(
     }
 
     private fun MangaUiState.withReaderAdjacency(relativePath: String?): MangaUiState {
-        val chapters = selectedDownloadedSeries?.chapters.orEmpty()
+        // Il reader può essere aperto senza passare dalla schermata serie (es. "Riprendi"
+        // dalla libreria): in quel caso selectedDownloadedSeries è null, quindi i capitoli
+        // adiacenti vanno cercati nella serie di appartenenza dentro la libreria.
+        val chapters = relativePath?.let { path ->
+            selectedDownloadedSeries?.chapters
+                ?.takeIf { list -> list.any { it.relativePath == path } }
+                ?: library.firstOrNull { series ->
+                    series.chapters.any { it.relativePath == path }
+                }?.chapters
+        }.orEmpty()
         val currentIndex = relativePath?.let { path ->
             chapters.indexOfFirst { it.relativePath == path }
         } ?: -1

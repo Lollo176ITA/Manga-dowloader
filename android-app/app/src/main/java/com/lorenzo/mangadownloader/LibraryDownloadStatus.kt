@@ -162,6 +162,14 @@ fun DownloadedSeries.readChapterCount(): Int {
     return readChapterIds.size.coerceAtMost(totalChapterCount.coerceAtLeast(0))
 }
 
+/** I capitoli **scaricati e già letti**: ciò che si può eliminare per liberare spazio. */
+fun DownloadedSeries.readDownloadedChapters(): List<DownloadedChapter> =
+    chapters.filter { it.isRead }
+
+/** Byte occupati dai capitoli letti (somma le dimensioni dei file). IO leggero (pochi file). */
+fun DownloadedSeries.readChaptersSizeBytes(): Long =
+    readDownloadedChapters().sumOf { it.file.length() }
+
 fun DownloadedSeries.readProgressPercent(): Int {
     if (totalChapterCount <= 0) return 0
     return ((readChapterCount() * 100f) / totalChapterCount.toFloat()).toInt()

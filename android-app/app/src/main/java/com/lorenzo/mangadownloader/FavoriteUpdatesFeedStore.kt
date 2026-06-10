@@ -103,7 +103,27 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun read(): List<FavoriteUpdateEvent> {
+    fun read(): List<FavoriteUpdateEvent> = synchronized(LOCK) { readLocked() }
+
+    fun write(events: List<FavoriteUpdateEvent>) {
+        synchronized(LOCK) { writeLocked(events) }
+    }
+
+    /**
+     * Read-transform-write atomico del feed. Il lock è condiviso tra tutte le istanze
+     * (ViewModel e [FavoriteUpdatesWorker] girano nello stesso processo): senza, il worker
+     * — che tiene il feed in mano per tutto il giro di rete — sovrascriverebbe un
+     * "segna tutto come visto" fatto dall'utente nel frattempo, facendo risorgere il badge.
+     */
+    fun update(
+        transform: (List<FavoriteUpdateEvent>) -> List<FavoriteUpdateEvent>,
+    ): List<FavoriteUpdateEvent> = synchronized(LOCK) {
+        val updated = transform(readLocked())
+        writeLocked(updated)
+        updated
+    }
+
+    private fun readLocked(): List<FavoriteUpdateEvent> {
         val raw = prefs.getString(KEY_FAVORITE_UPDATES_FEED_JSON, null).orEmpty()
         if (raw.isBlank()) {
             return emptyList()
@@ -115,7 +135,7 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
         }
     }
 
-    fun write(events: List<FavoriteUpdateEvent>) {
+    private fun writeLocked(events: List<FavoriteUpdateEvent>) {
         prefs.edit()
             .putString(KEY_FAVORITE_UPDATES_FEED_JSON, json.encodeToString(events))
             .apply()
@@ -123,5 +143,6 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY_FAVORITE_UPDATES_FEED_JSON = "favorite_updates_feed_json"
+        val LOCK = Any()
     }
 }

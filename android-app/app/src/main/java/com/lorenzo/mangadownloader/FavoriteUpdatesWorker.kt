@@ -51,7 +51,6 @@ class FavoriteUpdatesWorker(
         val descriptionsStore = FavoriteDescriptionsStore(prefs)
         val descriptions = descriptionsStore.read().toMutableMap()
         val feedStore = FavoriteUpdatesFeedStore(prefs)
-        var feedEvents = feedStore.read()
         val registry = sharedSourceRegistry(context)
         val notifier = FavoriteUpdateNotifier(context)
 
@@ -79,21 +78,30 @@ class FavoriteUpdatesWorker(
                 )
                 seenMap[key] = result.newState
                 result.newChapterLabel?.let { label ->
+                    // Persisti baseline e feed PRIMA di notificare: se il processo muore
+                    // subito dopo la notifica, al giro dopo non si rinotifica lo stesso
+                    // capitolo e l'evento è comunque nel feed in-app. L'append è un
+                    // read-merge-write atomico per evento: non si tiene in mano il feed
+                    // durante il giro di rete, così un "segna come visto" fatto
+                    // dall'utente nel frattempo non viene sovrascritto.
+                    store.write(seenMap)
+                    feedStore.update { events ->
+                        appendUpdateEvent(
+                            events,
+                            FavoriteUpdateEvent(
+                                identityKey = key,
+                                title = favorite.title,
+                                sourceId = favorite.sourceId,
+                                mangaUrl = favorite.mangaUrl,
+                                chapterLabel = label,
+                                chapterNumber = latest.numberValue.stripTrailingZeros().toPlainString(),
+                                coverUrl = favorite.coverUrl,
+                                timestampMillis = System.currentTimeMillis(),
+                                seen = false,
+                            ),
+                        )
+                    }
                     notifier.notifyNewChapter(favorite, label)
-                    feedEvents = appendUpdateEvent(
-                        feedEvents,
-                        FavoriteUpdateEvent(
-                            identityKey = key,
-                            title = favorite.title,
-                            sourceId = favorite.sourceId,
-                            mangaUrl = favorite.mangaUrl,
-                            chapterLabel = label,
-                            chapterNumber = latest.numberValue.stripTrailingZeros().toPlainString(),
-                            coverUrl = favorite.coverUrl,
-                            timestampMillis = System.currentTimeMillis(),
-                            seen = false,
-                        ),
-                    )
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -104,9 +112,10 @@ class FavoriteUpdatesWorker(
         } finally {
             // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà
             // (es. rete caduta), così non si rinotificano i capitoli già avvisati al giro dopo.
+            // Il feed NON si riscrive qui: ogni evento è già stato persistito al momento
+            // della notifica (vedi sopra).
             store.write(seenMap)
             descriptionsStore.write(descriptions)
-            feedStore.write(feedEvents)
         }
         return Result.success()
     }

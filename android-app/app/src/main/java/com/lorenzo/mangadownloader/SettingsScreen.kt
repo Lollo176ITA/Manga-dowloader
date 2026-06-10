@@ -33,6 +33,7 @@ fun SettingsScreen(
     onSmartCleanupKeepChange: (Int) -> Unit,
     onToggleStreamingReader: (Boolean) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
+    onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
@@ -66,6 +67,11 @@ fun SettingsScreen(
             ReadingModeContent(
                 currentMode = settings.readingMode,
                 onSelectMode = onSelectReadingMode,
+            )
+            SettingsDivider()
+            ReaderPageSpacingContent(
+                currentDp = settings.readerPageSpacingDp,
+                onSelect = onSelectReaderPageSpacing,
             )
             SettingsDivider()
             DoubleTapZoomContent(

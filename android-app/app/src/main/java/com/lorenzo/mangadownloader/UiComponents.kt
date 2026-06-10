@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -793,6 +794,8 @@ fun SeriesActionsMenu(
     onDismiss: () -> Unit,
     onShowInfo: () -> Unit,
     onDelete: () -> Unit,
+    // Mostrata solo quando ci sono capitoli letti da poter liberare (altrimenti null).
+    onDeleteReadChapters: (() -> Unit)? = null,
 ) {
     Box {
         IconButton(onClick = onExpand) {
@@ -810,6 +813,13 @@ fun SeriesActionsMenu(
                 leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
                 onClick = onShowInfo,
             )
+            if (onDeleteReadChapters != null) {
+                DropdownMenuItem(
+                    text = { Text("Elimina capitoli letti") },
+                    leadingIcon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                    onClick = onDeleteReadChapters,
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Elimina") },
                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },

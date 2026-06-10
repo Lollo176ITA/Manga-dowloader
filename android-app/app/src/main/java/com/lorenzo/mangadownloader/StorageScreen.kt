@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +18,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,7 +64,9 @@ data class SeriesStorageInfo(
 fun StorageScreen(
     library: List<DownloadedSeries>,
     padding: PaddingValues,
+    onOpenSeries: (DownloadedSeries) -> Unit,
     onDeleteSeries: (DownloadedSeries) -> Unit,
+    onDeleteReadChapters: (DownloadedSeries) -> Unit,
 ) {
     // Le dimensioni si leggono dal filesystem: fuori dal main thread per non
     // bloccare la UI. Si ricalcola quando la libreria cambia (es. dopo un'eliminazione).
@@ -77,6 +84,7 @@ fun StorageScreen(
 
     var sortOrder by remember { mutableStateOf(StorageSortOrder.SIZE_DESC) }
     var pendingDeletion by remember { mutableStateOf<DownloadedSeries?>(null) }
+    var pendingReadDeletion by remember { mutableStateOf<DownloadedSeries?>(null) }
 
     Box(
         modifier = Modifier
@@ -122,7 +130,9 @@ fun StorageScreen(
                         StorageSeriesRow(
                             info = info,
                             totalBytes = totalBytes,
+                            onOpen = { onOpenSeries(info.series) },
                             onDelete = { pendingDeletion = info.series },
+                            onDeleteReadChapters = { pendingReadDeletion = info.series },
                         )
                     }
                 }
@@ -139,6 +149,21 @@ fun StorageScreen(
             onConfirm = {
                 pendingDeletion = null
                 onDeleteSeries(series)
+            },
+        )
+    }
+
+    pendingReadDeletion?.let { series ->
+        val readChapters = remember(series) { series.readDownloadedChapters() }
+        val freedBytes = remember(series) { series.readChaptersSizeBytes() }
+        DeleteReadChaptersDialog(
+            seriesTitle = series.title,
+            readCount = readChapters.size,
+            freedBytes = freedBytes,
+            onDismiss = { pendingReadDeletion = null },
+            onConfirm = {
+                pendingReadDeletion = null
+                onDeleteReadChapters(series)
             },
         )
     }
@@ -234,7 +259,9 @@ private fun StorageSortPicker(
 private fun StorageSeriesRow(
     info: SeriesStorageInfo,
     totalBytes: Long,
+    onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onDeleteReadChapters: () -> Unit,
 ) {
     val series = info.series
     val percent = if (totalBytes > 0) {
@@ -242,8 +269,12 @@ private fun StorageSeriesRow(
     } else {
         0.0
     }
+    val readDownloaded = series.chapters.count { it.isRead }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        // Tap sulla riga: apre la serie per ispezionarla prima di decidere cosa eliminare.
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             // La card è tinta col colore della serie: ogni manga ha la sua identità cromatica,
@@ -281,8 +312,10 @@ private fun StorageSeriesRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+                // Disambigua: i "letti" sono il progresso di lettura, la % è la quota di spazio.
                 Text(
-                    text = "${series.chapters.size} capitoli · ${String.format(Locale.US, "%.0f", percent)}%",
+                    text = "$readDownloaded/${series.chapters.size} letti · " +
+                        "${String.format(Locale.US, "%.0f", percent)}% dello spazio",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -293,13 +326,59 @@ private fun StorageSeriesRow(
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = "Elimina ${series.title}",
-                    tint = MaterialTheme.colorScheme.error,
+            StorageRowActionsMenu(
+                seriesTitle = series.title,
+                hasReadChapters = readDownloaded > 0,
+                onDelete = onDelete,
+                onDeleteReadChapters = onDeleteReadChapters,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StorageRowActionsMenu(
+    seriesTitle: String,
+    hasReadChapters: Boolean,
+    onDelete: () -> Unit,
+    onDeleteReadChapters: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Azioni $seriesTitle",
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            if (hasReadChapters) {
+                DropdownMenuItem(
+                    text = { Text("Elimina capitoli letti") },
+                    leadingIcon = { Icon(Icons.Default.DeleteSweep, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onDeleteReadChapters()
+                    },
                 )
             }
+            DropdownMenuItem(
+                text = { Text("Elimina manga") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                },
+            )
         }
     }
 }

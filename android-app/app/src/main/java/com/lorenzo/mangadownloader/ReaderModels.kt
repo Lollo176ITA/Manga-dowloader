@@ -5,13 +5,19 @@ import java.io.File
 /**
  * Come vengono sfogliate le pagine nel reader.
  * - [VERTICAL]: scroll verticale continuo (webtoon), modalità storica.
- * - [PAGED]: una pagina per volta, si avanza verso destra.
+ * - [PAGED]: una pagina per volta, si sfoglia da sinistra a destra (occidentale).
+ * - [PAGED_RTL]: come [PAGED] ma da destra a sinistra, il senso di lettura dei manga.
  */
 enum class ReadingMode(val menuLabel: String, val shortLabel: String) {
     VERTICAL("Scroll verticale", "Verticale"),
-    PAGED("A pagine", "Pagine");
+    PAGED("A pagine", "Pagine"),
+    PAGED_RTL("A pagine (da destra)", "Manga");
 
-    val isPaged: Boolean get() = this == PAGED
+    /** Vero per entrambe le modalità a pagine (occidentale e manga). */
+    val isPaged: Boolean get() = this == PAGED || this == PAGED_RTL
+
+    /** Vero solo per la modalità manga: lo swipe e l'ordine pagine vanno da destra a sinistra. */
+    val isRightToLeft: Boolean get() = this == PAGED_RTL
 }
 
 data class ReaderChapter(

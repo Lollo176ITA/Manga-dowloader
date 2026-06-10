@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -233,6 +234,24 @@ private fun MangaDownloaderAppContent(
         prompt.authenticate(promptInfo)
     }
 
+    // Senza POST_NOTIFICATIONS (Android 13+) il worker non può promuoversi a foreground
+    // service: i download lunghi vengono fermati dal sistema (~10 minuti) e ripresi solo a
+    // singhiozzo sotto Doze. Richiediamo il permesso nel momento in cui serve davvero
+    // (avvio di un download) e, se negato, spieghiamo la conseguenza. Il worker ri-controlla
+    // il permesso a ogni aggiornamento di progresso, quindi concederlo a download già
+    // partito lo promuove comunque a foreground.
+    val downloadNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) {
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    "Senza notifiche i download lunghi possono essere interrotti dal sistema",
+                )
+            }
+        }
+    }
+
     val onStartDownload: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit = { details, startChapter, endChapter ->
         val firstUrl = startChapter.url.trim()
         val lastUrl = endChapter.url.trim()
@@ -242,6 +261,14 @@ private fun MangaDownloaderAppContent(
             }
         } else {
             try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        appContext,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    downloadNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
                 DownloadWorker.enqueue(
                     context = appContext,
                     firstUrl = firstUrl,
@@ -463,6 +490,7 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
+                    pageSpacing = state.settings.readerPageSpacingDp.dp,
                     navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,
                     initialPageIndex = state.readerInitialPageIndex,
@@ -476,7 +504,9 @@ private fun MangaDownloaderAppContent(
                 StorageScreen(
                     library = state.library,
                     padding = innerPadding,
+                    onOpenSeries = viewModel::selectDownloadedSeries,
                     onDeleteSeries = viewModel::deleteDownloadedSeries,
+                    onDeleteReadChapters = viewModel::deleteReadChapters,
                 )
             }
             Screen.Updates -> {
@@ -514,6 +544,7 @@ private fun MangaDownloaderAppContent(
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                     onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
+                    onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
@@ -632,6 +663,7 @@ private fun MangaDownloaderAppContent(
                             padding = innerPadding,
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onDeleteSeries = viewModel::deleteDownloadedSeries,
+                            onDeleteReadChapters = viewModel::deleteReadChapters,
                             onQueryChange = viewModel::onLibraryQueryChange,
                             onBrowse = goToSearchTab,
                             onStopDownloads = {

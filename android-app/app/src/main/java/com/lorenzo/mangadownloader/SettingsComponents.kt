@@ -194,6 +194,33 @@ fun ReadingModeContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReaderPageSpacingContent(
+    currentDp: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val options = listOf(
+        0 to "Nessuno",
+        4 to "Piccolo",
+        DEFAULT_READER_PAGE_SPACING_DP to "Medio",
+        16 to "Grande",
+    )
+    Column {
+        SettingsSubheader("Spazio tra le pagine")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (dp, label) ->
+                SegmentedButton(
+                    selected = currentDp == dp,
+                    onClick = { onSelect(dp) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    label = { Text(label) },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun DoubleTapZoomContent(
     enabled: Boolean,

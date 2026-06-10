@@ -26,7 +26,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,8 +68,11 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -92,6 +95,7 @@ fun ReaderScreen(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     navBarVisible: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -126,6 +130,7 @@ fun ReaderScreen(
                 isLoading = isLoading,
                 readingMode = readingMode,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -182,7 +187,7 @@ private fun ReaderBottomNavBar(
                 bottom = contentPadding.calculateBottomPadding() + 12.dp,
             ),
         ) {
-            // Frecce ai lati + etichetta "CAPITOLO" e titolo al centro: così è evidente
+            // Frecce ai lati + titolo del capitolo al centro: il titolo basta a chiarire
             // che questi controlli cambiano il capitolo, non scorrono le pagine.
             Row(
                 modifier = Modifier
@@ -199,26 +204,17 @@ private fun ReaderBottomNavBar(
                         contentDescription = "Capitolo precedente",
                     )
                 }
-                Column(
+                Text(
+                    text = currentTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = "CAPITOLO",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = currentTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                )
                 IconButton(
                     onClick = onOpenNext,
                     enabled = nextChapter != null,
@@ -243,6 +239,7 @@ private fun ReaderContent(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -274,6 +271,8 @@ private fun ReaderContent(
                 chapter = chapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
+                rightToLeft = readingMode.isRightToLeft,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onPageVisible = onPageVisible,
@@ -288,6 +287,7 @@ private fun ReaderContent(
                 nextChapter = nextChapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
                 onOpenPrevious = onOpenPrevious,
@@ -307,6 +307,7 @@ private fun VerticalReader(
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
     onOpenPrevious: () -> Unit,
@@ -616,7 +617,7 @@ private fun VerticalReader(
                     translationY = readerOffsetY
                 },
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(pageSpacing),
         ) {
             item("reader-nav-top") {
                 ReaderChapterNavigationRow(
@@ -653,6 +654,8 @@ private fun PagedReader(
     chapter: ReaderChapter,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    pageSpacing: Dp,
+    rightToLeft: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -688,17 +691,27 @@ private fun PagedReader(
             .padding(padding)
             .background(Color.Black),
     ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            key = { index -> pages[index].stableKey },
-        ) { index ->
-            ZoomablePage(
-                page = pages[index],
-                contentDescription = chapter.title,
-                doubleTapZoomEnabled = doubleTapZoomEnabled,
-                onToggleFullscreen = onToggleFullscreen,
-            )
+        // In modalità manga forziamo il layout RTL solo sul pager: così pagina 1 sta a
+        // destra e lo swipe procede da destra verso sinistra. Le immagini e l'indicatore
+        // "x/y" (fuori da questo provider) restano in layout normale, quindi non si
+        // specchiano. Le coordinate dei gesti di zoom/pan sono in pixel, indipendenti dalla
+        // direzione, quindi ZoomablePage funziona identico nelle due modalità.
+        val pagerLayoutDirection = if (rightToLeft) LayoutDirection.Rtl else LayoutDirection.Ltr
+        CompositionLocalProvider(LocalLayoutDirection provides pagerLayoutDirection) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                // Visibile solo durante lo swipe: separa otticamente le pagine come in un volume.
+                pageSpacing = pageSpacing,
+                key = { index -> pages[index].stableKey },
+            ) { index ->
+                ZoomablePage(
+                    page = pages[index],
+                    contentDescription = chapter.title,
+                    doubleTapZoomEnabled = doubleTapZoomEnabled,
+                    onToggleFullscreen = onToggleFullscreen,
+                )
+            }
         }
 
         // Indicatore di pagina discreto: appare al cambio pagina e svanisce da solo.

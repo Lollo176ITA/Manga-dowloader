@@ -1,6 +1,6 @@
 # Migliorie — Manga Downloader
 
-> Lista di todo generata da un'analisi del progetto (architettura, test/robustezza, client Python, CI) e **revisionata file per file** il 2026-05-26. Aggiornata il 2026-06-09 con l'audit del codice nuovo (notifiche aggiornamenti preferiti, reader).
+> Lista di todo generata da un'analisi del progetto (architettura, test/robustezza, CI) e **revisionata file per file** il 2026-05-26. Aggiornata il 2026-06-09 con l'audit del codice nuovo (notifiche aggiornamenti preferiti, reader).
 > Legenda stato verifica: ✅ = controllato sul codice reale · 🔎 = valutazione/da confermare prima di intervenire.
 > Tag: **Impatto** Alto/Medio/Basso · **Sforzo** Basso/Medio/Alto.
 
@@ -328,15 +328,9 @@
 
 ---
 
-## 🐍 Client Python & repo
+## 🔧 Repo & tooling
 
-- [ ] **Decidere il destino di `manga_downloader.py`** 🔎
-  - Dove: [manga_downloader.py] — fermo dal 2026-04-21, feature inferiori all'app, parsing Mangapill duplicato e divergente da `MangapillSource.kt`.
-  - Cosa fare: (a) tenerlo come tool CLI "best-effort" (ha i batch PDF/JPG che l'app non ha) con nota di stato; (b) deprecarlo; (c) rimuoverlo. In ogni caso aggiungere un `pyproject.toml` con i pin di `requirements.txt`. Impatto Alto (chiarezza) · Sforzo Basso/Medio.
-
-- [ ] **Rate limiting + retry nel client Python** 🔎
-  - Dove: loop pagine senza pausa [manga_downloader.py:251-253], `ThreadPoolExecutor` con `--jobs` arbitrario [manga_downloader.py:388-392], un solo `session.get` senza retry [manga_downloader.py:87-90, 119-126].
-  - Cosa fare: piccolo delay tra pagine/capitoli + cap su `--jobs`; `HTTPAdapter` con `urllib3 Retry` (429/5xx + backoff). Scraper più "educato" e robusto. Impatto Medio · Sforzo Basso.
+> Il client Python `manga_downloader.py` (e `requirements.txt`) è stato **rimosso dal repo il 2026-06-10**: l'app Android è ora l'unico progetto. Le relative voci sono state eliminate.
 
 - [ ] **Rendere robusto il default-path di `bump_version.py`** 🔎
   - Dove: `Path(__file__).resolve().parents[4]` [.claude/skills/release-android/scripts/bump_version.py:32-35] dipende dalla profondità della cartella.

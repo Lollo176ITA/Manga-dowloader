@@ -1,14 +1,6 @@
 # Manga Downloader
 
-**App Android** per cercare, leggere e scaricare manga offline come `.cbz`, con reader integrato, download in background (`WorkManager`) e auto-aggiornamento. Vive in [android-app](./android-app) ed è il progetto principale (vedi sotto).
-
-Il repo include anche uno **script Python da riga di comando** ([manga_downloader.py](./manga_downloader.py)) per scaricare un singolo capitolo (o un range) come **PDF** o **JPG**.
-
-## Client Python (riga di comando)
-
-```bash
-pip install -r requirements.txt
-```
+**App Android** per cercare, leggere e scaricare manga offline come `.cbz`, con reader integrato, download in background (`WorkManager`) e auto-aggiornamento. Vive in [android-app](./android-app).
 
 ## App Android
 
@@ -82,38 +74,3 @@ Per scaricarlo:
 3. scarica l'artifact `manga-downloader-release` (contiene `app-release.apk`)
 
 Su `main`, lo stesso workflow crea o aggiorna anche una GitHub Release con l'asset `app-release.apk`: l'app Android usa quel file per controllare e installare gli aggiornamenti.
-
-## Uso
-
-```bash
-# PDF (default), nome dedotto dall'URL
-python manga_downloader.py "https://www.mangaworld.mx/manga/2726/20th-century-boys/read/62633081bc201e40421ea7b7/1?style=list"
-
-# JPG lungo (tutte le pagine impilate in verticale)
-python manga_downloader.py "https://www.mangaworld.mx/manga/2726/20th-century-boys/read/62633081bc201e40421ea7b7/1" -f jpg
-
-# Mangapill
-python manga_downloader.py "https://mangapill.com/chapters/11-10121000/20-seiki-shounen-chapter-121"
-
-# Range di capitoli Mangapill in una cartella
-python manga_downloader.py "https://mangapill.com/manga/11" --range 121-249
-
-# Range in parallelo con 4 job
-python manga_downloader.py "https://mangapill.com/manga/11" --range 121-249 --jobs 4 -o 20_seiki_shounen_121_249
-
-# Percorso di output personalizzato
-python manga_downloader.py "<URL>" -o 20th_century_boys_vol01.pdf
-```
-
-Per MangaWorld lo script forza automaticamente `?style=list` nell'URL per ottenere tutte le pagine del capitolo in una sola richiesta HTML. Per Mangapill legge invece le immagini presenti nei blocchi `chapter-page` (`img.js-page` con `data-src` o `src`). In entrambi i casi scarica tutte le pagine e le unisce nel formato scelto.
-
-Se usi `--range START-END` con un URL Mangapill del manga o di un capitolo, lo script non prova a costruire gli URL dei capitoli: apre la pagina del manga, legge i link reali disponibili e scarica solo quelli nel range richiesto, salvando ogni capitolo in un file separato dentro una directory.
-
-Con `--jobs N` puoi scaricare pi&ugrave; capitoli in parallelo. I file vengono scritti prima come `*.part` e rinominati solo a download concluso: se interrompi lo script, i capitoli gi&agrave; completati restano validi e al riavvio vengono saltati automaticamente, evitando duplicati.
-
-## Note
-
-- `-f pdf` &rarr; un PDF multipagina (una pagina manga per pagina PDF).
-- `-f jpg` &rarr; una sola immagine JPEG verticale con tutte le pagine impilate (tutte portate alla stessa larghezza della pagina pi&ugrave; larga).
-- `--range 121-249` &rarr; modalità batch per Mangapill: crea una cartella e salva un file per ogni capitolo del range.
-- `--jobs 4` &rarr; scarica fino a 4 capitoli contemporaneamente nella modalità batch.

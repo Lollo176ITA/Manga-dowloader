@@ -20,8 +20,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -146,6 +148,54 @@ private fun MangaDownloaderAppContent(
         }
     }
 
+    // Download FALLITI (non i CANCELLED, che sono stop volontari): prima sparivano in silenzio.
+    // Mostriamo l'errore con "Riprova" che ri-accoda lo stesso intervallo dai dati del work.
+    // I fallimenti già presenti all'avvio fanno da baseline (niente snackbar per vecchi errori).
+    val handledFailureIds = remember { mutableStateOf<Set<String>>(emptySet()) }
+    var failuresInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(workInfos) {
+        val failed = workInfos.filter { it.state == WorkInfo.State.FAILED }
+        if (!failuresInitialized) {
+            handledFailureIds.value = failed.map { it.id.toString() }.toSet()
+            failuresInitialized = true
+            return@LaunchedEffect
+        }
+        val fresh = failed.filter { it.id.toString() !in handledFailureIds.value }
+        if (fresh.isEmpty()) return@LaunchedEffect
+        handledFailureIds.value = handledFailureIds.value + fresh.map { it.id.toString() }
+
+        val workInfo = fresh.last()
+        val data = workInfo.progress
+        val output = workInfo.outputData
+        fun field(key: String) = output.getString(key)?.takeIf { it.isNotBlank() }
+            ?: data.getString(key)?.takeIf { it.isNotBlank() }
+        fun tagValue(prefix: String) =
+            workInfo.tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)?.takeIf { it.isNotBlank() }
+
+        val title = field(DownloadWorker.PROGRESS_SERIES_TITLE) ?: tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX)
+        val message = field(DownloadWorker.PROGRESS_MESSAGE) ?: "errore sconosciuto"
+        val firstUrl = field(DownloadWorker.PROGRESS_FIRST_URL)
+        val label = title?.let { "Download di $it non riuscito" } ?: "Download non riuscito"
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "$label: $message",
+                actionLabel = if (firstUrl != null) "Riprova" else null,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed && firstUrl != null) {
+                DownloadWorker.enqueue(
+                    context = appContext,
+                    firstUrl = firstUrl,
+                    lastUrl = field(DownloadWorker.PROGRESS_LAST_URL),
+                    sourceId = field(DownloadWorker.PROGRESS_SOURCE_ID) ?: tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX),
+                    seriesTitle = title,
+                    mangaUrl = field(DownloadWorker.PROGRESS_MANGA_URL) ?: tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
+                    coverUrl = tagValue(DownloadWorker.TAG_COVER_URL_PREFIX),
+                )
+            }
+        }
+    }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { }
@@ -171,6 +221,14 @@ private fun MangaDownloaderAppContent(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        // Aperti dal tap su una notifica di download: porta direttamente alla Libreria.
+        // L'extra viene consumato così non riscatta a ogni ricomposizione/rotazione.
+        val intent = activity?.intent
+        if (intent?.getStringExtra(DownloadWorker.EXTRA_OPEN_TAB) == DownloadWorker.OPEN_TAB_LIBRARY) {
+            intent.removeExtra(DownloadWorker.EXTRA_OPEN_TAB)
+            viewModel.clearSelection()
+            viewModel.selectTab(AppTab.LIBRARY)
         }
         viewModel.checkForAppUpdate()
     }
@@ -279,13 +337,20 @@ private fun MangaDownloaderAppContent(
                     coverUrl = details.coverUrl,
                 )
                 scope.launch {
-                    snackbarHostState.showSnackbar(
-                        if (startChapter.url == endChapter.url) {
+                    // Azione "Libreria": progresso, coda e stop vivono nella tab Libreria;
+                    // un tap ci porta dove si monitora la coda appena creata (chiude il dettaglio).
+                    val result = snackbarHostState.showSnackbar(
+                        message = if (startChapter.url == endChapter.url) {
                             "Download aggiunto in coda: ${startChapter.displayLabel()}"
                         } else {
                             "Download aggiunto in coda: ${startChapter.displayLabel()} - ${endChapter.displayLabel()}"
                         },
+                        actionLabel = "Libreria",
                     )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.clearSelection()
+                        viewModel.selectTab(AppTab.LIBRARY)
+                    }
                 }
             } catch (exc: Exception) {
                 scope.launch {
@@ -568,7 +633,12 @@ private fun MangaDownloaderAppContent(
                     },
                     onOpenStorageManager = viewModel::openStorageManager,
                     onOpenBackup = viewModel::openBackup,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onOpenChangelog = viewModel::openChangelog,
                 )
+            }
+            Screen.Changelog -> {
+                ChangelogScreen(padding = innerPadding)
             }
             Screen.Detail -> if (selectedManga != null) {
                 val downloadedChapterKeys = remember(selectedManga, state.library) {

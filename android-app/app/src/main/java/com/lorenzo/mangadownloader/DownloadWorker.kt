@@ -3,11 +3,14 @@ package com.lorenzo.mangadownloader
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -152,6 +155,14 @@ class DownloadWorker(
                 doneChapters = totalChapters,
                 totalChapters = totalChapters,
             )
+            // Notifica finale NON-ongoing (id separato): la notifica di progresso è ongoing e
+            // viene rimossa dal sistema appena il worker termina, quindi chi ha lo schermo
+            // spento non vedrebbe mai un segnale di fine. Tocco = apre l'app sulla Libreria.
+            postResultNotification(
+                key = notificationKey(plan.sourceId, plan.mangaUrl, plan.seriesTitle),
+                title = plan.seriesTitle,
+                text = "Download completato: $totalChapters $unitPlural — tocca per leggere",
+            )
             Result.success(
                 workDataOf(
                     PROGRESS_MESSAGE to "Completato",
@@ -174,12 +185,21 @@ class DownloadWorker(
                 ),
             )
         } catch (exc: Exception) {
+            // first/last URL nell'output così la UI può proporre "Riprova" ri-accodando lo
+            // stesso intervallo (il ramo failure prima non li conservava).
+            postResultNotification(
+                key = notificationKey(inputSourceId ?: taggedSourceId, taggedMangaUrl, taggedSeriesTitle),
+                title = taggedSeriesTitle,
+                text = "Download non riuscito: ${exc.message ?: "errore sconosciuto"}",
+            )
             Result.failure(
                 workDataOf(
                     PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto"),
                     PROGRESS_SOURCE_ID to (inputSourceId ?: taggedSourceId),
                     PROGRESS_SERIES_TITLE to taggedSeriesTitle,
                     PROGRESS_MANGA_URL to taggedMangaUrl,
+                    PROGRESS_FIRST_URL to firstUrl,
+                    PROGRESS_LAST_URL to lastUrl,
                 ),
             )
         }
@@ -257,6 +277,8 @@ class DownloadWorker(
             .setContentText(message)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            // Tocco sulla notifica = apre l'app (prima era un passo morto).
+            .setContentIntent(appContentIntent(NOTIFICATION_ID))
             .build()
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -268,6 +290,51 @@ class DownloadWorker(
         } else {
             ForegroundInfo(NOTIFICATION_ID, notification)
         }
+    }
+
+    /** Notifica finale (non-ongoing) di esito download, su un id stabile per-serie. */
+    private fun postResultNotification(key: Int, title: String?, text: String) {
+        if (!canShowForegroundNotification()) {
+            return
+        }
+        ensureNotificationChannel()
+        val notificationId = COMPLETION_ID_BASE + (key and 0xFFFF)
+        val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(title?.takeIf(String::isNotBlank) ?: "Manga Downloader")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(appContentIntent(notificationId))
+            .build()
+        try {
+            NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
+        } catch (_: SecurityException) {
+            // Permesso revocato tra il check e la notify: ignora.
+        }
+    }
+
+    /** PendingIntent che apre l'app sulla tab Libreria (dove vivono progresso e coda). */
+    private fun appContentIntent(requestCode: Int): PendingIntent? {
+        val launchIntent = applicationContext.packageManager
+            .getLaunchIntentForPackage(applicationContext.packageName)
+            ?: return null
+        launchIntent.putExtra(EXTRA_OPEN_TAB, OPEN_TAB_LIBRARY)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(
+            applicationContext,
+            requestCode,
+            launchIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    private fun notificationKey(sourceId: String?, mangaUrl: String?, title: String?): Int {
+        val raw = mangaUrl?.takeIf(String::isNotBlank)
+            ?: title?.takeIf(String::isNotBlank)
+            ?: sourceId.orEmpty()
+        return raw.hashCode()
     }
 
     private fun ensureNotificationChannel() {
@@ -294,6 +361,10 @@ class DownloadWorker(
         const val PROGRESS_SOURCE_ID = "progress_source_id"
         const val PROGRESS_SERIES_TITLE = "progress_series_title"
         const val PROGRESS_MANGA_URL = "progress_manga_url"
+        const val PROGRESS_FIRST_URL = "progress_first_url"
+        const val PROGRESS_LAST_URL = "progress_last_url"
+        const val EXTRA_OPEN_TAB = "open_tab"
+        const val OPEN_TAB_LIBRARY = "library"
         const val TAG_SOURCE_ID_PREFIX = "source_id:"
         const val TAG_SERIES_TITLE_PREFIX = "series_title:"
         const val TAG_MANGA_URL_PREFIX = "manga_url:"
@@ -304,6 +375,8 @@ class DownloadWorker(
         private const val KEY_SOURCE_ID = "source_id"
         private const val NOTIFICATION_CHANNEL_ID = "manga_downloads"
         private const val NOTIFICATION_ID = 1001
+        // Le notifiche finali (per-serie) vivono in un range separato dall'id ongoing (1001).
+        private const val COMPLETION_ID_BASE = 2000
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
         private const val PAGE_PROGRESS_STRIDE = 5

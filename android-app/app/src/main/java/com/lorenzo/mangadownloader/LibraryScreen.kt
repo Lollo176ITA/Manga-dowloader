@@ -17,7 +17,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -44,6 +47,13 @@ fun LibraryScreen(
     }
     val hasActiveDownloads = remember(downloadStatuses) {
         downloadStatuses.values.any(::isActiveDownload)
+    }
+    // Lo stop ferma TUTTI i download (un'unica coda WorkManager), non solo quello toccato:
+    // una conferma evita la cancellazione a un tap cieco di una coda magari lunga.
+    var showStopConfirm by remember { mutableStateOf(false) }
+    val requestStopDownloads = { showStopConfirm = true }
+    val activeSeriesCount = remember(downloadStatuses) {
+        downloadStatuses.values.count(::isActiveDownload)
     }
     // "Continua a leggere": mostrata solo senza filtro di ricerca attivo.
     val continueItem = remember(state.library) { state.library.mostRecentInProgressChapter() }
@@ -114,7 +124,7 @@ fun LibraryScreen(
                                     onClick = { row.series?.let(onOpenSeries) },
                                     onDelete = { row.series?.let(onDeleteSeries) },
                                     onDeleteReadChapters = { row.series?.let(onDeleteReadChapters) },
-                                    onStopDownloads = onStopDownloads,
+                                    onStopDownloads = requestStopDownloads,
                                 )
                             }
                         }
@@ -125,7 +135,7 @@ fun LibraryScreen(
 
         if (hasActiveDownloads) {
             ExtendedFloatingActionButton(
-                onClick = onStopDownloads,
+                onClick = requestStopDownloads,
                 icon = { Icon(Icons.Default.Stop, contentDescription = null) },
                 text = { Text("Ferma download") },
                 containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -135,6 +145,24 @@ fun LibraryScreen(
                     .padding(16.dp),
             )
         }
+    }
+
+    if (showStopConfirm) {
+        val text = if (activeSeriesCount > 1) {
+            "Vuoi fermare tutti i download in corso? Riguarda $activeSeriesCount serie in coda."
+        } else {
+            "Vuoi fermare il download in corso?"
+        }
+        ConfirmationDialog(
+            title = "Ferma download",
+            text = text,
+            confirmLabel = "Ferma",
+            onDismiss = { showStopConfirm = false },
+            onConfirm = {
+                showStopConfirm = false
+                onStopDownloads()
+            },
+        )
     }
 }
 

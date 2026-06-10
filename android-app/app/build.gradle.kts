@@ -169,6 +169,16 @@ android {
     }
 }
 
+// Il changelog mostrato in-app (schermata "Novità") ha un'unica fonte di verità: il
+// CHANGELOG.md nella root del repo. Lo copiamo negli assets a ogni build, prima del merge
+// degli asset, così l'app legge sempre la versione aggiornata senza duplicati che divergono.
+val copyChangelogToAssets = tasks.register<Copy>("copyChangelogToAssets") {
+    description = "Copia il CHANGELOG.md della root negli assets per la schermata Novità."
+    from(rootProject.file("../CHANGELOG.md"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+tasks.named("preBuild").configure { dependsOn(copyChangelogToAssets) }
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.10.00")
 

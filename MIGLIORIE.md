@@ -6,66 +6,12 @@
 
 ---
 
-## 🔴 Sicurezza & affidabilità del rilascio (priorità massima)
-
-- [x] **Verificare firma/checksum dell'APK di auto-update prima di installarlo** ✅ — *fatto (2026-05-26)*
-  - Dove: `AppUpdateManager.downloadUpdateApk` [android-app/app/src/main/java/com/lorenzo/mangadownloader/AppUpdateManager.kt:164-196]; install via `REQUEST_INSTALL_PACKAGES` [AndroidManifest.xml:9].
-  - Perché: l'APK veniva scaricato (HTTPS da GitHub, ok) e installato **senza** verificare il certificato di firma né un hash noto. Se l'URL fosse dirottato si installerebbe un APK arbitrario.
-  - **Fatto:** `AppUpdateInstaller.installApk` ora chiama `verifyTrustedSignature` prima di lanciare l'intent: confronta i certificati di firma dell'APK scaricato (`GET_SIGNING_CERTIFICATES`, fallback `GET_SIGNATURES` su API 26-27) con quelli dell'app installata; **fail-closed** se le firme non sono leggibili o non corrispondono → `IOException` mostrata come errore. Funzione pura `signaturesTrusted(installed, downloaded)` con unit test in `AppUpdateManagerTest`.
-
-- [x] **Far girare i test in CI (su PR/`dev`) e prima della release** ✅ — *fatto (2026-05-26)*
-  - Dove: `.github/workflows/android.yml` e `android-preview.yml` eseguivano solo `assembleRelease`; nessuno step di test.
-  - Perché: ~81 test esistono ma una release poteva pubblicare codice rotto agli utenti (che ricevono l'auto-update) senza che nulla girasse.
-  - **Fatto:** step `Run unit tests` (`./gradlew testDebugUnitTest`) aggiunto **prima** della build in `android.yml` (gate della release) e in `android-preview.yml` (gate delle preview); nuovo workflow `android-tests.yml` che gira i test sulle **pull request** (paths `android-app/**`). Verificato in locale: suite verde.
-
----
-
 ## 🟢 Bug & quick win (alto rapporto valore/sforzo)
-
-- [x] **Race sul feed aggiornamenti: il worker sovrascrive il "visto" dell'utente** ✅ — *fatto (2026-06-09)*
-  - Dove: `FavoriteUpdatesWorker.doWork` leggeva il feed all'inizio e lo riscriveva **per intero** nel `finally`; nel frattempo l'app può scrivere lo stesso feed con `markAllUpdatesSeen()`.
-  - Perché: il loop del worker fa rete per ogni preferito (può durare decine di secondi). Se mentre gira l'utente apre "Aggiornamenti" e azzera il badge, il `finally` del worker riscriveva la copia stantia con `seen=false` → il badge "non visto" risorgeva.
-  - **Fatto:** `FavoriteUpdatesFeedStore` ora espone `update(transform)` — read-transform-write **atomico** sotto un lock condiviso tra tutte le istanze (ViewModel e worker girano nello stesso processo). Il worker appende ogni evento con `feedStore.update { appendUpdateEvent(...) }` al momento della rilevazione (niente più copia tenuta in mano per tutto il giro di rete, niente riscrittura nel `finally`); `markAllUpdatesSeen()` usa lo stesso `update(::markAllSeen)`, partendo dal disco e non dallo stato in memoria. Test: `update_readsFreshStateFromDisk_notAStaleCopy` in `FavoriteUpdatesFeedStoreTest`.
-
-- [x] **Notifica inviata prima di persistere l'evento nel feed** ✅ — *fatto (2026-06-09)*
-  - Dove: `notifyNewChapter` partiva prima che l'evento entrasse nel feed, e la persistenza era solo nel `finally`.
-  - Perché: se il processo muore tra notifica e `finally`, l'utente ha ricevuto la notifica ma feed e baseline non la registrano → al giro dopo ri-notifica lo stesso capitolo.
-  - **Fatto:** ordine invertito nel worker: baseline (`store.write(seenMap)`) e feed (`feedStore.update { ... }`) vengono persistiti **prima** di `notifyNewChapter`, per ogni evento.
-
-- [x] **Referer immagini sbagliato per fonti diverse da Mangapill** ✅ — *fatto (2026-05-26): le pagine `Remote` passano il proprio Referer via Coil `ImageRequest`; l'interceptor mette il default mangapill solo se assente (copertine invariate).*
-  - Dove: header `Referer: https://mangapill.com/` fisso su **tutte** le immagini Coil [MangaApplication.kt:21]; le pagine streaming iniziali sono `ReaderPage.Remote` [MangaViewModel.kt:1179-1184] ma `ReaderScreen` usa solo `page.url` [ReaderScreen.kt:509, 745] e ignora il campo `Remote.referer` [ReaderModels.kt:46].
-  - Perché: leggendo in streaming da MangaWorld/HastaTeam (e per le copertine di quelle fonti) le immagini partono col referer di Mangapill → possibili 403/immagini rotte finché la cache locale non subentra.
-  - Cosa fare: togliere il referer fisso dall'interceptor (lasciare solo lo User-Agent) e impostare il referer per-immagine via `ImageRequest.Builder().setHeader("Referer", page.referer)` per i `Remote`. Impatto Alto · Sforzo Basso/Medio.
-
-- [x] **Bug latente: CBZ corrotto lascia cache parziale trattata come completa** ✅ — *fatto (2026-05-26): estrazione in try/catch che pulisce la cache su errore; test `ReaderPageExtractionTest`.*
-  - Dove: `LibraryRepository.extractReaderPages` [LibraryRepository.kt:548-591].
-  - Perché: se lo zip estrae alcune pagine e poi lancia (`ZipException`/IOException a riga 575-582), la `cacheDir` parziale **non** viene ripulita (il cleanup è solo nel ramo `extracted.isEmpty()`); alla riapertura `existing.isNotEmpty()` (551-557) restituisce le pagine parziali come fosse completo → capitolo mostrato monco in modo permanente.
-  - Cosa fare: avvolgere l'estrazione in try/catch che cancella `cacheDir` su qualunque errore; aggiungere test con CBZ valido/vuoto/corrotto. Impatto Medio · Sforzo Basso.
 
 - [ ] **Letture SharedPreferences sincrone nel costruttore del ViewModel (main thread)** ✅ — *RINVIATO (2026-05-26): lo stato iniziale (tab con parental control, fase tutorial, preferiti) è costruito sincronamente da queste letture; renderle async non è un vero quick win (rischio flash/regressioni su tutorial e tab iniziale) e il guadagno è marginale con prefs piccole. Da fare con cura a parte.*
   - Dove: `MangaViewModel` field init [MangaViewModel.kt:205-206, 233] → `readFavorites()` (JSON a mano), `readSettings()`, `readRecentSearches()` eseguiti alla creazione (in composizione).
   - Perché: I/O + parsing JSON sincroni all'avvio → jank potenziale man mano che i favoriti crescono.
   - Cosa fare: stato iniziale "vuoto/loading" e caricamento in `init { viewModelScope.launch(Dispatchers.IO) { … } }`. Impatto Medio · Sforzo Basso.
-
-- [x] **Niente retry/backoff di rete** 🔎 — *fatto (2026-05-26): `MangaNetworkClient` ritenta solo gli errori di trasporto (3 tentativi, backoff), mai gli HTTP non-2xx; `DownloadWorker.enqueue` ora ha `setBackoffCriteria(EXPONENTIAL, 30s)`.*
-  - Dove: `MangaNetworkClient` fa una sola `execute()` [MangaNetworkClient.kt:42-48]; `DownloadWorker.enqueue` non imposta `setBackoffCriteria` [DownloadWorker.kt:327]. (`SharedHttpClient` ha `retryOnConnectionFailure` ma copre solo i fallimenti di connessione, non le risposte non-2xx.)
-  - Perché: un blip di rete fa fallire ricerca/dettaglio; il retry del worker usa il default implicito.
-  - Cosa fare: retry leggero con backoff (2-3 tentativi su IOException/5xx, mai su 4xx) nel client; `setBackoffCriteria(EXPONENTIAL, …)` nel worker. Impatto Medio · Sforzo Basso.
-
-- [x] **README disallineato** ✅ — *fatto (2026-05-26): app come progetto principale, 3 fonti elencate, sezione Python rietichettata come CLI.*
-  - Dove: [README.md:3, 23] — "supporto: solo Mangapill" e il client Python presentato come progetto principale.
-  - Perché: le fonti reali sono 3 (Mangapill, MangaWorld, HastaTeam) e l'app è il progetto attivo, non lo script Python.
-  - Cosa fare: aggiornare elenco fonti, mettere l'app Android come protagonista, citare le preview da `dev`, ridimensionare/segnalare lo stato del client Python. Impatto Medio · Sforzo Basso.
-
-- [x] **Aggiungere un file `LICENSE`** ✅ — *fatto (2026-05-26): **PolyForm Noncommercial License 1.0.0** (standard, testo ufficiale verbatim) con `Required Notice` di copyright. Codice aperto, uso libero solo non commerciale, nessuna responsabilità.*
-  - Dove: root del repo (nessun `LICENSE*` presente).
-  - Perché: senza licenza il codice è "all rights reserved" di default.
-  - Cosa fare: aggiungere una licenza (es. MIT) o una nota d'uso esplicita. Impatto Medio · Sforzo Basso.
-
-- [x] **Rimuovere codice morto** ✅ — *fatto (2026-05-26): rimosso `buildReleaseTag(versionName)` inutilizzato; `*.log` aggiunto a `.gitignore`. (Il campo `ReaderPage.Remote.referer` ora è usato dal fix referer, quindi non più morto.)*
-  - `buildReleaseTag(versionName)` [AppUpdateManager.kt:199]: nessun chiamante (tutti usano l'overload a 2 argomenti, 38/260/358).
-  - Campo `ReaderPage.Remote.referer` [ReaderModels.kt:46]: oggi mai letto dal display (collegato al fix referer sopra).
-  - Aggiungere `*.log` a [.gitignore] (in passato fu committato `batch_stdout.log`). Impatto Basso · Sforzo Basso.
 
 ---
 
@@ -120,34 +66,9 @@
 
 ### Download
 
-- [ ] **Lo stop "per serie" cancella in realtà TUTTI i download, senza conferma** ✅ — Impatto Alto · Sforzo Medio
-  - Perché: Ogni card di serie in download mostra un pulsantino rosso "Ferma download" che sembra fermare solo quella serie, ma la callback è la stessa del FAB globale: in MainActivity viene eseguito cancelUniqueWork(UNIQUE_WORK_NAME), che azzera l'intera coda di tutte le serie. Un tap (anche accidentale, il bottone è 32dp accanto alla progress) distrugge senza alcuna conferma né undo una coda magari di centinaia di capitoli, e l'utente deve tornare in ogni dettaglio a ricomporre i range a mano.
-  - Dove: UiComponents.kt:856-872 (FilledTonalIconButton "Ferma download" nella card per-serie), LibraryScreen.kt:115 e 126 (stessa onStopDownloads per card e FAB), MainActivity.kt:663-665 (workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME))
-  - Cosa fare: Rendere lo stop della card davvero per-serie: i work sono già taggati con manga_url/source_id (DownloadWorker.kt:330-341), quindi si possono cancellare per id/tag solo le richieste di quella serie (ri-accodando le successive della catena APPEND_OR_REPLACE). In alternativa minima: dialog di conferma "Fermare tutti i download (N serie)?" e snackbar con azione Annulla, così l'azione distruttiva non è più a un tap cieco.
-  - Nota dalla verifica: il touch target reale è >=48dp (minimumInteractiveComponentSize), quindi il mis-tap è meno probabile di quanto descritto; con APPEND_OR_REPLACE la cancellazione per tag tronca anche i work concatenati delle altre serie, quindi il vero stop per-serie richiede di ri-accodare i superstiti (la conferma + undo è l'alternativa minima sicura).
-
-- [ ] **I download falliti spariscono in silenzio: l'errore non viene mai mostrato** ✅ — Impatto Alto · Sforzo Medio
-  - Perché: Quando il worker fallisce, scrive il messaggio d'errore (exc.message) nell'output data, ma la UI costruisce gli stati di download solo dai work attivi (RUNNING/ENQUEUED/BLOCKED): i work FAILED/CANCELLED vengono filtrati via e usati solo come chiave per il refresh della libreria. Risultato percepito: la card "In coda / X/Y capitoli" sparisce dalla Libreria senza alcuna spiegazione, l'utente non sa se il download è finito, fallito o annullato, né perché, e non ha modo di riprovare se non rifacendo tutto il flusso dal dettaglio.
-  - Dove: DownloadWorker.kt:176-185 (Result.failure con PROGRESS_MESSAGE = exc.message), MainActivity.kt:85 e 96 (downloadStatuses costruito solo da activeWorkInfos), MainActivity.kt:89-95 e 114-137 (i work terminali alimentano solo terminalWorkKey per refreshLibrary, nessun messaggio all'utente)
-  - Cosa fare: Osservare la transizione a FAILED nei workInfos già raccolti e mostrare una snackbar/banner con il messaggio dell'output data ("Download di <serie> non riuscito: <errore>"), idealmente con azione "Riprova" che ri-accoda lo stesso range (aggiungendo first/last URL all'output data o ai tag del work, oggi assenti nel ramo failure).
-  - Nota dalla verifica: solo le eccezioni non-IO arrivano a FAILED (le IOException vanno in retry con backoff), quindi il banner riguarda quel sottoinsieme (es. spazio insufficiente, il cui messaggio dedicato oggi viene scartato); mostrare il banner solo per FAILED, non per CANCELLED (stop volontario).
-
-- [ ] **Notifica di download muta: il tap non fa nulla e non esiste notifica di completamento** ✅ — Impatto Alto · Sforzo Basso
-  - Perché: La notifica foreground del download non ha contentIntent, quindi toccarla non apre l'app (passo morto: l'utente che vuole controllare il progresso deve cercare l'app a mano). Inoltre è ongoing e viene rimossa dal sistema appena il worker termina: il messaggio finale "Download completato: N capitoli" esiste solo come progress in-app, per cui chi avvia un range lungo e blocca il telefono non riceve mai un segnale di fine download (né di fallimento), in un'app il cui scopo principale è proprio scaricare per leggere offline.
-  - Dove: DownloadWorker.kt:252-271 (NotificationCompat.Builder senza setContentIntent, setOngoing(true)), DownloadWorker.kt:147-154 (messaggio "Download completato" emesso solo via setProgress/foreground poco prima che il worker termini e la notifica sparisca)
-  - Cosa fare: Aggiungere setContentIntent(PendingIntent verso MainActivity, tab Libreria) alla notifica di progresso e, a fine lavoro, pubblicare una notifica non-ongoing su un id separato: "Download completato: N capitoli di <serie> — tocca per leggere" (e variante per il fallimento), riusando il canale e il check permesso già presenti (canShowForegroundNotification, DownloadWorker.kt:242-250).
-
-- [ ] **Il dialog di range non dice quanti capitoli scaricherà né quanti sono già presenti** ✅ — Impatto Medio · Sforzo Basso
-  - Perché: Nel dialog "Seleziona intervallo download" l'utente sceglie Da/A ma non vede mai il conteggio risultante: il bottone di conferma è un generico "Avvia", senza sapere se sta accodando 3 o 300 capitoli. Inoltre i capitoli già scaricati nel range vengono saltati dal worker ("già presente") ma il dialog non lo anticipa, pur avendo DetailScreen già downloadedChapterKeys a disposizione: chi vuole "completare i buchi" non ha modo di capire quanto verrà davvero scaricato. Aggravante: i menu Da/A elencano tutti i capitoli (anche 1000+) senza ricerca né posizionamento sull'elemento selezionato.
-  - Dove: DetailScreen.kt:320-433 (DownloadRangeDialog senza alcun riepilogo), DetailScreen.kt:423-426 (confirmButton "Avvia"), DetailScreen.kt:51 (downloadedChapterKeys disponibile ma non passato al dialog), DetailScreen.kt:344-355 e 375-387 (dropdown con l'intera lista capitoli), DownloadWorker.kt:130-131 (SKIPPED_EXISTING "già presente")
-  - Cosa fare: Aggiungere sotto i due campi una riga di riepilogo live "X capitoli selezionati · Y già scaricati verranno saltati" e rinominare la conferma in "Scarica X" (X = selezionati - già presenti). Bonus a costo quasi nullo: aprire i dropdown già scrollati sull'elemento selezionato (scrollState dell'ExposedDropdownMenu) per le serie lunghe.
-
-- [ ] **Dopo "Download aggiunto in coda" manca la scorciatoia per vedere il progresso** ✅ — Impatto Medio · Sforzo Basso
-  - Perché: Avviato un download dal dettaglio, la snackbar conferma "Download aggiunto in coda: …" ma non offre alcuna azione: per vedere progresso, coda e pulsante di stop l'utente deve uscire dal dettaglio e raggiungere a mano la tab Libreria (dove vive la card con la progress). Nessuna snackbar dell'app usa actionLabel, eppure il salto di tab esiste già come one-liner (selectTab(AppTab.LIBRARY), usato ad es. dal deep-link notifiche).
-  - Dove: MainActivity.kt:280-288 (showSnackbar senza actionLabel), MainActivity.kt:414 (viewModel.selectTab(AppTab.LIBRARY) già usato altrove), LibraryScreen.kt:124-135 e UiComponents.kt:823-874 (progresso e stop visibili solo in Libreria)
-  - Cosa fare: Aggiungere alla snackbar l'azione "Libreria": showSnackbar(message, actionLabel = "Libreria") e, su ActionPerformed, viewModel.selectTab(AppTab.LIBRARY) (chiudendo il dettaglio). Un solo tap porta l'utente dove può monitorare e gestire la coda appena creata.
-
-### Libreria & gestione spazio
+- [ ] **Stop davvero per-serie (oggi è "ferma tutto" con conferma)** 🔎 — Impatto Medio · Sforzo Medio
+  - Perché: lo stop dei download è ora protetto da conferma (vedi changelog 2026-06-10), ma resta globale: ferma l'intera coda WorkManager, non la singola serie. Tutti i download condividono un'unica catena `enqueueUniqueWork(UNIQUE_WORK_NAME, APPEND_OR_REPLACE)`, quindi cancellare per tag troncherebbe anche i work concatenati delle altre serie.
+  - Cosa fare: dare a ogni serie una propria unique work (`manga-download-<identityKey>`) con un tag globale condiviso, così lo stop per-card cancella solo quella serie (`cancelUniqueWork`) e il FAB ferma tutto (`cancelAllWorkByTag`); l'osservatore in MainActivity passa da `getWorkInfosForUniqueWorkLiveData` a `getWorkInfosByTagLiveData`. Valutare l'effetto sulla concorrenza (serie ora parallele).
 
 - [ ] **La Libreria non ha ordinamento né filtri: solo alfabetico hardcoded, incoerente con Preferiti e Gestione memoria** ✅ — Impatto Alto · Sforzo Basso
   - Perché: La lista della libreria è sempre e solo in ordine alfabetico per titolo: buildLibraryRowItems termina con un sortedWith(compareBy { it.title.lowercase() }) senza alternative, e LibraryScreen non espone alcun controllo di ordinamento o filtro (solo il campo di ricerca testuale). Con molte serie scaricate, trovare 'quella che stavo leggendo' o 'quelle con capitoli non letti' richiede scroll o digitazione. È anche un'incoerenza interna: i Preferiti hanno un menu di ordinamento (FavoriteSort con 4 criteri) e FilterChip per categoria, e perfino la schermata Gestione memoria ha un SegmentedButton di ordinamento — la Libreria, schermata principale dell'app, no.
@@ -158,18 +79,6 @@
   - Perché: Lo stato 'letto' cambia solo automaticamente quando il reader arriva in fondo al capitolo (l'unica chiamata a libraryRepository.markChapterRead è in MangaViewModel.kt:1694, dentro il salvataggio del progresso di lettura). Non esiste alcuna UI per: segnare un capitolo come letto senza aprirlo (es. l'ho già letto altrove/in streaming), segnare come NON letto per rileggerlo (la funzione di repository non esiste proprio), o 'segna tutti come letti fino a qui'. La riga capitolo in DownloadedSeriesScreen ha solo tap=apri e cestino=elimina; il menu della serie in libreria ha solo Info ed Elimina. Chi ha letto altrove si trova progressi sbagliati ('43% letto') senza modo di correggerli, e la Pulizia intelligente (che elimina solo capitoli isRead, MangaViewModel.kt:1786) non scatta mai su quei capitoli.
   - Dove: LibraryRepository.kt:453 (markChapterRead esiste ma è invocato solo da MangaViewModel.kt:1694); UiComponents.kt:592-652 (DownloadedChapterRow: solo onOpen e onDelete, clickable semplice senza long-press); UiComponents.kt:790-820 (SeriesActionsMenu: solo Info ed Elimina)
   - Cosa fare: Aggiungere un'azione 'Segna come letto' / 'Segna come non letto' per capitolo (long-press con combinedClickable sulla DownloadedChapterRow, o piccolo menu overflow al posto del solo cestino) più una voce 'Segna tutti come letti' nel SeriesActionsMenu della card libreria. Lato dati serve solo il duale di markChapterRead (rimozione dell'id da readChapterIds, struttura già esistente in LibraryRepository).
-
-- [x] **Per liberare spazio l'unica azione è 'elimina tutta la serie' (o un capitolo alla volta): manca 'Elimina capitoli letti'** ✅ — *fatto (2026-06-10)*
-  - Perché: Nella Gestione memoria l'unica azione era il cestino che elimina l'INTERA serie; in DownloadedSeriesScreen si eliminava un capitolo alla volta con una conferma per ciascuno. Il caso d'uso più comune ('ho letto 80 su 100, libera i letti ma tieni la serie') richiedeva decine di tap o la Pulizia intelligente automatica.
-  - **Fatto:** nuovo `MangaViewModel.deleteReadChapters(series)` che filtra `chapters.filter { isRead }` e delega a `LibraryRepository.deleteChapters` (riusa il percorso già testato; la baseline "letto" resta nei metadati, i capitoli si possono riscaricare; se tutto è letto la cartella viene rimossa). Azione "Elimina capitoli letti" aggiunta sia al `SeriesActionsMenu` della Libreria (voce opzionale, compare solo se ci sono letti) sia all'overflow di ogni riga in Gestione memoria. Dialog condiviso `DeleteReadChaptersDialog` che anticipa il beneficio ("Eliminerai N capitoli letti di X, liberando ~MB", spazio calcolato con `readChaptersSizeBytes()`/`formatBytes`) e chiarisce che il capitolo in corso e i non letti non si toccano. Il capitolo "in corso" (progresso ma non completato) NON è `isRead`, quindi viene preservato. Test: `MangaViewModelDeleteReadChaptersTest` (elimina solo i letti tenendo il non letto; no-op se niente è letto).
-
-- [x] **In Gestione memoria le righe non sono tappabili: si decide cosa eliminare alla cieca** ✅ — *fatto (2026-06-10)*
-  - Perché: la card di ogni serie non aveva `clickable` (tap morto) e la label mostrava 'N capitoli · X%' dove X% è la quota di spazio, ambiguo rispetto al '% letto' usato altrove.
-  - **Fatto:** la riga è ora tappabile e apre la `DownloadedSeriesScreen` della serie (`onOpenSeries = selectDownloadedSeries`, che ora chiude anche Impostazioni/Gestione memoria così la serie compare davvero in primo piano). Label disambiguata: "**12/100 letti · 34% dello spazio**" (letti = capitoli scaricati e letti; % = quota di spazio). Il cestino singolo è stato sostituito da un overflow menu (Elimina capitoli letti / Elimina manga), coerente con la card della Libreria e meno soggetto a tap accidentali.
-
-- [x] **La lista capitoli di una serie scaricata si apre sempre dal primo capitolo, senza scroll automatico al punto di lettura** ✅ — *fatto (2026-06-10)*
-  - Perché: la `LazyColumn` non aveva `LazyListState`, quindi con centinaia di capitoli si partiva sempre dal capitolo 1 mentre il segnalibro poteva essere molto più in basso.
-  - **Fatto:** aggiunto `rememberLazyListState` + `LaunchedEffect(series.directory.absolutePath)` che fa `scrollToItem(indexOf(resumeChapter) - 1)` (una riga di contesto sopra) solo se il punto di ripresa è più in basso del primo capitolo. Keyed sulla cartella (identità serie) così non riscrolla a ogni refresh/eliminazione: atterri dove eri rimasto, una volta per apertura.
 
 ### Reader
 
@@ -192,10 +101,6 @@
   - Perché: Se il fetch delle pagine streaming fallisce (rete instabile), l'errore va in una snackbar transitoria e il reader resta sull'EmptyState 'Nessuna pagina disponibile' SENZA alcuna azione: l'unica via è tornare indietro e riaprire il capitolo a mano — eppure il componente EmptyState supporta già actionLabel/onAction. Inoltre le singole AsyncImage non hanno placeholder né stato di errore: in verticale una pagina remota fallita collassa ad altezza 0 (fillMaxWidth + ContentScale.FillWidth) e sparisce dal flusso senza che l'utente se ne accorga; in modalità a pagine resta una schermata nera muta.
   - Dove: ReaderScreen.kt:254-260 (EmptyState senza action), UiComponents.kt:167-173 (EmptyState con actionLabel/onAction già supportati), MainActivity.kt:140-145 (errorMessage → snackbar e dismiss), MangaViewModel.kt:1649-1656 (fallimento streaming → solo errorMessage), ReaderScreen.kt:619-625 e 839-851 (AsyncImage senza error/placeholder)
   - Cosa fare: 1) Passare actionLabel='Riprova' all'EmptyState del reader, richiamando openReader/openStreamingReader sul capitolo corrente. 2) Dare alle pagine un'altezza minima e uno stato di errore visibile (icona BrokenImage + 'Tocca per riprovare') usando onState/SubcomposeAsyncImage di Coil, con retry al tap.
-
-- [x] **Manca la lettura manga destra→sinistra nella modalità a pagine** ✅ — *fatto (2026-06-10)*
-  - Perché: ReadingMode prevedeva solo VERTICAL e PAGED, e PAGED 'si avanza verso destra': per i manga, che nascono con tavole da leggere da destra a sinistra, lo sfoglio era invertito rispetto all'ordine naturale (richiesta esplicita degli utenti, ammessa perfino nel messaggio di commit: 'Max ti giuro che metto il reader tipo manga da destra a sinistra').
-  - **Fatto:** aggiunto `ReadingMode.PAGED_RTL` ("Manga") con i flag `isPaged` (true) e `isRightToLeft` (true). Nel `PagedReader` l'`HorizontalPager` è avvolto in `CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl)` solo in modalità manga: pagina 1 a destra, swipe da destra a sinistra, prima pagina in entrata da sinistra. L'indicatore "x/y" e le immagini restano fuori dal provider (non si specchiano) e i gesti di zoom/pan sono in pixel, quindi `ZoomablePage` funziona identico. Selettore impostazioni (3 segmenti: Verticale/Pagine/Manga), dropdown del reader, override per-serie e backup raccolgono il nuovo valore gratis (iterano `ReadingMode.entries` e parsano via `valueOf`). La barra fissa cambia-capitolo resta volutamente LTR (frecce ◀ precedente / ▶ successivo): è un controllo esplicito, non lo swipe pagine, e mantenerlo coerente è meno ambiguo. Test: flag dell'enum + persistenza per-serie di PAGED_RTL in `MangaViewModelReadingModeTest`.
 
 ### Preferiti & aggiornamenti
 
@@ -249,82 +154,21 @@
   - Dove: AppDialogs.kt:62-87 (CrashReportDialog: testo = prime 10 righe del report + 'File: $crashPath', solo confirmButton 'Chiudi'); MainActivity.kt:697-706 (onDismiss → CrashReporter.clearLastCrash); CrashReporter.kt:55-75 (report = stack trace completo)
   - Cosa fare: Riformulare il dialog in linguaggio utente ('L'app si è chiusa in modo imprevisto l'ultima volta. Vuoi inviare la segnalazione allo sviluppatore?') nascondendo lo stack dietro un expander opzionale, e aggiungere un bottone 'Condividi segnalazione' che lancia un intent ACTION_SEND con il testo completo del report (già disponibile in memoria). 'Chiudi' resta per chi non vuole inviare.
 
-- [ ] **Nelle impostazioni mancano versione app e 'Controlla aggiornamenti' (la logica esiste già, senza UI)** ✅ — Impatto Medio · Sforzo Basso
-  - Perché: La versione installata non è visibile in nessun punto dell'app (BuildConfig.VERSION_NAME è usato solo per scriverla nel file di backup) e non c'è alcun modo di forzare un controllo aggiornamenti: il check parte solo all'avvio, è limitato a una volta al giorno sul canale stable e in quel caso inghiotte gli errori in silenzio. Il ViewModel è già pronto — checkForAppUpdate(force = true) esiste, il commento a riga 1922-1923 cita esplicitamente utenti che premono 'controlla aggiornamenti', e lo stato isCheckingUpdate non è mai letto da nessuna UI. Chi ha rifiutato il dialog di update ('Più tardi') o vuole verificare di essere aggiornato non ha alcun punto d'ingresso.
-  - Dove: SettingsScreen.kt:58-141 (nessuna sezione info/versione); MangaViewModel.kt:266 (VERSION_NAME usato solo per il backup), 1911-1931 (throttle 1/giorno, force mai esposto in UI), 1957-1959 (errori silenziosi se non force); MainActivity.kt:174 (unico trigger non-Labs); grep: isCheckingUpdate mai consumato dalla UI
-  - Cosa fare: Aggiungere in fondo a SettingsScreen una sezione 'Informazioni' con: riga versione ('Versione 1.x.y') e riga azione 'Controlla aggiornamenti' che chiama checkForAppUpdate(force = true), mostra lo spinner legato a isCheckingUpdate e, se non c'è nulla di nuovo, conferma con 'Sei già all'ultima versione' (oggi availableUpdate=null non dà alcun feedback). Riusare il pattern riga-azione di StorageManagerContent/BackupContent (SettingsComponents.kt:286-346).
+- [ ] **"Controlla aggiornamenti" manuale nelle impostazioni** 🔎 — Impatto Basso · Sforzo Basso
+  - Perché: la sezione "Informazioni" ora mostra versione + Novità, ma non un pulsante per forzare il controllo aggiornamenti. La logica c'è già (`checkForAppUpdate(force = true)`, `isCheckingUpdate`), manca l'aggancio UI + il feedback "Sei già all'ultima versione" quando `availableUpdate` è null.
+  - Cosa fare: una riga azione "Controlla aggiornamenti" in `InfoContent` con spinner legato a `isCheckingUpdate` ed evento one-shot per il "sei aggiornato".
 
 ---
 
 ## 🟡 Affidabilità & test mancanti (sforzo medio)
 
-- [x] **Rendere testabile il parsing di Mangapill (fonte di default)** ✅ — *fatto (2026-05-26)*
-  - Dove: `MangapillSource` faceva fetch live nei metodi d'istanza, a differenza di MangaWorld/HastaTeam che espongono funzioni statiche `parseSearchResults/parseMangaDetails/parsePageImageUrls` già testate su HTML d'esempio.
-  - **Fatto:** estratte nel `companion object` le funzioni pure `parseSearchResults(raw, baseUrl)`, `parseMangaDetails(raw, mangaUrl)`, `parsePageImageUrls(raw, chapterUrl)` (parsing via `Jsoup.parse(raw, base)` + `absUrl`, stesso pattern di MangaWorld); i metodi d'istanza ora sono wrapper sottili che fanno solo `fetchString` e delegano. Aggiunti 4 test in `MangaSourcesTest` su HTML d'esempio (ricerca con merge degli anchor duplicati, dettaglio con ordinamento capitoli + copertina, fallback del numero capitolo dall'URL, pagine del reader). Suite verde.
-
 - [ ] **Test del `DownloadWorker` (cuore dell'app)** 🔎
   - Dove: [DownloadWorker.kt:41-186] — `doWork`, `enqueue`, retry/cancellazione, concorrenza con `Semaphore`/`Mutex`.
   - Cosa fare: test di `enqueue` (constraint/tag) con `WorkManagerTestInitHelper`, e/o estrarre l'orchestrazione in una classe testabile con `MangaSource` fake (come `StreamingReadStateTest.TestMangaSource`). Impatto Alto · Sforzo Medio/Alto.
 
-- [x] **Download lunghi (100+ capitoli) interrotti a schermo spento se manca il permesso notifiche** ✅ — *fatto (2026-06-09, vedi nota in fondo all'item)*
-  - Dove: `DownloadWorker.safeSetForeground` → `canShowForegroundNotification()` [DownloadWorker.kt:229-250]; fallback "continua in background" [DownloadWorker.kt:236-239]; stop di sistema → `DownloadStoppedException` → **`Result.success`** ("Fermato") [DownloadWorker.kt:167-175, 202-206]; permesso dichiarato [AndroidManifest.xml:6] e service `dataSync` [AndroidManifest.xml:19-22].
-  - Perché: il worker è un long-running worker promosso a **foreground service** (`FOREGROUND_SERVICE_TYPE_DATA_SYNC`). Il foreground service tiene CPU/rete vive a schermo spento ed è esente da Doze → con il permesso notifiche concesso, 100+ capitoli completano anche a schermo spento (lenti, batteria, ma OK ✅; retry su `IOException` riprende grazie allo `SKIPPED_EXISTING`). **MA** se l'utente ha negato `POST_NOTIFICATIONS` (Android 13+), `canShowForegroundNotification()` ritorna `false`, `safeSetForeground` esce subito e **non** chiama mai `setForeground`: il worker gira come job di background normale. A quel punto: (a) WorkManager impone ~10 min di esecuzione ai worker **non** foreground → su 100 capitoli viene fermato; (b) a schermo spento Doze sospende rete/esecuzione. Lo stop di sistema setta `isStopped` → `ensureActiveDownload()` lancia `DownloadStoppedException`, gestita come **`Result.success`** ("Fermato") → **niente auto-retry**: il download si ferma a metà in silenzio.
-  - Cosa fare: (1) chiedere il permesso notifiche **prima** di avviare un download grosso (oggi serve per il foreground service, non solo per la notifica); (2) distinguere stop utente da stop di sistema (`getStopReason()`, WorkManager 2.9+) e in caso di stop di sistema restituire **`Result.retry()`** invece di `success`, così WorkManager riprende quando le condizioni lo permettono (idempotente via skip-existing); (3) opzionale: guidare l'utente all'esenzione dalla battery optimization sugli OEM aggressivi. Impatto Alto (per chi scarica serie lunghe) · Sforzo Medio.
-  - **Fatto (2026-06-09):** implementato il punto (1): `onStartDownload` in `MainActivity` richiede `POST_NOTIFICATIONS` al momento dell'avvio del download (Android 13+) e, se negato, mostra uno snackbar che spiega che i download lunghi possono essere interrotti dal sistema; il worker ri-controlla il permesso a ogni progresso, quindi concederlo a download in corso lo promuove comunque a foreground. Il punto (2) è stato **scartato dopo verifica sui doc ufficiali**: "WorkManager ignores the Result set by a Worker that has received the onStop signal" e, per gli stop di sistema, "the work is scheduled for retry at a later time" — cioè il `Result.success` del ramo `DownloadStoppedException` è già ignorato quando il worker viene fermato, e il retry su stop di sistema avviene comunque da solo; cambiare il Result non avrebbe alcun effetto. Il punto (3) resta come follow-up opzionale.
-
-- [x] **Gestire lo spazio disco insufficiente** ✅ — *fatto (2026-05-26)*
-  - Dove: scrittura pagine [MangaSources.kt], estrazione [LibraryRepository.kt:575-577], cache streaming.
-  - Perché: su disco pieno `IOException` → il worker andava in retry potenzialmente infinito; nessun messaggio dedicato.
-  - **Fatto:** prima di scaricare un capitolo (`downloadChapterAsCbz`, dopo lo skip del file esistente) si controlla lo spazio libero con `StatFs` (`DownloadStorage.freeSpaceBytes`, **fail-open**: se la misura fallisce non blocca) contro una soglia di 50 MB (`MIN_FREE_SPACE_BYTES`); se insufficiente lancia `InsufficientStorageException` — eccezione **non**-`IOException`, così il `DownloadWorker` la mappa su `Result.failure` con messaggio ("Spazio insufficiente sul dispositivo…") invece di ciclare in retry. Policy isolata in `hasEnoughFreeSpace(available, required)` (pura) e misura dietro `availableSpaceBytes(dir)` (seam overridabile). Test: policy pura + `downloadChapterAsCbz` che lancia con disco simulato quasi pieno senza toccare la rete. Suite verde.
-  - *Nota scope:* coperto il percorso di download (quello che causava i retry infiniti del worker). L'estrazione CBZ in lettura usa già il try/catch che pulisce la cache su errore (vedi item "CBZ corrotto"); aggiungere un check `StatFs` anche lì è un follow-up minore.
-
-- [x] **Coprire i rami d'errore di `buildDownloadPlan`/`downloadChapterAsCbz`** ✅ — *fatto (2026-05-26)*
-  - Dove: [MangaSources.kt:194-240, 279-329] — capitolo iniziale/finale non trovato, intervallo invertito, lista vuota (prima solo happy path).
-  - **Fatto:** nuovo `DownloadPlanAndCbzTest` (Robolectric) con un `TestMangaSource` configurabile. Copre `buildDownloadPlan`: URL non riconosciuto → `IllegalArgumentException`, capitolo iniziale/finale assente e intervallo invertito → `IllegalStateException`, più gli happy path (intervallo inclusivo + `totalChapterCount`, default all'ultimo capitolo). Copre `downloadChapterAsCbz`: **zip prodotto** (un'entry per pagina, niente residui `.part`/`_pages`) iniettando byte finti via interceptor OkHttp (nessuna rete) e **skip del file già esistente**. 8 test verdi.
-
-- [x] **Test del `CrashReporter`** ✅ — *fatto (2026-05-26)*
-  - Dove: [CrashReporter.kt] — round-trip write→read→clear e caso "file assente → null".
-  - **Fatto:** nuovo `CrashReporterTest` (Robolectric): file assente → `null`, `clearLastCrash` idempotente, `crashFilePath` punta a `diagnostics/last_crash.txt`, e round-trip completo invocando l'handler installato da `install` (con handler precedente non-null per evitare `exitProcess`) → il report contiene messaggio/eccezione/thread, poi `clear` riporta a `null` e la catena dell'handler precedente è rispettata. 4 test verdi.
-
 - [ ] **Alimentare il `CrashReporter`/log sugli errori di parsing** 🔎
   - Dove: le source lanciano `IllegalStateException("Nessun capitolo…")` senza dire *quale* selettore è fallito [MangapillSource.kt:127].
   - Cosa fare: loggare URL + selettore fallito su lista vuota; valutare un parsing-fallback (JSON-LD/`<title>`). Impatto Medio · Sforzo Medio.
-
----
-
-## 🔵 Architettura & manutenibilità (interventi grossi, valore nel tempo)
-
-- [x] **Spezzare la god class `MangaViewModel`** ✅ — *fatto (parziale, 2026-05-26)*
-  - Dove: [MangaViewModel.kt] — mescolava ricerca, dettaglio, libreria, reader, auto-download, smart cleanup, parental control, tutorial, update, persistenza.
-  - **Fatto:** estratta la **persistenza** in tre collaboratori cohesi ([SettingsStore.kt], [FavoritesStore.kt], [RecentSearchesStore.kt]): il ViewModel ora delega `read/persist` e tiene solo l'orchestrazione di stato. `MangaViewModel` da ~2040 a ~1867 righe; le chiavi prefs delle impostazioni/preferiti/recenti vivono nei rispettivi store. Test: `RecentSearchesStoreTest` (regola pura dedup/cap); read/persist coperti dai test VM esistenti (recenti, preferiti, parental). Insieme a [ReaderProgress.kt] e [LibraryMatching.kt] (estratti negli item precedenti) il VM ha già diversi collaboratori puri fuori.
-  - *Scelta concordata:* estratti **solo gli store** (basso rischio, testabili). I controller di stato (`ParentalControlController`/`TutorialController`/`ReaderController`) **non** sono stati estratti: manipolano `MangaUiState` condiviso e la UI/macchina a stati non ha copertura di test → rischio di regressione non giustificato ora. Restano come follow-up se si aggiunge prima copertura di test sul ViewModel.
-
-- [x] **Back-stack di navigazione esplicito invece dei booleani sparsi** ✅ — *fatto (2026-05-26)*
-  - Dove: `showSettings`/`showStorageManager`/`selected`/`selectedDownloadedSeries`/`readerChapter` + `when`/`BackHandler` [MainActivity.kt].
-  - **Fatto:** nuovo `sealed interface Screen` (Tabs/Detail/DownloadedSeries/Reader/Settings/StorageManager) + funzione pura `MangaUiState.currentScreen()` che codifica la gerarchia **in un punto solo**; `MainActivity` rende con un `when (currentScreen())` **esaustivo** (il compilatore obbliga a gestire ogni schermata) e `showPager`/`canHandleBack` derivano da lì; il back è centralizzato in `MangaViewModel.handleBack()` (testabile). Test: `ScreenTest` (6, puro) + `MangaViewModelBackNavigationTest` (2, Robolectric — pop StorageManager→Settings→Tabs).
-  - *Deviazione motivata:* **non** uno `List<Screen>` mutabile con push/pop, ma una schermata **derivata** dai campi di stato esistenti (unica fonte di verità → niente stack parallelo da tenere in sync). La UI non è coperta da test, quindi migrare i dati delle schermate dentro entry di stack mutabili era rischio di regressione non giustificato; questa forma ottiene gli stessi obiettivi (esplicito, esaustivo, back centralizzato, niente booleani sparsi nel `when`) a rischio molto minore.
-
-- [x] **Spostare la logica di dominio fuori da `MainActivity`** ✅ — *fatto (2026-05-26)*
-  - Dove: `downloadedChapterKeysFor`, `downloadedReadChapterIdsFor`, `matchingDownloadedSeries`, `tutorialSampleSeries` [MainActivity.kt] — matching identità serie/capitoli (dominio, non UI).
-  - **Fatto:** estratte in un nuovo `object LibraryMatching` (puro, accanto a `MangaSourceCatalog`); `MainActivity` ora le chiama e `tutorialSampleSeries` prende `(sample, library)` invece dello stato UI. 7 unit test JVM (`LibraryMatchingTest`, niente Robolectric) coprono match per identità, fallback sul titolo, no-match e le chiavi capitolo/letti.
-
-- [x] **Ridurre il `MangaUiState` monolitico / ricomposizioni** ✅ — *fatto (parziale, 2026-05-26)*
-  - Dove: `saveReaderPagePosition`→`withReaderProgress` rimappava liste grandi ad ogni pagina [MangaViewModel.kt]; `SearchScreen`/`LibraryScreen` ricevono l'intero `state`.
-  - **Fatto:** estratte funzioni pure `DownloadedChapter/DownloadedSeries.withReaderProgressApplied` ([ReaderProgress.kt]) che restituiscono **la stessa istanza** per le serie/capitoli non toccati dal capitolo corrente → niente ricostruzione dell'intera libreria a ogni pagina sfogliata (meno allocazioni/GC in lettura). `withReaderProgress` ora le usa. 5 unit test puri (`ReaderProgressFunctionsTest`) verificano identità e correttezza.
-  - *Scope ridotto di proposito:* il passaggio dei soli sotto-campi alle schermate / lo split in `searchState`/`libraryState`/`readerState` **non** è stato fatto: `MangaUiState` ha campi `List` che in Compose sono **instabili**, quindi restringere le firme non abiliterebbe lo skip delle ricomposizioni senza una nuova dipendenza (kotlinx-immutable-collections) che il progetto evita; inoltre i Composable non hanno copertura di test. Rapporto valore/rischio basso → rimandato.
-
-- [x] **Centralizzare `LibraryRepository`/`MangaSourceRegistry` come singleton** ✅ — *fatto (2026-05-26)*
-  - Dove: `BaseMangaSource.prepareSeriesStorage` creava un `LibraryRepository` al volo mentre il ViewModel ne aveva già uno; il `DownloadWorker` creava il proprio registry.
-  - **Fatto:** `MangaApplication` espone `libraryRepository` e `sourceRegistry` come singleton `lazy`; helper `sharedLibraryRepository(context)`/`sharedSourceRegistry(context)` con fallback per Context non-MangaApplication (test). ViewModel e DownloadWorker ora usano le istanze condivise; `MangaSourceRegistry` e `BaseMangaSource` ricevono il `LibraryRepository` iniettato (default-arg per non rompere i test), così `prepareSeriesStorage` non istanzia più un repo al volo. La TTL-cache è ora condivisa.
-
-- [x] **Serializzazione tipizzata favoriti/recenti** ✅ — *fatto (2026-05-26)*; **debounce salvataggio pagina: scartato di proposito** ⚠️
-  - Dove: `reader_page_index::<path>` salvato ad ogni pagina visibile [LibraryRepository.kt]; favoriti/recenti come JSON costruito a mano [MangaViewModel.kt].
-  - **Fatto (serializzazione):** aggiunto il plugin `org.jetbrains.kotlin.plugin.serialization` (2.0.21, allineato a Kotlin); favoriti via `@Serializable data class FavoriteEntryJson` + `Json.encode/decodeFromString`, recenti come `List<String>` tipizzata, al posto dei `buildJsonObject`/`jsonArray` a mano. Formato su disco invariato (retrocompatibile). Test `FavoritesPersistenceTest` (round-trip + lettura del vecchio JSON senza cover).
-  - **Debounce scartato:** un test esistente (`ReaderProgressTest.streamingReader_positionSurvivesNewViewModel`) garantisce che la posizione sia **durevole subito** dopo il salvataggio (simula riavvio app con un nuovo ViewModel). Il debounce rompe questa garanzia e introduce perdita di dato su process-death; inoltre `prefs.apply()` è già asincrono (nessun jank sul main thread) e il vero costo per-pagina è il remap di stato in `withReaderProgress` — affrontato nell'item ricomposizioni. Mantenuta quindi la scrittura immediata.
-
-- [x] **Uniformare gli aggiornamenti di stato** ✅ — *fatto (2026-06-09)*
-  - Dove: ~30 `_state.value = _state.value.copy(...)` diretti vs l'esistente `updateState { copy(...) }`.
-  - **Fatto:** alla verifica del 2026-06-09 ne restava **uno solo** (il ramo d'errore di `checkForAppUpdate`) — gli altri erano già stati uniformati nei refactor precedenti. Convertito anche quello: ora l'unico `_state.value =` è dentro `updateState` stesso.
 
 ---
 

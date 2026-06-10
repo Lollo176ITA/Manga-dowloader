@@ -210,6 +210,7 @@ data class MangaUiState(
     val showSettings: Boolean = false,
     val showStorageManager: Boolean = false,
     val showBackup: Boolean = false,
+    val showChangelog: Boolean = false,
     val showUpdates: Boolean = false,
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
@@ -575,7 +576,9 @@ class MangaViewModel internal constructor(
     }
 
     fun closeSettings() {
-        updateState { copy(showSettings = false, showStorageManager = false, showBackup = false) }
+        updateState {
+            copy(showSettings = false, showStorageManager = false, showBackup = false, showChangelog = false)
+        }
     }
 
     fun openBackup() {
@@ -584,6 +587,14 @@ class MangaViewModel internal constructor(
 
     fun closeBackup() {
         updateState { copy(showBackup = false) }
+    }
+
+    fun openChangelog() {
+        updateState { copy(showChangelog = true) }
+    }
+
+    fun closeChangelog() {
+        updateState { copy(showChangelog = false) }
     }
 
     /** Esporta il backup nel documento scelto (SAF). L'IO gira fuori dal main thread. */
@@ -1837,6 +1848,7 @@ class MangaViewModel internal constructor(
             Screen.Reader -> closeReader()
             Screen.StorageManager -> closeStorageManager()
             Screen.Backup -> closeBackup()
+            Screen.Changelog -> closeChangelog()
             Screen.Settings -> closeSettings()
             Screen.Updates -> closeUpdates()
             Screen.Detail -> clearSelection()

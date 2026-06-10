@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
@@ -46,6 +47,8 @@ fun SettingsScreen(
     onToggleFavoriteNotifications: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
     onOpenBackup: () -> Unit,
+    appVersion: String,
+    onOpenChangelog: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -143,6 +146,13 @@ fun SettingsScreen(
                 onToggleHighResImages = onToggleHighResImages,
                 onTogglePrivacyBrightness = onTogglePrivacyBrightness,
                 onToggleAllowLandscapeRotation = onToggleAllowLandscapeRotation,
+            )
+        }
+
+        SettingsSection(title = "Informazioni", icon = Icons.Default.Info) {
+            InfoContent(
+                appVersion = appVersion,
+                onOpenChangelog = onOpenChangelog,
             )
         }
     }

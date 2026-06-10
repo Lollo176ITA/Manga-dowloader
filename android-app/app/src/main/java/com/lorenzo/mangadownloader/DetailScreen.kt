@@ -196,11 +196,16 @@ fun DetailScreen(
             ?.takeIf { endChapter -> endOptions.any { it.url == endChapter.url } }
             ?: endOptions.lastOrNull()
             ?: startChapter
+        val rangeSummary = remember(chapters, startChapter.url, selectedEnd.url, downloadedChapterKeys) {
+            downloadRangeSummary(chapters, startChapter.url, selectedEnd.url, downloadedChapterKeys)
+        }
         DownloadRangeDialog(
             startChapter = startChapter,
             endChapter = selectedEnd,
             startOptions = chapters,
             endOptions = endOptions,
+            selectedCount = rangeSummary.selectedCount,
+            alreadyDownloadedCount = rangeSummary.alreadyDownloadedCount,
             startMenuExpanded = startMenuExpanded,
             endMenuExpanded = endMenuExpanded,
             autoDownloadEnabled = autoDownloadEnabled,
@@ -293,6 +298,26 @@ private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boole
     return stableId in downloadedChapterKeys || numberKey in downloadedChapterKeys
 }
 
+/** Capitoli selezionati e quanti di questi sono già scaricati, nel range [startUrl]..[endUrl]. */
+data class DownloadRangeSummary(val selectedCount: Int, val alreadyDownloadedCount: Int)
+
+/** Funzione pura (testabile): conta i capitoli del range e quanti verrebbero saltati. */
+fun downloadRangeSummary(
+    chapters: List<ChapterEntry>,
+    startUrl: String,
+    endUrl: String,
+    downloadedChapterKeys: Set<String>,
+): DownloadRangeSummary {
+    val start = chapters.indexOfFirst { it.url == startUrl }
+    val end = chapters.indexOfFirst { it.url == endUrl }
+    if (start < 0 || end < 0 || start > end) return DownloadRangeSummary(0, 0)
+    val range = chapters.subList(start, end + 1)
+    return DownloadRangeSummary(
+        selectedCount = range.size,
+        alreadyDownloadedCount = range.count { it.isDownloaded(downloadedChapterKeys) },
+    )
+}
+
 private fun ChapterEntry.isRead(readChapterIds: Set<String>): Boolean {
     return DownloadStorage.stableChapterId(this) in readChapterIds
 }
@@ -304,6 +329,8 @@ private fun DownloadRangeDialog(
     endChapter: ChapterEntry,
     startOptions: List<ChapterEntry>,
     endOptions: List<ChapterEntry>,
+    selectedCount: Int,
+    alreadyDownloadedCount: Int,
     startMenuExpanded: Boolean,
     endMenuExpanded: Boolean,
     autoDownloadEnabled: Boolean,
@@ -385,6 +412,18 @@ private fun DownloadRangeDialog(
                         }
                     }
                 }
+                // Riepilogo live: quanti capitoli si scaricheranno davvero (i già presenti
+                // vengono saltati dal worker), così la conferma non è più un "Avvia" alla cieca.
+                val skipNote = if (alreadyDownloadedCount > 0) {
+                    " · $alreadyDownloadedCount già scaricati verranno saltati"
+                } else {
+                    ""
+                }
+                Text(
+                    text = "$selectedCount capitoli selezionati$skipNote",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (!autoDownloadEnabled) {
                     Surface(
                         shape = MaterialTheme.shapes.large,
@@ -421,8 +460,12 @@ private fun DownloadRangeDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(endChapter) }) {
-                Text("Avvia")
+            val toDownload = (selectedCount - alreadyDownloadedCount).coerceAtLeast(0)
+            TextButton(
+                onClick = { onConfirm(endChapter) },
+                enabled = toDownload > 0,
+            ) {
+                Text(if (toDownload > 0) "Scarica $toDownload" else "Già scaricati")
             }
         },
         dismissButton = {

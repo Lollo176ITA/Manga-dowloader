@@ -1,0 +1,75 @@
+# Changelog
+
+<!-- markdownlint-disable MD024 -->
+
+> Voci completate, spostate automaticamente da [MIGLIORIE.md](MIGLIORIE.md) via `scripts/changelog.ps1`. Raggruppate per giorno (dal più recente) e per tipo.
+
+## 2026-06-10
+
+### Aggiunto
+
+- Sezione "Informazioni" nelle impostazioni con la versione dell'app e una schermata "Novità" che mostra il changelog.
+- Azione "Elimina capitoli letti" in Libreria e Gestione memoria (tiene il capitolo in corso e i non letti).
+- Modalità di lettura "Manga": reader a pagine da destra a sinistra.
+
+### Migliorato
+
+- Lo stop dei download ora chiede conferma e indica quante serie ferma, invece di cancellare tutto a un tap cieco.
+- La notifica di download si tocca per aprire l'app sulla Libreria, e a fine download arriva una notifica di completamento (o di errore).
+- Il dialog di download mostra quanti capitoli scaricherà e quanti sono già presenti; la conferma diventa "Scarica N".
+- Lo snackbar "Download in coda" ha l'azione "Libreria" per vedere subito progresso e coda.
+- Righe della Gestione memoria tappabili (aprono la serie); label "letti · % dello spazio" più chiara.
+- La lista di una serie scaricata atterra sul punto di lettura (auto-scroll), non più sul capitolo 1.
+
+### Corretto
+
+- I download falliti ora mostrano l'errore con un'azione "Riprova", invece di sparire in silenzio.
+
+## 2026-06-09
+
+### Migliorato
+
+- Il permesso notifiche viene chiesto all'avvio di un download lungo, così il sistema non lo interrompe a metà.
+
+### Corretto
+
+- Il badge "nuovi capitoli" non risorge più dopo "segna come visto" (risolta la race tra worker e app).
+- L'evento del feed viene salvato prima della notifica: niente doppie notifiche dopo un crash.
+
+### Interno
+
+- Aggiornamenti di stato uniformati su `updateState`.
+
+## 2026-05-26
+
+### Aggiunto
+
+- Licenza PolyForm Noncommercial.
+
+### Migliorato
+
+- Retry con backoff sugli errori di rete (ricerca, dettaglio, download).
+
+### Corretto
+
+- Referer corretto per-immagine: niente più immagini rotte (403) leggendo da MangaWorld/HastaTeam.
+- Un CBZ corrotto non lascia più un capitolo mostrato a metà (cache ripulita su errore).
+- Spazio disco insufficiente gestito con un messaggio chiaro, senza retry infiniti.
+
+### Sicurezza
+
+- Verifica della firma dell'APK di auto-update prima dell'installazione (fail-closed).
+
+### Interno
+
+- Test eseguiti in CI su PR/`dev` e prima della release.
+- README riallineato all'app Android come progetto principale.
+- Parsing Mangapill estratto in funzioni pure testabili (+ test).
+- Test sui rami d'errore di download e sul CrashReporter.
+- Persistenza estratta dal `MangaViewModel` in store dedicati.
+- Navigazione modellata con un `sealed Screen` + back centralizzato.
+- Matching libreria estratto in `LibraryMatching` (puro, testato).
+- Meno allocazioni in lettura (progresso reader applicato senza ricostruire la libreria).
+- `LibraryRepository`/`MangaSourceRegistry` condivisi come singleton.
+- Favoriti/recenti serializzati in modo tipizzato (kotlinx.serialization).
+- Rimosso codice morto; `*.log` in `.gitignore`.

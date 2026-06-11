@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -33,7 +34,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
@@ -522,9 +522,12 @@ fun FavoriteCard(
     }
 }
 
-/** Icona dello stato di lettura di un preferito (condivisa tra card e filtro). */
+/**
+ * Icona dello stato di lettura di un preferito: una progressione "libro chiuso → libro
+ * aperto → fatto", così le tre icone si leggono come una storia unica.
+ */
 fun FavoriteReadingState.icon(): ImageVector = when (this) {
-    FavoriteReadingState.TO_START -> Icons.Default.Schedule
+    FavoriteReadingState.TO_START -> Icons.Default.Book
     FavoriteReadingState.IN_PROGRESS -> Icons.AutoMirrored.Filled.MenuBook
     FavoriteReadingState.COMPLETED -> Icons.Default.CheckCircle
 }

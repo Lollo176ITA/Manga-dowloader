@@ -76,9 +76,8 @@ fun FavoritesScreen(
         )
 
         if (favorites.isNotEmpty()) {
-            // Una sola riga fissa, niente scroll orizzontale: stato di lettura come tre
-            // filter chip. Nessuna chip "Tutti": niente selezionato = tutti, e un ri-tap
-            // sulla chip attiva la spegne.
+            // Una sola riga fissa, niente scroll orizzontale: stato di lettura come filter
+            // chip. "Tutti" = nessun filtro; un ri-tap sulla chip attiva la spegne.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -89,6 +88,11 @@ fun FavoritesScreen(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    FilterChip(
+                        selected = filterReadingState == null,
+                        onClick = { onSelectReadingState(null) },
+                        label = { Text("Tutti", maxLines = 1) },
+                    )
                     FavoriteReadingState.entries.forEach { readingState ->
                         FilterChip(
                             selected = filterReadingState == readingState,

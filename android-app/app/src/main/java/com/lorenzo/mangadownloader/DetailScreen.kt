@@ -52,6 +52,11 @@ fun DetailScreen(
     readChapterIds: Set<String>,
     streamingReaderEnabled: Boolean,
     autoDownloadEnabled: Boolean,
+    // Tracking AniList: la riga compare solo con l'account collegato (vedi AniListTrackingRow).
+    showAniListTracking: Boolean,
+    aniListTracking: AniListTracking?,
+    onLinkAniList: () -> Unit,
+    onOpenAniListTracker: () -> Unit,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
     onOpenStreamingChapter: (MangaDetails, ChapterEntry) -> Unit,
     onEnableAutoDownload: () -> Unit,
@@ -100,6 +105,14 @@ fun DetailScreen(
                     MangaPublicationStatus.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
+
+            if (showAniListTracking) {
+                AniListTrackingRow(
+                    tracking = aniListTracking,
+                    onLink = onLinkAniList,
+                    onOpenTracker = onOpenAniListTracker,
+                )
+            }
 
             if (isLoading && chapters.isEmpty()) {
                 FullScreenLoading()

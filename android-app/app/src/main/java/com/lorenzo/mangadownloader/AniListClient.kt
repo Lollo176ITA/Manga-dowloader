@@ -2,9 +2,12 @@ package com.lorenzo.mangadownloader
 
 import java.io.IOException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -31,6 +34,10 @@ data class AniListManga(
     val averageScore: Int?,
     val description: String?,
     val status: MangaPublicationStatus,
+    /** Numero totale di capitoli secondo AniList; `null` se la serie è in corso o ignoto. */
+    val chapters: Int? = null,
+    /** Formato AniList grezzo (MANGA, ONE_SHOT, NOVEL…), mostrato nel matching del tracking. */
+    val format: String? = null,
 ) {
     /**
      * Titolo da usare per cercare sulle fonti: prima l'inglese (più comune sui siti EN tipo
@@ -74,10 +81,14 @@ val ANILIST_GENRES: List<String> = listOf(
     "Music",
 )
 
+/** Il token AniList non è (più) valido: chi chiama deve disconnettere l'account. */
+class AniListAuthException(message: String) : IOException(message)
+
 /**
- * Client minimale per l'API GraphQL pubblica di AniList (nessuna API key). Fa una sola query
- * parametrica: cambiando [AniListSort] e [genre] copre tutte le sezioni della schermata Scopri
- * (tendenze, più votati, novità, per genere). Sincrono: va chiamato da un thread IO.
+ * Client minimale per l'API GraphQL di AniList. Le sezioni della schermata Scopri usano la sola
+ * query pubblica parametrica [fetchMedia] (nessuna API key). Le operazioni di **tracking**
+ * ([fetchViewer], [searchManga], [fetchMediaEntry], [saveListEntry]) richiedono il token OAuth
+ * dell'utente (vedi [AniListAuth]). Sincrono: va chiamato da un thread IO.
  */
 class AniListClient(
     private val httpClient: OkHttpClient,
@@ -101,16 +112,85 @@ class AniListClient(
         return parseMediaResponse(post(payload))
     }
 
-    private fun post(jsonBody: String): String {
+    /** L'utente autenticato (id, nome, formato voto). Valida di fatto il token appena ottenuto. */
+    fun fetchViewer(token: String): AniListViewer {
+        val payload = buildJsonObject {
+            put("query", VIEWER_QUERY)
+        }.toString()
+        return parseViewerResponse(post(payload, token))
+            ?: throw IOException("Profilo AniList non disponibile")
+    }
+
+    /**
+     * Ricerca per titolo usata dal matching del tracking. Nessun filtro `isAdult`: qui l'utente
+     * sta collegando un titolo che già legge, non sfogliando una vetrina.
+     */
+    fun searchManga(query: String, perPage: Int = MATCH_PER_PAGE): List<AniListManga> {
+        val variables = buildJsonObject {
+            put("search", query)
+            put("perPage", perPage)
+        }
+        val payload = buildJsonObject {
+            put("query", SEARCH_QUERY)
+            put("variables", variables)
+        }.toString()
+        return parseMediaResponse(post(payload))
+    }
+
+    /** Capitoli totali + entry dell'utente (se esiste) per un media, per seedare il tracking. */
+    fun fetchMediaEntry(mediaId: Int, token: String): AniListMediaEntry {
+        val variables = buildJsonObject { put("mediaId", mediaId) }
+        val payload = buildJsonObject {
+            put("query", MEDIA_ENTRY_QUERY)
+            put("variables", variables)
+        }.toString()
+        return parseMediaEntryResponse(post(payload, token))
+            ?: throw IOException("Media AniList $mediaId non trovato")
+    }
+
+    /**
+     * Crea o aggiorna l'entry di lista dell'utente. I parametri `null` non vengono inviati e
+     * AniList conserva il valore esistente. [score] è nel formato voto dell'account
+     * (vedi [AniListScoreFormat]). Ritorna l'entry come salvata dal server.
+     */
+    fun saveListEntry(
+        token: String,
+        mediaId: Int,
+        status: AniListListStatus? = null,
+        progress: Int? = null,
+        score: Double? = null,
+    ): AniListListEntry {
+        val variables = buildJsonObject {
+            put("mediaId", mediaId)
+            status?.let { put("status", it.name) }
+            progress?.let { put("progress", it) }
+            score?.let { put("score", it) }
+        }
+        val payload = buildJsonObject {
+            put("query", SAVE_ENTRY_MUTATION)
+            put("variables", variables)
+        }.toString()
+        return parseSaveEntryResponse(post(payload, token))
+            ?: throw IOException("Risposta inattesa da AniList al salvataggio")
+    }
+
+    private fun post(jsonBody: String, token: String? = null): String {
         val request = Request.Builder()
             .url(ENDPOINT)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .header("User-Agent", USER_AGENT)
+            .apply { token?.let { header("Authorization", "Bearer $it") } }
             .post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
         httpClient.newCall(request).execute().use { response ->
+            if (response.code == 401 || response.code == 403) {
+                throw AniListAuthException("Sessione AniList scaduta")
+            }
+            if (response.code == 429) {
+                throw IOException("AniList sta limitando le richieste, riprova tra poco")
+            }
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} da AniList")
             }
@@ -121,6 +201,7 @@ class AniListClient(
     companion object {
         private const val ENDPOINT = "https://graphql.anilist.co"
         private const val DEFAULT_PER_PAGE = 24
+        private const val MATCH_PER_PAGE = 10
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -142,6 +223,54 @@ class AniListClient(
                   description(asHtml: false)
                   status
                 }
+              }
+            }
+        """.trimIndent()
+
+        private val SEARCH_QUERY = """
+            query (${'$'}search: String, ${'$'}perPage: Int) {
+              Page(page: 1, perPage: ${'$'}perPage) {
+                media(search: ${'$'}search, type: MANGA) {
+                  id
+                  title { romaji english }
+                  coverImage { large }
+                  genres
+                  averageScore
+                  description(asHtml: false)
+                  status
+                  chapters
+                  format
+                }
+              }
+            }
+        """.trimIndent()
+
+        private val VIEWER_QUERY = """
+            query {
+              Viewer {
+                id
+                name
+                mediaListOptions { scoreFormat }
+              }
+            }
+        """.trimIndent()
+
+        private val MEDIA_ENTRY_QUERY = """
+            query (${'$'}mediaId: Int) {
+              Media(id: ${'$'}mediaId, type: MANGA) {
+                id
+                chapters
+                mediaListEntry { status progress score }
+              }
+            }
+        """.trimIndent()
+
+        private val SAVE_ENTRY_MUTATION = """
+            mutation (${'$'}mediaId: Int, ${'$'}status: MediaListStatus, ${'$'}progress: Int, ${'$'}score: Float) {
+              SaveMediaListEntry(mediaId: ${'$'}mediaId, status: ${'$'}status, progress: ${'$'}progress, score: ${'$'}score) {
+                status
+                progress
+                score
               }
             }
         """.trimIndent()
@@ -179,8 +308,64 @@ class AniListClient(
                     averageScore = obj["averageScore"]?.jsonPrimitive?.intOrNull,
                     description = cleanDescription(obj["description"]?.jsonPrimitive?.contentOrNull),
                     status = mangaStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
+                    chapters = obj["chapters"]?.jsonPrimitive?.intOrNull,
+                    format = obj["format"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
                 )
             }
+        }
+
+        /** Estrae il [AniListViewer] dalla risposta della [VIEWER_QUERY]; `null` se assente. */
+        internal fun parseViewerResponse(jsonText: String): AniListViewer? {
+            val viewer = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("Viewer")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject
+                ?: return null
+            val id = viewer["id"]?.jsonPrimitive?.intOrNull ?: return null
+            val name = viewer["name"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf(String::isNotBlank) ?: return null
+            val scoreFormat = viewer["mediaListOptions"]?.jsonObject
+                ?.get("scoreFormat")?.jsonPrimitive?.contentOrNull
+            return AniListViewer(
+                id = id,
+                name = name,
+                scoreFormat = aniListScoreFormatFromText(scoreFormat),
+            )
+        }
+
+        /** Estrae media + entry utente dalla [MEDIA_ENTRY_QUERY]; `null` se il media manca. */
+        internal fun parseMediaEntryResponse(jsonText: String): AniListMediaEntry? {
+            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("Media")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject
+                ?: return null
+            val mediaId = media["id"]?.jsonPrimitive?.intOrNull ?: return null
+            return AniListMediaEntry(
+                mediaId = mediaId,
+                totalChapters = media["chapters"]?.jsonPrimitive?.intOrNull,
+                entry = media["mediaListEntry"]
+                    ?.takeIf { it !is JsonNull }
+                    ?.jsonObject
+                    ?.let(::parseListEntry),
+            )
+        }
+
+        /** Estrae l'entry salvata dalla risposta della [SAVE_ENTRY_MUTATION]. */
+        internal fun parseSaveEntryResponse(jsonText: String): AniListListEntry? {
+            return json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("SaveMediaListEntry")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject
+                ?.let(::parseListEntry)
+        }
+
+        private fun parseListEntry(obj: JsonObject): AniListListEntry {
+            return AniListListEntry(
+                status = aniListStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
+                progress = obj["progress"]?.jsonPrimitive?.intOrNull ?: 0,
+                score = obj["score"]?.jsonPrimitive?.doubleOrNull?.takeIf { it > 0.0 },
+            )
         }
 
         /**

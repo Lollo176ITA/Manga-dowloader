@@ -111,4 +111,95 @@ class AniListClientTest {
             AniListClient.cleanDescription("Tom &amp; Jerry &quot;say&quot; hi"),
         )
     }
+
+    @Test
+    fun parseMediaResponse_readsChaptersAndFormatWhenPresent() {
+        val response = """
+            {
+              "data": { "Page": { "media": [ {
+                "id": 7,
+                "title": { "romaji": "Monster", "english": "Monster" },
+                "coverImage": { "large": null },
+                "genres": [],
+                "averageScore": 90,
+                "description": null,
+                "status": "FINISHED",
+                "chapters": 162,
+                "format": "MANGA"
+              } ] } }
+            }
+        """.trimIndent()
+
+        val manga = AniListClient.parseMediaResponse(response).single()
+        assertEquals(162, manga.chapters)
+        assertEquals("MANGA", manga.format)
+        // La query della Scopri non chiede questi campi: devono restare null senza errori.
+        assertNull(AniListClient.parseMediaResponse(sampleResponse)[0].chapters)
+        assertNull(AniListClient.parseMediaResponse(sampleResponse)[0].format)
+    }
+
+    @Test
+    fun parseViewerResponse_mapsProfileAndScoreFormat() {
+        val response = """
+            {
+              "data": {
+                "Viewer": {
+                  "id": 42,
+                  "name": "Lollo",
+                  "mediaListOptions": { "scoreFormat": "POINT_100" }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val viewer = AniListClient.parseViewerResponse(response)
+        assertEquals(42, viewer?.id)
+        assertEquals("Lollo", viewer?.name)
+        assertEquals(AniListScoreFormat.POINT_100, viewer?.scoreFormat)
+
+        assertNull(AniListClient.parseViewerResponse("""{ "data": { "Viewer": null } }"""))
+    }
+
+    @Test
+    fun parseMediaEntryResponse_mapsEntryAndMissingEntry() {
+        val withEntry = """
+            {
+              "data": { "Media": {
+                "id": 30002,
+                "chapters": 162,
+                "mediaListEntry": { "status": "CURRENT", "progress": 12, "score": 8.5 }
+              } }
+            }
+        """.trimIndent()
+
+        val mediaEntry = AniListClient.parseMediaEntryResponse(withEntry)
+        assertEquals(30002, mediaEntry?.mediaId)
+        assertEquals(162, mediaEntry?.totalChapters)
+        assertEquals(AniListListStatus.CURRENT, mediaEntry?.entry?.status)
+        assertEquals(12, mediaEntry?.entry?.progress)
+        assertEquals(8.5, mediaEntry?.entry?.score ?: 0.0, 0.001)
+
+        val withoutEntry = """
+            { "data": { "Media": { "id": 30002, "chapters": null, "mediaListEntry": null } } }
+        """.trimIndent()
+        val noEntry = AniListClient.parseMediaEntryResponse(withoutEntry)
+        assertEquals(30002, noEntry?.mediaId)
+        assertNull(noEntry?.totalChapters)
+        assertNull(noEntry?.entry)
+    }
+
+    @Test
+    fun parseSaveEntryResponse_mapsSavedEntryAndZeroScoreAsNone() {
+        val response = """
+            {
+              "data": { "SaveMediaListEntry": { "status": "COMPLETED", "progress": 162, "score": 0 } }
+            }
+        """.trimIndent()
+
+        val saved = AniListClient.parseSaveEntryResponse(response)
+        assertEquals(AniListListStatus.COMPLETED, saved?.status)
+        assertEquals(162, saved?.progress)
+        // Su AniList 0 significa "nessun voto": non va riportato come voto reale.
+        assertNull(saved?.score)
+    }
 }

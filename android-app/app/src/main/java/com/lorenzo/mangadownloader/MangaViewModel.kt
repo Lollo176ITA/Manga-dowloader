@@ -50,6 +50,30 @@ data class DiscoveryUiState(
     val info: AniListManga? = null,
 )
 
+/**
+ * Stato del tracking AniList. [viewer] presente ⇔ account collegato. [trackings] è la mappa
+ * `identityKey → legame` persistita da [AniListStore]. [match] pilota il dialog di matching
+ * (collega una serie a un media AniList), [trackerKey] quello di modifica stato/progresso/voto.
+ */
+data class AniListUiState(
+    val viewer: AniListViewer? = null,
+    val isConnecting: Boolean = false,
+    val trackings: Map<String, AniListTracking> = emptyMap(),
+    val match: AniListMatchUiState? = null,
+    val trackerKey: String? = null,
+    val isSavingEntry: Boolean = false,
+)
+
+/** Dialog di matching serie→AniList: ricerca per titolo con conferma esplicita dell'utente. */
+data class AniListMatchUiState(
+    val identityKey: String,
+    val query: String,
+    val isLoading: Boolean = false,
+    val candidates: List<AniListManga> = emptyList(),
+    val errorMessage: String? = null,
+    val isLinking: Boolean = false,
+)
+
 data class FavoriteManga(
     val sourceId: String,
     val title: String,
@@ -101,6 +125,9 @@ data class AppSettings(
     val tutorialCompleted: Boolean = false,
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
     val favoriteSort: FavoriteSort = FavoriteSort.DATE_ADDED,
+    // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
+    // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
+    val aniListSyncEnabled: Boolean = true,
 )
 
 enum class ParentalAction {
@@ -213,6 +240,7 @@ data class MangaUiState(
     val showChangelog: Boolean = false,
     val showFeedback: Boolean = false,
     val showUpdates: Boolean = false,
+    val aniList: AniListUiState = AniListUiState(),
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val isBiometricAvailable: Boolean = false,
@@ -264,6 +292,7 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val favoriteCategoriesStore = FavoriteCategoriesStore(prefs)
+    private val aniListStore = AniListStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
@@ -303,6 +332,10 @@ class MangaViewModel internal constructor(
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
+            aniList = AniListUiState(
+                viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null },
+                trackings = aniListStore.readTrackings(),
+            ),
             settings = if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
                 initialSettings.copy(tutorialCompleted = true)
             } else {
@@ -329,6 +362,7 @@ class MangaViewModel internal constructor(
     private var updateJob: Job? = null
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
+    private var aniListMatchJob: Job? = null
     private var nextBiometricRequestId = 1L
 
     init {
@@ -342,6 +376,8 @@ class MangaViewModel internal constructor(
         if (initialSettings.favoriteNewChapterNotificationsEnabled) {
             FavoriteUpdatesScheduler.onAppStart(application)
         }
+        // Progressi AniList rimasti in sospeso (offline/errore): riprova all'avvio.
+        flushPendingAniListSync()
     }
 
     @OptIn(FlowPreview::class)
@@ -1756,6 +1792,10 @@ class MangaViewModel internal constructor(
                 }
             }
         }
+
+        if (newlyRead) {
+            maybeSyncAniListOnChapterRead(chapter)
+        }
     }
 
     private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
@@ -2544,6 +2584,361 @@ class MangaViewModel internal constructor(
         }
         updateState { copy(recentSearches = updated) }
         recentSearchesStore.persist(updated)
+    }
+
+    // --- Tracking AniList: account, matching serie→media, push stato/progresso ---
+
+    /**
+     * Redirect OAuth dal browser (`mangapp://anilist-auth#access_token=…`): valida il token
+     * recuperando il profilo, persiste l'account e riprova eventuali progressi in sospeso.
+     */
+    fun onAniListAuthRedirect(fragment: String?) {
+        val token = AniListAuth.extractAccessToken(fragment)
+        if (token == null) {
+            updateState { copy(errorMessage = "Accesso ad AniList annullato o non riuscito") }
+            return
+        }
+        updateState { copy(aniList = aniList.copy(isConnecting = true)) }
+        viewModelScope.launch {
+            try {
+                val viewer = withContext(Dispatchers.IO) { aniListClient.fetchViewer(token) }
+                aniListStore.persistAccount(token, viewer)
+                updateState {
+                    copy(
+                        aniList = aniList.copy(viewer = viewer, isConnecting = false),
+                        errorMessage = "AniList collegato come ${viewer.name}",
+                    )
+                }
+                flushPendingAniListSync()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        aniList = aniList.copy(isConnecting = false),
+                        errorMessage = exc.message ?: "Impossibile collegare AniList",
+                    )
+                }
+            }
+        }
+    }
+
+    /** Scollega l'account. I legami serie→media restano per un futuro nuovo login. */
+    fun disconnectAniList() {
+        aniListStore.clearAccount()
+        updateState {
+            copy(aniList = aniList.copy(viewer = null, match = null, trackerKey = null))
+        }
+    }
+
+    fun setAniListSyncEnabled(enabled: Boolean) {
+        updateSettings { it.copy(aniListSyncEnabled = enabled) }
+    }
+
+    /** Apre il dialog di matching per la serie aperta nel dettaglio, cercandone il titolo. */
+    fun openAniListMatch() {
+        val selected = _state.value.selected ?: return
+        val key = MangaSourceCatalog.identityKeyOrNull(
+            selected.sourceId,
+            selected.mangaUrl,
+            selected.title,
+        ) ?: return
+        val query = selected.title.trim()
+        updateState {
+            copy(
+                aniList = aniList.copy(
+                    match = AniListMatchUiState(identityKey = key, query = query, isLoading = true),
+                ),
+            )
+        }
+        runAniListMatchSearch(query)
+    }
+
+    fun onAniListMatchQueryChange(query: String) {
+        updateState {
+            copy(aniList = aniList.copy(match = aniList.match?.copy(query = query)))
+        }
+    }
+
+    fun submitAniListMatchSearch() {
+        val match = _state.value.aniList.match ?: return
+        val query = match.query.trim()
+        if (query.isEmpty()) return
+        updateState {
+            copy(
+                aniList = aniList.copy(
+                    match = aniList.match?.copy(isLoading = true, errorMessage = null),
+                ),
+            )
+        }
+        runAniListMatchSearch(query)
+    }
+
+    fun dismissAniListMatch() {
+        aniListMatchJob?.cancel()
+        updateState { copy(aniList = aniList.copy(match = null)) }
+    }
+
+    private fun runAniListMatchSearch(query: String) {
+        aniListMatchJob?.cancel()
+        aniListMatchJob = viewModelScope.launch {
+            try {
+                val candidates = withContext(Dispatchers.IO) { aniListClient.searchManga(query) }
+                updateState {
+                    copy(
+                        aniList = aniList.copy(
+                            match = aniList.match?.copy(
+                                isLoading = false,
+                                candidates = candidates,
+                                errorMessage = null,
+                            ),
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        aniList = aniList.copy(
+                            match = aniList.match?.copy(
+                                isLoading = false,
+                                errorMessage = exc.message ?: "Ricerca su AniList non riuscita",
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * L'utente ha confermato il candidato: legge dal server capitoli totali ed eventuale entry
+     * già esistente (per non azzerare un progresso fatto sul sito) e persiste il legame.
+     */
+    fun confirmAniListMatch(media: AniListManga) {
+        val match = _state.value.aniList.match ?: return
+        val token = aniListStore.readToken() ?: return
+        updateState {
+            copy(aniList = aniList.copy(match = aniList.match?.copy(isLinking = true)))
+        }
+        viewModelScope.launch {
+            try {
+                val mediaEntry = withContext(Dispatchers.IO) {
+                    aniListClient.fetchMediaEntry(media.id, token)
+                }
+                saveAniListTracking(
+                    match.identityKey,
+                    AniListTracking(
+                        mediaId = media.id,
+                        title = media.displayTitle(),
+                        totalChapters = mediaEntry.totalChapters ?: media.chapters,
+                        status = mediaEntry.entry?.status,
+                        progress = mediaEntry.entry?.progress ?: 0,
+                        score = mediaEntry.entry?.score,
+                    ),
+                )
+                updateState { copy(aniList = aniList.copy(match = null)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AniListAuthException) {
+                handleAniListAuthError()
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        aniList = aniList.copy(
+                            match = aniList.match?.copy(
+                                isLinking = false,
+                                errorMessage = exc.message ?: "Collegamento non riuscito",
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Apre il dialog del tracker (stato/progresso/voto) per la serie aperta nel dettaglio. */
+    fun openAniListTracker() {
+        val selected = _state.value.selected ?: return
+        val key = MangaSourceCatalog.identityKeyOrNull(
+            selected.sourceId,
+            selected.mangaUrl,
+            selected.title,
+        ) ?: return
+        if (_state.value.aniList.trackings[key] == null) return
+        updateState { copy(aniList = aniList.copy(trackerKey = key)) }
+    }
+
+    fun dismissAniListTracker() {
+        updateState { copy(aniList = aniList.copy(trackerKey = null, isSavingEntry = false)) }
+    }
+
+    /** Rimuove il legame della serie col tracker aperto. Non tocca la lista su AniList. */
+    fun unlinkAniListTracking() {
+        val key = _state.value.aniList.trackerKey ?: return
+        saveAniListTracking(key, null)
+        updateState { copy(aniList = aniList.copy(trackerKey = null)) }
+    }
+
+    /** Salvataggio manuale dal dialog del tracker: una sola mutation con i campi modificati. */
+    fun saveAniListEntry(status: AniListListStatus?, progress: Int?, score: Double?) {
+        val key = _state.value.aniList.trackerKey ?: return
+        val tracking = _state.value.aniList.trackings[key] ?: return
+        val token = aniListStore.readToken() ?: return
+        updateState { copy(aniList = aniList.copy(isSavingEntry = true)) }
+        viewModelScope.launch {
+            try {
+                val saved = withContext(Dispatchers.IO) {
+                    aniListClient.saveListEntry(
+                        token = token,
+                        mediaId = tracking.mediaId,
+                        status = status,
+                        progress = progress,
+                        score = score,
+                    )
+                }
+                updateAniListTracking(key) {
+                    it.copy(
+                        status = saved.status ?: it.status,
+                        progress = saved.progress,
+                        score = saved.score ?: it.score,
+                        pendingProgress = null,
+                    )
+                }
+                updateState { copy(aniList = aniList.copy(trackerKey = null, isSavingEntry = false)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AniListAuthException) {
+                handleAniListAuthError()
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        aniList = aniList.copy(isSavingEntry = false),
+                        errorMessage = exc.message ?: "Salvataggio su AniList non riuscito",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Sync automatico a fine capitolo: risale alla serie (scaricata o streaming) e spinge il
+     * numero di capitolo come progresso, se la serie è collegata e il sync è attivo.
+     */
+    private fun maybeSyncAniListOnChapterRead(chapter: ReaderChapter) {
+        val streaming = chapter.streamingChapter
+        val downloaded = chapter.downloadedChapter
+        val (sourceId, mangaUrl, chapterNumber) = when {
+            streaming != null -> Triple(
+                streaming.sourceId,
+                streaming.mangaUrl,
+                streaming.chapter.numberValue,
+            )
+            downloaded != null -> {
+                val series = sequenceOf(_state.value.selectedDownloadedSeries)
+                    .filterNotNull()
+                    .plus(_state.value.library)
+                    .firstOrNull { s -> s.chapters.any { it.relativePath == chapter.relativePath } }
+                    ?: return
+                val url = series.mangaUrl?.takeIf(String::isNotBlank) ?: return
+                Triple(series.sourceId, url, downloaded.numberValue)
+            }
+            else -> return
+        }
+        val progress = chapterNumber?.toInt()?.takeIf { it > 0 } ?: return
+        pushAniListProgress(MangaSourceCatalog.identityKey(sourceId, mangaUrl), progress)
+    }
+
+    /**
+     * Spinge [progress] su AniList per la serie [identityKey]. Mai regressioni: se il server
+     * (o un pending) è già più avanti non invia nulla. A capitolo finale raggiunto marca
+     * COMPLETED; le entry già COMPLETED non vengono toccate (rilettura ≠ nuovo progresso).
+     * In caso di errore di rete il progresso resta in [AniListTracking.pendingProgress].
+     */
+    private fun pushAniListProgress(identityKey: String, progress: Int) {
+        if (!_state.value.settings.aniListSyncEnabled) return
+        val token = aniListStore.readToken() ?: return
+        val tracking = _state.value.aniList.trackings[identityKey] ?: return
+        if (tracking.status == AniListListStatus.COMPLETED) return
+        val target = maxOf(progress, tracking.pendingProgress ?: 0)
+        if (target <= tracking.progress) {
+            if (tracking.pendingProgress != null) {
+                updateAniListTracking(identityKey) { it.copy(pendingProgress = null) }
+            }
+            return
+        }
+
+        val completed = tracking.totalChapters?.let { target >= it } == true
+        val newStatus = when {
+            completed -> AniListListStatus.COMPLETED
+            tracking.status == AniListListStatus.REPEATING -> null
+            else -> AniListListStatus.CURRENT
+        }
+        viewModelScope.launch {
+            try {
+                val saved = withContext(Dispatchers.IO) {
+                    aniListClient.saveListEntry(
+                        token = token,
+                        mediaId = tracking.mediaId,
+                        status = newStatus,
+                        progress = target,
+                    )
+                }
+                updateAniListTracking(identityKey) {
+                    it.copy(
+                        status = saved.status ?: it.status,
+                        progress = saved.progress,
+                        pendingProgress = null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AniListAuthException) {
+                handleAniListAuthError()
+            } catch (_: Exception) {
+                // Offline o errore transitorio: si riprova all'avvio o al prossimo capitolo.
+                updateAniListTracking(identityKey) { it.copy(pendingProgress = target) }
+            }
+        }
+    }
+
+    private fun flushPendingAniListSync() {
+        val pending = _state.value.aniList.trackings.filterValues { it.pendingProgress != null }
+        pending.forEach { (key, tracking) ->
+            pushAniListProgress(key, tracking.pendingProgress ?: return@forEach)
+        }
+    }
+
+    private fun saveAniListTracking(identityKey: String, tracking: AniListTracking?) {
+        val current = _state.value.aniList.trackings
+        val updated = if (tracking == null) current - identityKey else current + (identityKey to tracking)
+        aniListStore.persistTrackings(updated)
+        updateState { copy(aniList = aniList.copy(trackings = updated)) }
+    }
+
+    private fun updateAniListTracking(
+        identityKey: String,
+        transform: (AniListTracking) -> AniListTracking,
+    ) {
+        val current = _state.value.aniList.trackings[identityKey] ?: return
+        saveAniListTracking(identityKey, transform(current))
+    }
+
+    /** Token rifiutato dal server: account scollegato, l'utente deve riautorizzare. */
+    private fun handleAniListAuthError() {
+        aniListStore.clearAccount()
+        updateState {
+            copy(
+                aniList = aniList.copy(
+                    viewer = null,
+                    match = null,
+                    trackerKey = null,
+                    isSavingEntry = false,
+                ),
+                errorMessage = "Sessione AniList scaduta: ricollega l'account dalle impostazioni",
+            )
+        }
     }
 
     private fun updateSettings(transform: (AppSettings) -> AppSettings) {

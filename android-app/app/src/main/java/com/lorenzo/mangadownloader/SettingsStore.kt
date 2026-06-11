@@ -62,6 +62,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
                         ?: FavoriteSort.DATE_ADDED.name,
                 )
             }.getOrDefault(FavoriteSort.DATE_ADDED),
+            aniListSyncEnabled = prefs.getBoolean(KEY_ANILIST_SYNC_ENABLED, true),
         )
     }
 
@@ -94,6 +95,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
             .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             .putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
             .putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
+            .putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
             .apply()
     }
 
@@ -126,5 +128,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         const val KEY_FAVORITE_NOTIFICATIONS = "favorite_new_chapter_notifications"
         const val KEY_FAVORITE_SORT = "favorite_sort"
+        const val KEY_ANILIST_SYNC_ENABLED = "anilist_sync_enabled"
     }
 }

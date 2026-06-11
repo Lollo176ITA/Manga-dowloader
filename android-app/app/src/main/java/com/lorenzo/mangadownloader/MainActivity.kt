@@ -2,8 +2,11 @@ package com.lorenzo.mangadownloader
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
@@ -46,6 +49,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -55,10 +59,29 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleAniListRedirect(intent)
 
         setContent {
             MangaDownloaderApp()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // launchMode=singleTask: i nuovi intent (redirect OAuth, tap su notifica) arrivano qui.
+        setIntent(intent)
+        handleAniListRedirect(intent)
+    }
+
+    /** Consuma il redirect OAuth di AniList (`mangapp://anilist-auth#access_token=…`). */
+    private fun handleAniListRedirect(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme != AniListAuth.REDIRECT_SCHEME || uri.host != AniListAuth.REDIRECT_HOST) {
+            return
+        }
+        intent.data = null
+        ViewModelProvider(this)[MangaViewModel::class.java]
+            .onAniListAuthRedirect(uri.fragment ?: uri.encodedQuery)
     }
 }
 
@@ -627,10 +650,31 @@ private fun MangaDownloaderAppContent(
                     settings = state.settings,
                     isBiometricAvailable = state.isBiometricAvailable,
                     isParentalAuthInProgress = state.isParentalAuthInProgress,
+                    aniListViewerName = state.aniList.viewer?.name,
+                    isAniListConnecting = state.aniList.isConnecting,
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
                     onToggleDiscovery = viewModel::setDiscoveryEnabled,
+                    onConnectAniList = {
+                        scope.launch {
+                            if (!AniListAuth.isConfigured()) {
+                                snackbarHostState.showSnackbar(
+                                    "Collegamento AniList non configurato in questa build",
+                                )
+                                return@launch
+                            }
+                            try {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(AniListAuth.authorizationUrl())),
+                                )
+                            } catch (_: ActivityNotFoundException) {
+                                snackbarHostState.showSnackbar("Nessun browser disponibile")
+                            }
+                        }
+                    },
+                    onDisconnectAniList = viewModel::disconnectAniList,
+                    onToggleAniListSync = viewModel::setAniListSyncEnabled,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -678,6 +722,13 @@ private fun MangaDownloaderAppContent(
                     state.selectedMangaReadChapterIds +
                         LibraryMatching.downloadedReadChapterIds(selectedManga, state.library)
                 }
+                val aniListTracking = remember(selectedManga, state.aniList.trackings) {
+                    MangaSourceCatalog.identityKeyOrNull(
+                        selectedManga.sourceId,
+                        selectedManga.mangaUrl,
+                        selectedManga.title,
+                    )?.let { state.aniList.trackings[it] }
+                }
                 DetailScreen(
                     details = selectedManga,
                     isLoading = state.isLoadingDetails,
@@ -686,6 +737,10 @@ private fun MangaDownloaderAppContent(
                     readChapterIds = readChapterIds,
                     streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     autoDownloadEnabled = state.settings.autoDownloadEnabled,
+                    showAniListTracking = state.aniList.viewer != null,
+                    aniListTracking = aniListTracking,
+                    onLinkAniList = viewModel::openAniListMatch,
+                    onOpenAniListTracker = viewModel::openAniListTracker,
                     onStart = onStartDownload,
                     onOpenStreamingChapter = viewModel::openStreamingReader,
                     onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
@@ -853,6 +908,38 @@ private fun MangaDownloaderAppContent(
             onConfirm = viewModel::installAvailableUpdate,
         )
     }
+
+    state.aniList.match?.let { match ->
+        AniListMatchDialog(
+            match = match,
+            onQueryChange = viewModel::onAniListMatchQueryChange,
+            onSearch = viewModel::submitAniListMatchSearch,
+            onSelect = viewModel::confirmAniListMatch,
+            onDismiss = viewModel::dismissAniListMatch,
+        )
+    }
+
+    state.aniList.trackerKey
+        ?.let { key -> state.aniList.trackings[key] }
+        ?.let { tracking ->
+            AniListTrackerDialog(
+                tracking = tracking,
+                scoreFormat = state.aniList.viewer?.scoreFormat ?: AniListScoreFormat.POINT_10,
+                isSaving = state.aniList.isSavingEntry,
+                onSave = viewModel::saveAniListEntry,
+                onUnlink = viewModel::unlinkAniListTracking,
+                onOpenOnSite = {
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(tracking.siteUrl())),
+                        )
+                    } catch (_: ActivityNotFoundException) {
+                        scope.launch { snackbarHostState.showSnackbar("Nessun browser disponibile") }
+                    }
+                },
+                onDismiss = viewModel::dismissAniListTracker,
+            )
+        }
 }
 
 private fun WorkInfo.isActiveDownload(): Boolean {

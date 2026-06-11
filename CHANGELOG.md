@@ -10,6 +10,10 @@
 
 - Nuova voce "Segnala un problema" nelle Impostazioni: consente di inviare una segnalazione scegliendo il tipo (bug, richiesta di funzionalità o altro), descrivendo il problema, allegando immagini o un messaggio vocale registrato nell'app e indicando facoltativamente la propria email per essere ricontattati.
 - Dopo un crash, il dialog mostra un pulsante per inviare la segnalazione direttamente.
+- Integrazione AniList: puoi collegare il tuo account dalle impostazioni (accesso nel browser, nessuna password nell'app).
+- Nel dettaglio di un manga puoi collegare la serie al titolo corrispondente su AniList tramite una ricerca con conferma.
+- Dal dettaglio puoi modificare manualmente stato di lettura, capitoli letti e voto sulla tua lista AniList.
+- A fine capitolo l'app aggiorna automaticamente il progresso su AniList; all'ultimo capitolo la serie viene segnata come completata. La sincronizzazione automatica si può disattivare dalle impostazioni.
 
 ### Migliorato
 

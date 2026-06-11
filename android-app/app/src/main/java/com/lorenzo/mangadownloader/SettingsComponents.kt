@@ -453,6 +453,63 @@ fun DiscoveryContent(
     )
 }
 
+/**
+ * Account AniList nella sezione App: collegamento (OAuth nel browser), stato "Connesso come…",
+ * toggle del sync automatico e disconnessione. Il matching delle singole serie vive nel
+ * dettaglio del manga (vedi `AniListTrackingRow`).
+ */
+@Composable
+fun AniListAccountContent(
+    viewerName: String?,
+    isConnecting: Boolean,
+    syncEnabled: Boolean,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onToggleSync: (Boolean) -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Account AniList",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = when {
+                        isConnecting -> "Collegamento in corso…"
+                        viewerName != null -> "Connesso come $viewerName"
+                        else -> "Collega il tuo account per segnare su AniList ciò che leggi"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (viewerName == null) {
+                TextButton(onClick = onConnect, enabled = !isConnecting) {
+                    Text("Connetti")
+                }
+            } else {
+                TextButton(onClick = onDisconnect) {
+                    Text("Disconnetti")
+                }
+            }
+        }
+        if (viewerName != null) {
+            SettingsDivider()
+            SettingRow(
+                title = "Sincronizza lettura",
+                description = "A fine capitolo aggiorna stato e progresso sulla tua lista AniList",
+                checked = syncEnabled,
+                onCheckedChange = onToggleSync,
+            )
+        }
+    }
+}
+
 @Composable
 fun FavoriteNotificationsContent(
     enabled: Boolean,

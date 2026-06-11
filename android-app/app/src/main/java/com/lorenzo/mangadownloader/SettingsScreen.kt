@@ -23,10 +23,15 @@ fun SettingsScreen(
     settings: AppSettings,
     isBiometricAvailable: Boolean,
     isParentalAuthInProgress: Boolean,
+    aniListViewerName: String?,
+    isAniListConnecting: Boolean,
     padding: PaddingValues,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
     onToggleDiscovery: (Boolean) -> Unit,
+    onConnectAniList: () -> Unit,
+    onDisconnectAniList: () -> Unit,
+    onToggleAniListSync: (Boolean) -> Unit,
     onToggleAutoDownload: (Boolean) -> Unit,
     onTriggerChange: (Int) -> Unit,
     onBatchChange: (Int) -> Unit,
@@ -113,6 +118,15 @@ fun SettingsScreen(
             DiscoveryContent(
                 enabled = settings.discoveryEnabled,
                 onToggle = onToggleDiscovery,
+            )
+            SettingsDivider()
+            AniListAccountContent(
+                viewerName = aniListViewerName,
+                isConnecting = isAniListConnecting,
+                syncEnabled = settings.aniListSyncEnabled,
+                onConnect = onConnectAniList,
+                onDisconnect = onDisconnectAniList,
+                onToggleSync = onToggleAniListSync,
             )
             SettingsDivider()
             FavoriteNotificationsContent(

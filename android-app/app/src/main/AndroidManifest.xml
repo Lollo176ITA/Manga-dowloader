@@ -33,14 +33,28 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- singleTask: il redirect OAuth di AniList dal browser deve rientrare nell'istanza
+             esistente (onNewIntent) invece di crearne una seconda nel task del browser. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Redirect OAuth AniList: mangapp://anilist-auth#access_token=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="anilist-auth"
+                    android:scheme="mangapp" />
             </intent-filter>
         </activity>
     </application>

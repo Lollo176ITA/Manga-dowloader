@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
@@ -506,30 +508,33 @@ fun FavoriteCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.width(6.dp))
+                // Icona di stato lettura al posto della stella: qui sono tutti preferiti,
+                // l'informazione utile è a che punto sei ("Da iniziare/In lettura/Completato").
+                val state = readingState ?: FavoriteReadingState.TO_START
                 Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = null,
-                    tint = FavoriteYellow,
+                    imageVector = state.icon(),
+                    contentDescription = state.label,
+                    tint = state.iconTint(),
                     modifier = Modifier.size(16.dp),
-                )
-            }
-            if (readingState == FavoriteReadingState.IN_PROGRESS ||
-                readingState == FavoriteReadingState.COMPLETED
-            ) {
-                Text(
-                    text = readingState.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (readingState == FavoriteReadingState.COMPLETED) {
-                        ReadGreen
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
     }
+}
+
+/** Icona dello stato di lettura di un preferito (condivisa tra card e filtro). */
+fun FavoriteReadingState.icon(): ImageVector = when (this) {
+    FavoriteReadingState.TO_START -> Icons.Default.Schedule
+    FavoriteReadingState.IN_PROGRESS -> Icons.AutoMirrored.Filled.MenuBook
+    FavoriteReadingState.COMPLETED -> Icons.Default.CheckCircle
+}
+
+/** Colore dell'icona di stato: neutro / primary / verde "letto". */
+@Composable
+fun FavoriteReadingState.iconTint(): Color = when (this) {
+    FavoriteReadingState.TO_START -> MaterialTheme.colorScheme.onSurfaceVariant
+    FavoriteReadingState.IN_PROGRESS -> MaterialTheme.colorScheme.primary
+    FavoriteReadingState.COMPLETED -> ReadGreen
 }
 
 @Composable

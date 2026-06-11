@@ -784,9 +784,7 @@ private fun MangaDownloaderAppContent(
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
-                            categories = state.favoriteCategories,
-                            assignments = state.favoriteCategoryAssignments,
-                            filterCategoryId = state.favoriteFilterCategoryId,
+                            filterReadingState = state.favoriteFilterReadingState,
                             sort = state.settings.favoriteSort,
                             statusByKey = state.favoriteStatusByKey,
                             seenByKey = state.favoriteSeenStates,
@@ -805,11 +803,7 @@ private fun MangaDownloaderAppContent(
                             },
                             onBrowse = goToSearchTab,
                             onSelectSort = viewModel::setFavoriteSort,
-                            onSelectCategory = viewModel::setFavoriteFilterCategory,
-                            onAssignCategory = viewModel::assignFavoriteCategory,
-                            onAddCategory = viewModel::addFavoriteCategory,
-                            onRenameCategory = viewModel::renameFavoriteCategory,
-                            onRemoveCategory = viewModel::removeFavoriteCategory,
+                            onSelectReadingState = viewModel::setFavoriteFilterReadingState,
                             onReadNow = viewModel::readNowFromFavorite,
                         )
                         AppTab.LIBRARY -> LibraryScreen(

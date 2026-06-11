@@ -7,7 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Logica pura di ordinamento/filtro/categorie dei preferiti. JVM, niente Android. */
+/** Logica pura di ordinamento/filtro dei preferiti. JVM, niente Android. */
 class FavoritesOrganizationTest {
 
     private fun fav(title: String, n: Int, addedAt: Long = 0L) =
@@ -69,63 +69,26 @@ class FavoritesOrganizationTest {
     @Test
     fun filterByText_isCaseInsensitive() {
         val list = listOf(fav("Berserk", 1), fav("Naruto", 2))
-        assertEquals(listOf("Berserk"), filterFavorites(list, "ber", null, emptyMap()).map { it.title })
+        assertEquals(listOf("Berserk"), filterFavorites(list, "ber").map { it.title })
     }
 
     @Test
-    fun filterByCategory_nullIsAll_andUncategorized() {
+    fun filterByReadingState_nullIsAll_missingKeyCountsAsToStart() {
         val a = fav("A", 1)
         val b = fav("B", 2)
         val list = listOf(a, b)
-        val assignments = mapOf(key(a) to "cat_reading")
+        val states = mapOf(key(a) to FavoriteReadingState.IN_PROGRESS)
 
-        assertEquals(2, filterFavorites(list, "", null, assignments).size)
-        assertEquals(listOf("A"), filterFavorites(list, "", "cat_reading", assignments).map { it.title })
-        assertEquals(listOf("B"), filterFavorites(list, "", UNCATEGORIZED_CATEGORY_ID, assignments).map { it.title })
-    }
-
-    @Test
-    fun categoryCounts_includesAllAndUncategorizedBuckets() {
-        val a = fav("A", 1)
-        val b = fav("B", 2)
-        val c = fav("C", 3)
-        val assignments = mapOf(key(a) to "cat_reading", key(b) to "cat_reading")
-        val counts = categoryCounts(listOf(a, b, c), assignments)
-        assertEquals(3, counts[null])
-        assertEquals(2, counts["cat_reading"])
-        assertEquals(1, counts[UNCATEGORIZED_CATEGORY_ID])
-    }
-
-    @Test
-    fun addCategory_appendsUniqueAndRejectsDuplicateName() {
-        val base = DefaultFavoriteCategories.items
-        assertEquals(base, addCategory(base, "Sto leggendo")) // nome duplicato → invariato
-        val added = addCategory(base, "Manhwa")
-        assertEquals(base.size + 1, added.size)
-        assertEquals("Manhwa", added.last().name)
-        assertEquals(3, added.last().order)
-    }
-
-    @Test
-    fun addCategory_resolvesIdCollisionWithSuffix() {
-        val one = addCategory(emptyList(), "A!")
-        val two = addCategory(one, "A?")
-        assertEquals(2, two.size)
-        assertEquals(setOf("cat_a", "cat_a_1"), two.map { it.id }.toSet())
-    }
-
-    @Test
-    fun renameCategory_changesOnlyTarget() {
-        val renamed = renameCategory(DefaultFavoriteCategories.items, DefaultFavoriteCategories.ID_READING, "Letture")
-        assertEquals("Letture", renamed.first { it.id == DefaultFavoriteCategories.ID_READING }.name)
-        assertEquals("Da leggere", renamed.first { it.id == DefaultFavoriteCategories.ID_TO_READ }.name)
-    }
-
-    @Test
-    fun removeCategory_dropsTarget() {
-        val removed = removeCategory(DefaultFavoriteCategories.items, DefaultFavoriteCategories.ID_TO_READ)
-        assertEquals(2, removed.size)
-        assertFalse(removed.any { it.id == DefaultFavoriteCategories.ID_TO_READ })
+        assertEquals(2, filterFavorites(list, "", null, states).size)
+        assertEquals(
+            listOf("A"),
+            filterFavorites(list, "", FavoriteReadingState.IN_PROGRESS, states).map { it.title },
+        )
+        // B non è nella mappa → conta come "Da iniziare".
+        assertEquals(
+            listOf("B"),
+            filterFavorites(list, "", FavoriteReadingState.TO_START, states).map { it.title },
+        )
     }
 
     // --- Etichette di lettura automatiche ---
@@ -210,14 +173,5 @@ class FavoritesOrganizationTest {
     fun firstChaptersForReading_handlesFewerThanCountAndEmpty() {
         assertEquals(listOf("1", "2"), firstChaptersForReading(listOf(chEntry("2"), chEntry("1")), 3).map { it.numberText })
         assertTrue(firstChaptersForReading(emptyList(), 3).isEmpty())
-    }
-
-    @Test
-    fun defaultCategories_haveStableIds() {
-        assertEquals(
-            listOf("cat_reading", "cat_toread", "cat_completed"),
-            DefaultFavoriteCategories.items.map { it.id },
-        )
-        assertTrue(DefaultFavoriteCategories.items.all { it.name.isNotBlank() })
     }
 }

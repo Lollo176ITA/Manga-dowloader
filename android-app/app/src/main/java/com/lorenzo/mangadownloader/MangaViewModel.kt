@@ -210,9 +210,7 @@ data class MangaUiState(
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
-    val favoriteCategories: List<FavoriteCategory> = emptyList(),
-    val favoriteCategoryAssignments: Map<String, String> = emptyMap(),
-    val favoriteFilterCategoryId: String? = null,
+    val favoriteFilterReadingState: FavoriteReadingState? = null,
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
     val isSearching: Boolean = false,
@@ -291,7 +289,6 @@ class MangaViewModel internal constructor(
     private val favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs)
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
-    private val favoriteCategoriesStore = FavoriteCategoriesStore(prefs)
     private val aniListStore = AniListStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
@@ -327,8 +324,6 @@ class MangaViewModel internal constructor(
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
-            favoriteCategories = favoriteCategoriesStore.readCategories(),
-            favoriteCategoryAssignments = favoriteCategoriesStore.readAssignments(),
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
@@ -378,6 +373,12 @@ class MangaViewModel internal constructor(
         }
         // Progressi AniList rimasti in sospeso (offline/errore): riprova all'avvio.
         flushPendingAniListSync()
+        // Le cartelle dei preferiti sono state rimosse (lo stato di lettura è automatico):
+        // ripulisce le chiavi legacy rimaste su disco dalle versioni precedenti.
+        prefs.edit()
+            .remove("favorite_categories_json")
+            .remove("favorite_category_assignments_json")
+            .apply()
     }
 
     @OptIn(FlowPreview::class)
@@ -465,31 +466,8 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(favoriteSort = sort) }
     }
 
-    fun setFavoriteFilterCategory(categoryId: String?) {
-        updateState { copy(favoriteFilterCategoryId = categoryId) }
-    }
-
-    /** Assegna (o rimuove, con `categoryId = null`) la categoria a un preferito. */
-    fun assignFavoriteCategory(identityKey: String, categoryId: String?) {
-        val current = _state.value.favoriteCategoryAssignments
-        val updated = if (categoryId == null) current - identityKey else current + (identityKey to categoryId)
-        if (updated == current) return
-        favoriteCategoriesStore.writeAssignments(updated)
-        updateState { copy(favoriteCategoryAssignments = updated) }
-    }
-
-    fun addFavoriteCategory(name: String) {
-        val updated = addCategory(_state.value.favoriteCategories, name)
-        if (updated == _state.value.favoriteCategories) return
-        favoriteCategoriesStore.writeCategories(updated)
-        updateState { copy(favoriteCategories = updated) }
-    }
-
-    fun renameFavoriteCategory(id: String, name: String) {
-        val updated = renameCategory(_state.value.favoriteCategories, id, name)
-        if (updated == _state.value.favoriteCategories) return
-        favoriteCategoriesStore.writeCategories(updated)
-        updateState { copy(favoriteCategories = updated) }
+    fun setFavoriteFilterReadingState(state: FavoriteReadingState?) {
+        updateState { copy(favoriteFilterReadingState = state) }
     }
 
     /**
@@ -547,21 +525,6 @@ class MangaViewModel internal constructor(
                     copy(errorMessage = exc.message ?: "Errore nel preparare la lettura")
                 }
             }
-        }
-    }
-
-    /** Elimina una categoria, ripulisce le assegnazioni orfane e azzera il filtro se era attivo. */
-    fun removeFavoriteCategory(id: String) {
-        val updatedCategories = removeCategory(_state.value.favoriteCategories, id)
-        val updatedAssignments = _state.value.favoriteCategoryAssignments.filterValues { it != id }
-        favoriteCategoriesStore.writeCategories(updatedCategories)
-        favoriteCategoriesStore.writeAssignments(updatedAssignments)
-        updateState {
-            copy(
-                favoriteCategories = updatedCategories,
-                favoriteCategoryAssignments = updatedAssignments,
-                favoriteFilterCategoryId = favoriteFilterCategoryId.takeIf { it != id },
-            )
         }
     }
 
@@ -682,12 +645,6 @@ class MangaViewModel internal constructor(
             // Riallinea le mappe in memoria alla baseline appena ripristinata, così i sort
             // "Stato"/"Ultimo capitolo" sono corretti subito (non solo dopo un riavvio).
             val restoredSeen = favoriteUpdatesStore.read()
-            // Pota le assegnazioni di categoria orfane (chiavi non più tra i preferiti).
-            val validKeys = result.favorites.identityKeys()
-            val prunedAssignments = _state.value.favoriteCategoryAssignments.filterKeys { it in validKeys }
-            if (prunedAssignments != _state.value.favoriteCategoryAssignments) {
-                favoriteCategoriesStore.writeAssignments(prunedAssignments)
-            }
             // REPLACE = ripartenza pulita: svuota anche il feed degli aggiornamenti.
             val clearFeed = result.mode == BackupRestoreMode.REPLACE
             if (clearFeed) {
@@ -697,7 +654,6 @@ class MangaViewModel internal constructor(
                 copy(
                     favorites = result.favorites,
                     favoriteMangaKeys = result.favorites.identityKeys(),
-                    favoriteCategoryAssignments = prunedAssignments,
                     favoriteSeenStates = restoredSeen,
                     favoriteStatusByKey = restoredSeen.toStatusMap(),
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
@@ -1402,19 +1358,10 @@ class MangaViewModel internal constructor(
             current.add(0, manga.copy(addedAt = System.currentTimeMillis()))
         }
         favoritesStore.persist(current)
-        // Rimuovendo un preferito, scarta anche l'eventuale assegnazione di categoria orfana.
-        val assignments = if (existingIndex >= 0 && targetKey in _state.value.favoriteCategoryAssignments) {
-            (_state.value.favoriteCategoryAssignments - targetKey).also {
-                favoriteCategoriesStore.writeAssignments(it)
-            }
-        } else {
-            _state.value.favoriteCategoryAssignments
-        }
         updateState {
             copy(
                 favorites = current,
                 favoriteMangaKeys = current.identityKeys(),
-                favoriteCategoryAssignments = assignments,
             )
         }
         if (existingIndex < 0) {

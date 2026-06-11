@@ -8,21 +8,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,13 +35,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FavoritesScreen(
     favorites: List<FavoriteManga>,
     query: String,
-    categories: List<FavoriteCategory>,
-    assignments: Map<String, String>,
-    filterCategoryId: String?,
+    filterReadingState: FavoriteReadingState?,
     sort: FavoriteSort,
     statusByKey: Map<String, MangaPublicationStatus>,
     seenByKey: Map<String, FavoriteSeenState>,
@@ -49,26 +50,21 @@ fun FavoritesScreen(
     onSelect: (FavoriteManga) -> Unit,
     onBrowse: () -> Unit,
     onSelectSort: (FavoriteSort) -> Unit,
-    onSelectCategory: (String?) -> Unit,
-    onAssignCategory: (String, String?) -> Unit,
-    onAddCategory: (String) -> Unit,
-    onRenameCategory: (String, String) -> Unit,
-    onRemoveCategory: (String) -> Unit,
+    onSelectReadingState: (FavoriteReadingState?) -> Unit,
     onReadNow: (FavoriteManga) -> Unit,
 ) {
-    val displayed = remember(favorites, query, filterCategoryId, assignments, sort, statusByKey, seenByKey) {
+    val displayed = remember(
+        favorites, query, sort, statusByKey, seenByKey, filterReadingState, readingStateByKey,
+    ) {
         sortFavorites(
-            filterFavorites(favorites, query, filterCategoryId, assignments),
+            filterFavorites(favorites, query, filterReadingState, readingStateByKey),
             sort,
             statusByKey,
             seenByKey,
         )
     }
-    val counts = remember(favorites, assignments) { categoryCounts(favorites, assignments) }
 
     var sortMenuExpanded by remember { mutableStateOf(false) }
-    var showManageCategories by remember { mutableStateOf(false) }
-    var categoryPickerFor by remember { mutableStateOf<FavoriteManga?>(null) }
     var actionsFor by remember { mutableStateOf<FavoriteManga?>(null) }
 
     Column(
@@ -83,42 +79,41 @@ fun FavoritesScreen(
         )
 
         if (favorites.isNotEmpty()) {
+            // Una sola riga fissa, niente scroll orizzontale: stato di lettura come segmented
+            // (automatico, icone colorate come sulle card) e ordinamento nel menu.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 4.dp),
+                    .padding(start = 16.dp, end = 4.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LazyRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    item {
-                        FilterChip(
-                            selected = filterCategoryId == null,
-                            onClick = { onSelectCategory(null) },
-                            label = { Text("Tutti (${counts[null] ?: 0})") },
+                val segmentCount = FavoriteReadingState.entries.size + 1
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                    SegmentedButton(
+                        selected = filterReadingState == null,
+                        onClick = { onSelectReadingState(null) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = segmentCount),
+                        icon = {},
+                        label = { Text("Tutti", maxLines = 1) },
+                    )
+                    FavoriteReadingState.entries.forEachIndexed { index, readingState ->
+                        SegmentedButton(
+                            selected = filterReadingState == readingState,
+                            onClick = { onSelectReadingState(readingState) },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index + 1,
+                                count = segmentCount,
+                            ),
+                            icon = {},
+                            label = {
+                                Icon(
+                                    imageVector = readingState.icon(),
+                                    contentDescription = readingState.label,
+                                    tint = readingState.iconTint(),
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
                         )
-                    }
-                    categories.sortedBy { it.order }.forEach { category ->
-                        item(key = category.id) {
-                            FilterChip(
-                                selected = filterCategoryId == category.id,
-                                onClick = { onSelectCategory(category.id) },
-                                label = { Text("${category.name} (${counts[category.id] ?: 0})") },
-                            )
-                        }
-                    }
-                    val uncategorized = counts[UNCATEGORIZED_CATEGORY_ID] ?: 0
-                    if (uncategorized > 0) {
-                        item {
-                            FilterChip(
-                                selected = filterCategoryId == UNCATEGORIZED_CATEGORY_ID,
-                                onClick = { onSelectCategory(UNCATEGORIZED_CATEGORY_ID) },
-                                label = { Text("Senza cartella ($uncategorized)") },
-                            )
-                        }
                     }
                 }
                 Box {
@@ -148,12 +143,6 @@ fun FavoritesScreen(
                         }
                     }
                 }
-                IconButton(onClick = { showManageCategories = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Gestisci cartelle",
-                    )
-                }
             }
         }
 
@@ -175,7 +164,7 @@ fun FavoritesScreen(
                         actionLabel = "Azzera filtri",
                         onAction = {
                             onQueryChange("")
-                            onSelectCategory(null)
+                            onSelectReadingState(null)
                         },
                     )
                 }
@@ -214,34 +203,7 @@ fun FavoritesScreen(
                 onReadNow(favorite)
                 actionsFor = null
             },
-            onMoveToFolder = {
-                categoryPickerFor = favorite
-                actionsFor = null
-            },
             onDismiss = { actionsFor = null },
-        )
-    }
-
-    categoryPickerFor?.let { favorite ->
-        val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
-        CategoryPickerDialog(
-            categories = categories,
-            currentCategoryId = assignments[key],
-            onSelect = { categoryId ->
-                onAssignCategory(key, categoryId)
-                categoryPickerFor = null
-            },
-            onDismiss = { categoryPickerFor = null },
-        )
-    }
-
-    if (showManageCategories) {
-        CategoryManagerDialog(
-            categories = categories,
-            onAdd = onAddCategory,
-            onRename = onRenameCategory,
-            onRemove = onRemoveCategory,
-            onDismiss = { showManageCategories = false },
         )
     }
 }

@@ -23,6 +23,9 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android-app/release-keystore.jks
+      # Indirizzo email-to-board Trello per le segnalazioni in-app (facoltativo: se mancante,
+      # la feature resta disattivata, la build non fallisce).
+      TRELLO_REPORT_EMAIL: ${{ secrets.TRELLO_REPORT_EMAIL }}
     defaults:
       run:
         working-directory: android-app

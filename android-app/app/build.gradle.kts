@@ -35,6 +35,21 @@ val repoOwner = versionProperties.getProperty("repoOwner")
 val repoName = versionProperties.getProperty("repoName")
 val apkAssetName = versionProperties.getProperty("apkAssetName")
 
+// Indirizzo "email-to-board" di Trello a cui l'app invia le segnalazioni (schermata "Segnala un
+// problema" e invio dal dialog crash). È un valore semi-segreto: in CI arriva dalla variabile
+// d'ambiente TRELLO_REPORT_EMAIL (GitHub Actions secret); in locale da local.properties
+// (gitignored). Se assente, le segnalazioni restano disattivate a runtime (nessun errore di build).
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use(::load)
+    }
+}
+val trelloReportEmail = (System.getenv("TRELLO_REPORT_EMAIL")
+    ?: localProperties.getProperty("trelloReportEmail"))
+    .orEmpty()
+    .trim()
+
 fun String?.toAndroidVersionCode(): Int {
     val raw = this?.trim().orEmpty()
     require(raw.isNotBlank()) { "versionName mancante in version.properties" }
@@ -106,6 +121,7 @@ android {
         buildConfigField("String", "UPDATE_REPO_OWNER", "\"${repoOwner.orEmpty()}\"")
         buildConfigField("String", "UPDATE_REPO_NAME", "\"${repoName.orEmpty()}\"")
         buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"${apkAssetName.orEmpty()}\"")
+        buildConfigField("String", "TRELLO_REPORT_EMAIL", "\"$trelloReportEmail\"")
     }
 
     signingConfigs {

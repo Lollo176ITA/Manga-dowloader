@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
@@ -47,6 +48,7 @@ fun SettingsScreen(
     onToggleFavoriteNotifications: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
     onOpenBackup: () -> Unit,
+    onOpenReportProblem: () -> Unit,
     appVersion: String,
     onOpenChangelog: () -> Unit,
 ) {
@@ -132,6 +134,10 @@ fun SettingsScreen(
 
         SettingsSection(title = "Backup", icon = Icons.Default.Backup) {
             BackupContent(onOpenBackup = onOpenBackup)
+        }
+
+        SettingsSection(title = "Aiuto", icon = Icons.Default.Feedback) {
+            ReportProblemContent(onOpenReportProblem = onOpenReportProblem)
         }
 
         SettingsSection(title = "Labs (sperimentale)", icon = Icons.Default.Science) {

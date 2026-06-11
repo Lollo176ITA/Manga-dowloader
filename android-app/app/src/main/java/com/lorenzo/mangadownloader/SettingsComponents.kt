@@ -413,6 +413,33 @@ fun BackupContent(
     }
 }
 
+/** Riga azione che apre la schermata "Segnala un problema". */
+@Composable
+fun ReportProblemContent(
+    onOpenReportProblem: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenReportProblem),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Segnala un problema",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "Invia un bug, un'idea o un feedback con testo, foto o un vocale",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 fun DiscoveryContent(
     enabled: Boolean,

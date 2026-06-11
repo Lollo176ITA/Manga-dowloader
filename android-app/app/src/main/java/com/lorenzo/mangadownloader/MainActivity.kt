@@ -601,6 +601,28 @@ private fun MangaDownloaderAppContent(
                     onImportReplace = { showReplaceBackupConfirm = true },
                 )
             }
+            Screen.Feedback -> {
+                ReportProblemScreen(
+                    padding = innerPadding,
+                    onSubmit = { draft ->
+                        val launched = FeedbackReporter.sendReport(context, draft)
+                        scope.launch {
+                            if (launched) {
+                                viewModel.closeFeedback()
+                                snackbarHostState.showSnackbar("Completa l'invio dalla tua app email. Grazie!")
+                            } else {
+                                snackbarHostState.showSnackbar(
+                                    if (!FeedbackReporter.isConfigured()) {
+                                        "Segnalazioni non configurate in questa build"
+                                    } else {
+                                        "Nessuna app email trovata per inviare la segnalazione"
+                                    },
+                                )
+                            }
+                        }
+                    },
+                )
+            }
             Screen.Settings -> {
                 SettingsScreen(
                     settings = state.settings,
@@ -641,6 +663,7 @@ private fun MangaDownloaderAppContent(
                     },
                     onOpenStorageManager = viewModel::openStorageManager,
                     onOpenBackup = viewModel::openBackup,
+                    onOpenReportProblem = viewModel::openFeedback,
                     appVersion = BuildConfig.VERSION_NAME,
                     onOpenChangelog = viewModel::openChangelog,
                 )
@@ -783,6 +806,20 @@ private fun MangaDownloaderAppContent(
         CrashReportDialog(
             report = report,
             crashPath = remember(appContext) { CrashReporter.crashFilePath(appContext).orEmpty() },
+            onSend = {
+                val launched = FeedbackReporter.sendCrashReport(context, report)
+                CrashReporter.clearLastCrash(appContext)
+                lastCrashReport = null
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        if (launched) {
+                            "Completa l'invio dalla tua app email. Grazie!"
+                        } else {
+                            "Nessuna app email trovata per inviare la segnalazione"
+                        },
+                    )
+                }
+            },
             onDismiss = {
                 CrashReporter.clearLastCrash(appContext)
                 lastCrashReport = null

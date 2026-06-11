@@ -87,8 +87,10 @@ fun DeleteReadChaptersDialog(
 fun CrashReportDialog(
     report: String,
     crashPath: String,
+    onSend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val canSend = FeedbackReporter.isConfigured()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Ultimo crash rilevato") },
@@ -104,9 +106,20 @@ fun CrashReportDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Chiudi")
+            if (canSend) {
+                TextButton(onClick = onSend) {
+                    Text("Invia segnalazione")
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text("Chiudi")
+                }
             }
+        },
+        dismissButton = if (canSend) {
+            { TextButton(onClick = onDismiss) { Text("Chiudi") } }
+        } else {
+            null
         },
     )
 }

@@ -3,4 +3,8 @@
     <cache-path
         name="updates"
         path="updates/" />
+    <!-- Messaggi vocali registrati per le segnalazioni, condivisi via email. -->
+    <cache-path
+        name="feedback"
+        path="feedback/" />
 </paths>

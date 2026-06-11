@@ -6,6 +6,11 @@
 
 ## 2026-06-11
 
+### Aggiunto
+
+- Nuova voce "Segnala un problema" nelle Impostazioni: consente di inviare una segnalazione scegliendo il tipo (bug, richiesta di funzionalità o altro), descrivendo il problema, allegando immagini o un messaggio vocale registrato nell'app e indicando facoltativamente la propria email per essere ricontattati.
+- Dopo un crash, il dialog mostra un pulsante per inviare la segnalazione direttamente.
+
 ### Migliorato
 
 - Navigando tra le schermate (dettaglio manga, serie scaricata, ecc.) e tornando indietro, la posizione di scroll viene ripristinata dove si era lasciata.

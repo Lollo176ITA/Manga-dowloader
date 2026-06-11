@@ -7,7 +7,7 @@ import java.util.Locale
 /**
  * Modello del changelog mostrato in-app, ricavato dal `CHANGELOG.md` (bundlato negli assets,
  * copiato dalla root in fase di build). Parsing **puro** (testabile, niente Android): consuma
- * il markdown nel formato prodotto da `scripts/changelog.ps1` — `## YYYY-MM-DD`, poi
+ * il markdown nel formato prodotto dall'agente `changelog-writer` — `## YYYY-MM-DD`, poi
  * `### Categoria`, poi righe `- voce`.
  */
 data class ChangelogSection(val category: String, val entries: List<String>)

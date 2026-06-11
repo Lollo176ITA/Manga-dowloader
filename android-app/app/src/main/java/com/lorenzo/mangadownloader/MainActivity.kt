@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -104,6 +105,10 @@ private fun MangaDownloaderAppContent(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Conserva lo stato salvabile (posizione di scroll in testa) di ogni schermata quando
+    // viene smontata navigando altrove, e lo ripristina al ritorno. Vive qui, alla radice
+    // dei contenuti, così sopravvive a tutte le transizioni tra schermate.
+    val screenStateHolder = rememberSaveableStateHolder()
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
@@ -545,6 +550,9 @@ private fun MangaDownloaderAppContent(
         val selectedManga = state.selected
         val selectedSeries = state.selectedDownloadedSeries
 
+        // Avvolge la schermata corrente: ne preserva/ripristina lo stato salvabile (scroll)
+        // tra una navigazione e l'altra. La chiave distingue le schermate (vedi saveableScreenKey).
+        screenStateHolder.SaveableStateProvider(state.saveableScreenKey()) {
         when (state.currentScreen()) {
             Screen.Reader -> {
                 ReaderScreen(
@@ -744,6 +752,7 @@ private fun MangaDownloaderAppContent(
                     }
                 }
             }
+        }
         }
         }
         if (privacyDimAlpha > 0f) {

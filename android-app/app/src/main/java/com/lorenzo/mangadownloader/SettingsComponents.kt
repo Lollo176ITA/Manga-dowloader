@@ -203,10 +203,10 @@ fun ReaderPageSpacingContent(
     onSelect: (Int) -> Unit,
 ) {
     val options = listOf(
-        0 to "Nessuno",
-        4 to "Piccolo",
+        0 to "Zero",
+        4 to "Poco",
         DEFAULT_READER_PAGE_SPACING_DP to "Medio",
-        16 to "Grande",
+        16 to "Tanto",
     )
     Column {
         SettingsSubheader("Spazio tra le pagine")
@@ -321,11 +321,6 @@ fun StorageManagerContent(
             .clickable(onClick = onOpenStorageManager),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.Default.Storage,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -353,11 +348,6 @@ fun InfoContent(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -366,7 +356,7 @@ fun InfoContent(
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = "Manga Downloader $appVersion",
+                    text = "MangApp $appVersion",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -379,11 +369,6 @@ fun InfoContent(
                 .clickable(onClick = onOpenChangelog),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Default.NewReleases,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -412,11 +397,6 @@ fun BackupContent(
             .clickable(onClick = onOpenBackup),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.Default.Backup,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

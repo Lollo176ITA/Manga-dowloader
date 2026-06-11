@@ -53,3 +53,21 @@ fun MangaUiState.visibleTabs(): List<AppTab> =
 /** Indice della tab tra quelle visibili (per il pager), o 0 se non visibile. */
 fun MangaUiState.tabPageIndex(tab: AppTab): Int =
     visibleTabs().indexOf(tab).coerceAtLeast(0)
+
+/**
+ * Chiave per il [androidx.compose.runtime.saveable.SaveableStateHolder] che avvolge la
+ * schermata in primo piano: identifica *quale* stato salvabile (in primis la posizione di
+ * scroll) ripristinare quando si esce e si rientra in una schermata. Cambiare schermata
+ * smonta del tutto la precedente dalla composizione — senza questa chiave lo scroll si
+ * azzererebbe a ogni andata e ritorno (es. Impostazioni → Gestisci memoria → indietro).
+ *
+ * [Screen.Detail] e [Screen.DownloadedSeries] sono qualificate dal contenuto aperto (manga /
+ * serie) così due elementi diversi non si scambiano la posizione di scroll; per il resto basta
+ * il tipo di schermata. Il reader resta a chiave stabile: la sua posizione la ripristina già
+ * il ViewModel via `initialPageIndex`, e una chiave per-capitolo romperebbe la transizione.
+ */
+fun MangaUiState.saveableScreenKey(): String = when (currentScreen()) {
+    Screen.Detail -> "Detail:${selected?.mangaUrl.orEmpty()}"
+    Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.absolutePath.orEmpty()}"
+    else -> currentScreen().toString()
+}

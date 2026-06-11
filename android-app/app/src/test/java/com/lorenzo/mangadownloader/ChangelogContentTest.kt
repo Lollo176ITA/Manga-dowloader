@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Parsing del changelog per la schermata "Novità" (formato prodotto da scripts/changelog.ps1). */
+/** Parsing del changelog per la schermata "Novità" (formato prodotto dall'agente changelog-writer). */
 class ChangelogContentTest {
 
     private val sample = """

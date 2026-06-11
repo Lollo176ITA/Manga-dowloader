@@ -99,20 +99,72 @@ class ScreenTest {
         )
     }
 
-    private fun details() = MangaDetails(
+    @Test
+    fun saveableScreenKey_distinctPerScreenType() {
+        // Ogni schermata "semplice" ha una chiave stabile e diversa dalle altre: così il
+        // SaveableStateHolder tiene separate le loro posizioni di scroll.
+        val keys = listOf(
+            MangaUiState().saveableScreenKey(),
+            MangaUiState(showSettings = true).saveableScreenKey(),
+            MangaUiState(showStorageManager = true).saveableScreenKey(),
+            MangaUiState(showUpdates = true).saveableScreenKey(),
+            MangaUiState(showBackup = true).saveableScreenKey(),
+            MangaUiState(showChangelog = true).saveableScreenKey(),
+        )
+        assertEquals(keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun saveableScreenKey_detailQualifiedByManga() {
+        // Due manga diversi → chiavi diverse: tornando indietro non si scambiano lo scroll.
+        val a = MangaUiState(selected = details("https://mangapill.com/manga/1")).saveableScreenKey()
+        val b = MangaUiState(selected = details("https://mangapill.com/manga/2")).saveableScreenKey()
+        assertTrue(a.startsWith("Detail:"))
+        assertEquals("Detail:https://mangapill.com/manga/1", a)
+        assertTrue(a != b)
+    }
+
+    @Test
+    fun saveableScreenKey_downloadedSeriesQualifiedByDirectory() {
+        val a = MangaUiState(
+            currentTab = AppTab.LIBRARY,
+            selectedDownloadedSeries = series(File("A")),
+        ).saveableScreenKey()
+        val b = MangaUiState(
+            currentTab = AppTab.LIBRARY,
+            selectedDownloadedSeries = series(File("B")),
+        ).saveableScreenKey()
+        assertTrue(a.startsWith("DownloadedSeries:"))
+        assertTrue(a != b)
+    }
+
+    @Test
+    fun saveableScreenKey_readerStableAcrossChapters() {
+        // Il reader resta a chiave stabile (la posizione la ripristina il ViewModel): cambiare
+        // capitolo NON deve cambiare la chiave, o si romperebbe la transizione animata.
+        val cap1 = MangaUiState(
+            readerChapter = ReaderChapter(title = "Cap 1", relativePath = "s/1.cbz"),
+        ).saveableScreenKey()
+        val cap2 = MangaUiState(
+            readerChapter = ReaderChapter(title = "Cap 2", relativePath = "s/2.cbz"),
+        ).saveableScreenKey()
+        assertEquals(cap1, cap2)
+    }
+
+    private fun details(mangaUrl: String = "https://mangapill.com/manga/1") = MangaDetails(
         sourceId = MangaSourceIds.MANGAPILL,
         title = "X",
         coverUrl = null,
-        mangaUrl = "https://mangapill.com/manga/1",
+        mangaUrl = mangaUrl,
         chapters = emptyList(),
     )
 
-    private fun series() = DownloadedSeries(
+    private fun series(directory: File = File("X")) = DownloadedSeries(
         sourceId = MangaSourceIds.MANGAPILL,
         title = "X",
         mangaUrl = "https://mangapill.com/manga/1",
         coverFile = null,
-        directory = File("X"),
+        directory = directory,
         chapters = emptyList(),
         totalChapterCount = 0,
         readChapterIds = emptySet(),

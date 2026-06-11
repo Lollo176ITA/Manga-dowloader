@@ -2,7 +2,13 @@
 
 <!-- markdownlint-disable MD024 -->
 
-> Voci completate, spostate automaticamente da [MIGLIORIE.md](MIGLIORIE.md) via `scripts/changelog.ps1`. Raggruppate per giorno (dal più recente) e per tipo.
+> Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
+
+## 2026-06-11
+
+### Migliorato
+
+- Navigando tra le schermate (dettaglio manga, serie scaricata, ecc.) e tornando indietro, la posizione di scroll viene ripristinata dove si era lasciata.
 
 ## 2026-06-10
 

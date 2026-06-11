@@ -19,11 +19,9 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,30 +76,27 @@ fun FavoritesScreen(
         )
 
         if (favorites.isNotEmpty()) {
-            // Una sola riga fissa, niente scroll orizzontale: stato di lettura come segmented
-            // testuale a 3. Nessun segmento "Tutti": niente selezionato = tutti, e un ri-tap
-            // sul segmento attivo lo spegne.
+            // Una sola riga fissa, niente scroll orizzontale: stato di lettura come tre
+            // filter chip. Nessuna chip "Tutti": niente selezionato = tutti, e un ri-tap
+            // sulla chip attiva la spegne.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 4.dp, top = 4.dp),
+                    .padding(start = 16.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val segmentCount = FavoriteReadingState.entries.size
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
-                    FavoriteReadingState.entries.forEachIndexed { index, readingState ->
-                        SegmentedButton(
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FavoriteReadingState.entries.forEach { readingState ->
+                        FilterChip(
                             selected = filterReadingState == readingState,
                             onClick = {
                                 onSelectReadingState(
                                     readingState.takeIf { filterReadingState != readingState },
                                 )
                             },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = segmentCount,
-                            ),
-                            icon = {},
                             label = { Text(readingState.shortLabel, maxLines = 1) },
                         )
                     }

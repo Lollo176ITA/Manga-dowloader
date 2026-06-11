@@ -19,10 +19,11 @@ enum class FavoriteSort(val menuLabel: String) {
  * (nessuna assegnazione manuale). È affidabile solo per i manga con capitoli scaricati/letti:
  * un preferito non scaricato risulta [TO_START].
  */
-enum class FavoriteReadingState(val label: String) {
-    TO_START("Da iniziare"),
-    IN_PROGRESS("In lettura"),
-    COMPLETED("Completato"),
+/** [shortLabel] è la variante compatta usata dal filtro segmented dei Preferiti. */
+enum class FavoriteReadingState(val label: String, val shortLabel: String) {
+    TO_START("Da iniziare", "Da iniziare"),
+    IN_PROGRESS("In lettura", "In lettura"),
+    COMPLETED("Completato", "Letti"),
 }
 
 /**

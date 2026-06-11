@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -80,39 +79,30 @@ fun FavoritesScreen(
 
         if (favorites.isNotEmpty()) {
             // Una sola riga fissa, niente scroll orizzontale: stato di lettura come segmented
-            // (automatico, icone colorate come sulle card) e ordinamento nel menu.
+            // testuale a 3. Nessun segmento "Tutti": niente selezionato = tutti, e un ri-tap
+            // sul segmento attivo lo spegne.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 4.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val segmentCount = FavoriteReadingState.entries.size + 1
+                val segmentCount = FavoriteReadingState.entries.size
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
-                    SegmentedButton(
-                        selected = filterReadingState == null,
-                        onClick = { onSelectReadingState(null) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = segmentCount),
-                        icon = {},
-                        label = { Text("Tutti", maxLines = 1) },
-                    )
                     FavoriteReadingState.entries.forEachIndexed { index, readingState ->
                         SegmentedButton(
                             selected = filterReadingState == readingState,
-                            onClick = { onSelectReadingState(readingState) },
+                            onClick = {
+                                onSelectReadingState(
+                                    readingState.takeIf { filterReadingState != readingState },
+                                )
+                            },
                             shape = SegmentedButtonDefaults.itemShape(
-                                index = index + 1,
+                                index = index,
                                 count = segmentCount,
                             ),
                             icon = {},
-                            label = {
-                                Icon(
-                                    imageVector = readingState.icon(),
-                                    contentDescription = readingState.label,
-                                    tint = readingState.iconTint(),
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            },
+                            label = { Text(readingState.shortLabel, maxLines = 1) },
                         )
                     }
                 }

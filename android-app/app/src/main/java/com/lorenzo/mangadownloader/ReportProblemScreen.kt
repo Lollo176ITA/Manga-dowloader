@@ -25,23 +25,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val MAX_FEEDBACK_IMAGES = 5
 
@@ -74,10 +76,12 @@ private const val MAX_FEEDBACK_IMAGES = 5
 @Composable
 fun ReportProblemScreen(
     padding: PaddingValues,
-    onSubmit: (FeedbackDraft) -> Unit,
+    onResult: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val recorder = rememberFeedbackAudioRecorder()
+    var submitting by remember { mutableStateOf(false) }
 
     var category by remember { mutableStateOf<ReportCategory?>(null) }
     var subtype by remember { mutableStateOf<String?>(null) }
@@ -141,42 +145,30 @@ fun ReportProblemScreen(
         // 1) Tipo
         Column {
             FormLabel("Di cosa si tratta?")
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                ReportCategory.entries.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = category == option,
-                        onClick = {
-                            if (category != option) {
-                                category = option
-                                subtype = null
-                            }
-                        },
-                        shape = SegmentedButtonDefaults.itemShape(
-                            index = index,
-                            count = ReportCategory.entries.size,
-                        ),
-                        label = { Text(option.label) },
-                    )
-                }
-            }
+            DropdownField(
+                value = category?.label.orEmpty(),
+                placeholder = "Scegli il tipo",
+                options = ReportCategory.entries.map { it.label },
+                onSelect = { label ->
+                    val picked = ReportCategory.entries.first { it.label == label }
+                    if (category != picked) {
+                        category = picked
+                        subtype = null
+                    }
+                },
+            )
         }
 
         // 2) Sottotipo (dipende dalla categoria)
         category?.let { selectedCategory ->
             Column {
                 FormLabel("Che tipo?")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    selectedCategory.subtypes().forEach { option ->
-                        FilterChip(
-                            selected = subtype == option,
-                            onClick = { subtype = option },
-                            label = { Text(option) },
-                        )
-                    }
-                }
+                DropdownField(
+                    value = subtype.orEmpty(),
+                    placeholder = "Scegli…",
+                    options = selectedCategory.subtypes(),
+                    onSelect = { subtype = it },
+                )
             }
         }
 
@@ -262,23 +254,31 @@ fun ReportProblemScreen(
                 val selectedCategory = category ?: return@Button
                 val selectedSubtype = subtype ?: return@Button
                 if (recorder.isRecording) recorder.stop()
-                onSubmit(
-                    FeedbackDraft(
-                        category = selectedCategory,
-                        subtype = selectedSubtype,
-                        message = message,
-                        contactEmail = contactEmail,
-                        imageUris = images,
-                        audioUri = recorder.uri(),
-                    ),
+                val draft = FeedbackDraft(
+                    category = selectedCategory,
+                    subtype = selectedSubtype,
+                    message = message,
+                    contactEmail = contactEmail,
+                    imageUris = images,
+                    audioFile = recorder.recordedFile,
                 )
+                scope.launch {
+                    submitting = true
+                    val ok = FeedbackReporter.sendReport(context, draft)
+                    submitting = false
+                    onResult(ok)
+                }
             },
-            enabled = canSubmit,
+            enabled = canSubmit && !submitting,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Default.Send, contentDescription = null)
+            if (submitting) {
+                AppLoadingIndicator(modifier = Modifier.size(20.dp))
+            } else {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+            }
             Spacer(Modifier.width(8.dp))
-            Text("Invia segnalazione")
+            Text(if (submitting) "Invio…" else "Invia segnalazione")
         }
     }
 }
@@ -292,6 +292,51 @@ private fun FormLabel(text: String) {
         fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(bottom = 8.dp),
     )
+}
+
+/** Menù a tendina (select) read-only sullo stile del selettore server dell'app. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownField(
+    value: String,
+    placeholder: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            placeholder = { Text(placeholder) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
+            }
+        }
+    }
 }
 
 @Composable

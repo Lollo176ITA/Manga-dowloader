@@ -35,20 +35,26 @@ val repoOwner = versionProperties.getProperty("repoOwner")
 val repoName = versionProperties.getProperty("repoName")
 val apkAssetName = versionProperties.getProperty("apkAssetName")
 
-// Indirizzo "email-to-board" di Trello a cui l'app invia le segnalazioni (schermata "Segnala un
-// problema" e invio dal dialog crash). È un valore semi-segreto: in CI arriva dalla variabile
-// d'ambiente TRELLO_REPORT_EMAIL (GitHub Actions secret); in locale da local.properties
-// (gitignored). Se assente, le segnalazioni restano disattivate a runtime (nessun errore di build).
+// Segnalazioni in-app (schermata "Segnala un problema" + invio dal dialog crash): l'app spedisce
+// un'email via SMTP all'indirizzo email-to-board di Trello ([reportToEmail]), autenticandosi su un
+// account email DEDICATO/usa-e-getta. ATTENZIONE: user e password finiscono nell'APK e sono
+// estraibili — la minificazione NON li nasconde. Per questo si usa un account dedicato: il danno
+// possibile è solo spam da quell'indirizzo, e la password è rotabile. In CI i valori arrivano dai
+// GitHub secret; in locale da local.properties (gitignored). Se user/password/destinatario sono
+// vuoti, le segnalazioni restano disattivate a runtime (build comunque ok).
 val localProperties = Properties().apply {
     val localFile = rootProject.file("local.properties")
     if (localFile.exists()) {
         localFile.inputStream().use(::load)
     }
 }
-val trelloReportEmail = (System.getenv("TRELLO_REPORT_EMAIL")
-    ?: localProperties.getProperty("trelloReportEmail"))
-    .orEmpty()
-    .trim()
+fun reportConfig(envName: String, propName: String, default: String = ""): String =
+    (System.getenv(envName) ?: localProperties.getProperty(propName)).orEmpty().trim().ifBlank { default }
+val smtpHost = reportConfig("SMTP_HOST", "smtpHost", "smtp.gmail.com")
+val smtpPort = reportConfig("SMTP_PORT", "smtpPort", "587")
+val smtpUser = reportConfig("SMTP_USER", "smtpUser")
+val smtpPassword = reportConfig("SMTP_PASSWORD", "smtpPassword")
+val reportToEmail = reportConfig("REPORT_TO_EMAIL", "reportToEmail")
 
 fun String?.toAndroidVersionCode(): Int {
     val raw = this?.trim().orEmpty()
@@ -121,7 +127,11 @@ android {
         buildConfigField("String", "UPDATE_REPO_OWNER", "\"${repoOwner.orEmpty()}\"")
         buildConfigField("String", "UPDATE_REPO_NAME", "\"${repoName.orEmpty()}\"")
         buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"${apkAssetName.orEmpty()}\"")
-        buildConfigField("String", "TRELLO_REPORT_EMAIL", "\"$trelloReportEmail\"")
+        buildConfigField("String", "SMTP_HOST", "\"$smtpHost\"")
+        buildConfigField("String", "SMTP_PORT", "\"$smtpPort\"")
+        buildConfigField("String", "SMTP_USER", "\"$smtpUser\"")
+        buildConfigField("String", "SMTP_PASSWORD", "\"$smtpPassword\"")
+        buildConfigField("String", "REPORT_TO_EMAIL", "\"$reportToEmail\"")
     }
 
     signingConfigs {
@@ -165,7 +175,8 @@ android {
 
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // NOTICE.md/LICENSE.md sono duplicati tra android-mail e android-activation (JavaMail).
+            excludes += "/META-INF/{AL2.0,LGPL2.1,NOTICE.md,LICENSE.md}"
         }
     }
 
@@ -219,6 +230,9 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
     implementation("io.github.aldefy:lumen-android:1.0.0-beta15")
+    // Invio email via SMTP per le segnalazioni (port JavaMail per Android).
+    implementation("com.sun.mail:android-mail:1.6.7")
+    implementation("com.sun.mail:android-activation:1.6.7")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")

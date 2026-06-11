@@ -23,9 +23,13 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android-app/release-keystore.jks
-      # Indirizzo email-to-board Trello per le segnalazioni in-app (facoltativo: se mancante,
-      # la feature resta disattivata, la build non fallisce).
-      TRELLO_REPORT_EMAIL: ${{ secrets.TRELLO_REPORT_EMAIL }}
+      # Credenziali SMTP (account dedicato) + destinatario (email-to-board Trello) per le
+      # segnalazioni in-app. Facoltativi: se mancanti la feature resta disattivata, build ok.
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      REPORT_TO_EMAIL: ${{ secrets.REPORT_TO_EMAIL }}
     defaults:
       run:
         working-directory: android-app

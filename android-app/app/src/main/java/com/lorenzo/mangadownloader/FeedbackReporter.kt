@@ -1,9 +1,6 @@
 package com.lorenzo.mangadownloader
 
-import android.content.ActivityNotFoundException
-import android.content.ClipData
 import android.content.Context
-import android.content.Intent
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -14,12 +11,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.FileProvider
 import java.io.File
+import java.util.Properties
+import javax.activation.DataHandler
+import javax.mail.Authenticator
+import javax.mail.Message
+import javax.mail.PasswordAuthentication
+import javax.mail.Session
+import javax.mail.Transport
+import javax.mail.internet.InternetAddress
+import javax.mail.internet.MimeBodyPart
+import javax.mail.internet.MimeMessage
+import javax.mail.internet.MimeMultipart
+import javax.mail.util.ByteArrayDataSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * Categoria di una segnalazione. [trelloLabel] è il nome dell'etichetta Trello applicata via
- * `#tag` nell'oggetto dell'email (l'email-to-board la riconosce e la rimuove dal titolo).
+ * Categoria di una segnalazione. [trelloLabel] è il tag `#...` aggiunto all'oggetto: l'email-to-board
+ * di Trello lo riconosce come etichetta (se esiste) e lo toglie dal titolo della card.
  */
 enum class ReportCategory(val label: String, val trelloLabel: String) {
     BUG("Bug", "bug"),
@@ -51,55 +61,52 @@ fun ReportCategory.subtypes(): List<String> = when (this) {
     )
 }
 
-/** Bozza raccolta dal form della schermata "Segnala un problema", pronta da inviare via email. */
+/** Bozza raccolta dal form della schermata "Segnala un problema", pronta da inviare. */
 data class FeedbackDraft(
     val category: ReportCategory,
     val subtype: String,
     val message: String,
     val contactEmail: String,
     val imageUris: List<Uri>,
-    val audioUri: Uri?,
+    val audioFile: File?,
 )
 
 /**
- * Invia le segnalazioni come **email precompilata** verso l'indirizzo "email-to-board" di Trello
- * (configurato in `local.properties` → [BuildConfig.TRELLO_REPORT_EMAIL]). Non spedisce nulla in
- * autonomia: apre il compositore email e l'invio finale lo fa l'utente, che vede cosa manda.
+ * Invia le segnalazioni (form + crash) spedendo un'**email via SMTP** all'indirizzo email-to-board
+ * di Trello, che la trasforma in una card. Le credenziali SMTP ([BuildConfig.SMTP_USER]/`SMTP_PASSWORD`)
+ * sono di un account email **dedicato/usa-e-getta**: finiscono nell'APK e sono estraibili, quindi il
+ * danno in caso di leak è limitato (spam da quell'indirizzo) ed è sufficiente rigenerare la password.
+ * L'invio è automatico, ma parte solo su azione esplicita dell'utente.
  */
 object FeedbackReporter {
 
-    /** Le segnalazioni sono attive solo se l'indirizzo Trello è stato configurato in build. */
-    fun isConfigured(): Boolean = BuildConfig.TRELLO_REPORT_EMAIL.isNotBlank()
+    /** Segnalazioni attive solo se l'account SMTP e il destinatario sono configurati in build. */
+    fun isConfigured(): Boolean =
+        BuildConfig.SMTP_USER.isNotBlank() &&
+            BuildConfig.SMTP_PASSWORD.isNotBlank() &&
+            BuildConfig.REPORT_TO_EMAIL.isNotBlank()
 
     private fun deviceLine(): String =
         "${Build.MANUFACTURER} ${Build.MODEL} — Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
 
-    /** Apre il compositore email per una segnalazione del form. False se non configurato o senza app email. */
-    fun sendReport(context: Context, draft: FeedbackDraft): Boolean {
+    /** Invia una segnalazione del form. Sospesa: fa rete su IO. True se l'invio SMTP riesce. */
+    suspend fun sendReport(context: Context, draft: FeedbackDraft): Boolean {
         if (!isConfigured()) return false
-        val subject = buildString {
-            append("[${draft.category.label}")
-            if (draft.subtype.isNotBlank()) append(" · ${draft.subtype}")
-            append("] MangApp ${BuildConfig.VERSION_NAME} #${draft.category.trelloLabel}")
-        }
+        val subtypeSuffix = if (draft.subtype.isNotBlank()) " · ${draft.subtype}" else ""
+        val subject = "[${draft.category.label}$subtypeSuffix] MangApp ${BuildConfig.VERSION_NAME} #${draft.category.trelloLabel}"
         val body = buildString {
             append(draft.message.trim())
             append("\n\n—\n")
-            append("Tipo: ${draft.category.label}")
-            if (draft.subtype.isNotBlank()) append(" · ${draft.subtype}")
+            append("Tipo: ${draft.category.label}$subtypeSuffix")
             append("\nVersione: MangApp ${BuildConfig.VERSION_NAME}")
             append("\nDispositivo: ${deviceLine()}")
             append("\nContatto: ${draft.contactEmail.trim().ifBlank { "non fornito" }}")
         }
-        val attachments = buildList {
-            addAll(draft.imageUris)
-            draft.audioUri?.let(::add)
-        }
-        return launchEmail(context, subject, body, attachments)
+        return sendEmail(context, subject, body, draft.imageUris, draft.audioFile)
     }
 
     /** Invia l'ultimo crash come segnalazione (dal dialog crash). */
-    fun sendCrashReport(context: Context, report: String): Boolean {
+    suspend fun sendCrashReport(context: Context, report: String): Boolean {
         if (!isConfigured()) return false
         val subject = "[Crash] MangApp ${BuildConfig.VERSION_NAME} #crash"
         val body = buildString {
@@ -108,52 +115,80 @@ object FeedbackReporter {
             append("Versione: MangApp ${BuildConfig.VERSION_NAME}")
             append("\nDispositivo: ${deviceLine()}")
         }
-        return launchEmail(context, subject, body, emptyList())
+        return sendEmail(context, subject, body, emptyList(), null)
     }
 
-    private fun launchEmail(
+    private suspend fun sendEmail(
         context: Context,
         subject: String,
         body: String,
-        attachments: List<Uri>,
-    ): Boolean {
-        val action = if (attachments.size > 1) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND
-        val intent = Intent(action).apply {
-            type = "*/*"
-            putExtra(Intent.EXTRA_EMAIL, arrayOf(BuildConfig.TRELLO_REPORT_EMAIL))
-            putExtra(Intent.EXTRA_SUBJECT, subject)
-            putExtra(Intent.EXTRA_TEXT, body)
-            when {
-                attachments.size == 1 -> putExtra(Intent.EXTRA_STREAM, attachments.first())
-                attachments.size > 1 -> putParcelableArrayListExtra(
-                    Intent.EXTRA_STREAM,
-                    ArrayList(attachments),
-                )
-            }
-            if (attachments.isNotEmpty()) {
-                // Concede all'app email la lettura degli allegati (immagini MediaStore + audio FileProvider).
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData = ClipData.newRawUri("allegati", attachments.first()).apply {
-                    attachments.drop(1).forEach { addItem(ClipData.Item(it)) }
+        imageUris: List<Uri>,
+        audioFile: File?,
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val props = Properties().apply {
+                put("mail.smtp.auth", "true")
+                put("mail.smtp.host", BuildConfig.SMTP_HOST)
+                put("mail.smtp.port", BuildConfig.SMTP_PORT)
+                if (BuildConfig.SMTP_PORT == "465") {
+                    put("mail.smtp.socketFactory.port", BuildConfig.SMTP_PORT)
+                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                } else {
+                    put("mail.smtp.starttls.enable", "true")
                 }
             }
-        }
-        val chooser = Intent.createChooser(intent, "Invia segnalazione via email")
-        return try {
-            context.startActivity(chooser)
+            val session = Session.getInstance(
+                props,
+                object : Authenticator() {
+                    override fun getPasswordAuthentication(): PasswordAuthentication =
+                        PasswordAuthentication(BuildConfig.SMTP_USER, BuildConfig.SMTP_PASSWORD)
+                },
+            )
+
+            val multipart = MimeMultipart()
+            multipart.addBodyPart(MimeBodyPart().apply { setText(body, "utf-8") })
+
+            val resolver = context.contentResolver
+            imageUris.forEachIndexed { index, uri ->
+                val bytes = runCatching {
+                    resolver.openInputStream(uri)?.use { it.readBytes() }
+                }.getOrNull() ?: return@forEachIndexed
+                val mime = resolver.getType(uri) ?: "image/jpeg"
+                val ext = when {
+                    mime.contains("png") -> "png"
+                    mime.contains("webp") -> "webp"
+                    else -> "jpg"
+                }
+                multipart.addBodyPart(attachmentPart(bytes, mime, "immagine_${index + 1}.$ext"))
+            }
+            if (audioFile != null && audioFile.exists()) {
+                multipart.addBodyPart(attachmentPart(audioFile.readBytes(), "audio/mp4", audioFile.name))
+            }
+
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress(BuildConfig.SMTP_USER))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(BuildConfig.REPORT_TO_EMAIL))
+                setSubject(subject, "utf-8")
+                setContent(multipart)
+            }
+            Transport.send(message)
             true
-        } catch (_: ActivityNotFoundException) {
-            false
-        }
+        }.getOrDefault(false)
     }
+
+    private fun attachmentPart(bytes: ByteArray, mime: String, fileName: String): MimeBodyPart =
+        MimeBodyPart().apply {
+            dataHandler = DataHandler(ByteArrayDataSource(bytes, mime))
+            setFileName(fileName)
+        }
 }
 
 /**
- * Registratore del messaggio vocale opzionale. Scrive un `.m4a` nella cache (`feedback/`), esposto
- * come `content://` via FileProvider per allegarlo all'email. Lo stato è osservabile da Compose.
+ * Registratore del messaggio vocale opzionale. Scrive un `.m4a` nella cache (`feedback/`), poi
+ * allegato all'email. Lo stato è osservabile da Compose.
  *
- * Il file NON viene cancellato quando la schermata si smonta (l'app email lo legge dopo l'invio):
- * la pulizia avviene per i file vecchi alla creazione del recorder.
+ * Il file NON viene cancellato quando la schermata si smonta (può servire all'invio): la pulizia
+ * dei file vecchi avviene alla creazione del recorder.
  */
 class FeedbackAudioRecorder(private val context: Context) {
     var isRecording by mutableStateOf(false)
@@ -197,7 +232,7 @@ class FeedbackAudioRecorder(private val context: Context) {
         }
     }
 
-    /** Ferma la registrazione finalizzando il file (che resta disponibile per l'allegato). */
+    /** Ferma la registrazione finalizzando il file (che resta disponibile per l'invio). */
     fun stop() {
         val rec = recorder ?: run {
             isRecording = false
@@ -220,10 +255,6 @@ class FeedbackAudioRecorder(private val context: Context) {
         stop()
         recordedFile?.delete()
         recordedFile = null
-    }
-
-    fun uri(): Uri? = recordedFile?.let {
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it)
     }
 
     private fun cleanupOldRecordings() {

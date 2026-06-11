@@ -604,18 +604,17 @@ private fun MangaDownloaderAppContent(
             Screen.Feedback -> {
                 ReportProblemScreen(
                     padding = innerPadding,
-                    onSubmit = { draft ->
-                        val launched = FeedbackReporter.sendReport(context, draft)
+                    onResult = { ok ->
                         scope.launch {
-                            if (launched) {
+                            if (ok) {
                                 viewModel.closeFeedback()
-                                snackbarHostState.showSnackbar("Completa l'invio dalla tua app email. Grazie!")
+                                snackbarHostState.showSnackbar("Segnalazione inviata. Grazie!")
                             } else {
                                 snackbarHostState.showSnackbar(
                                     if (!FeedbackReporter.isConfigured()) {
                                         "Segnalazioni non configurate in questa build"
                                     } else {
-                                        "Nessuna app email trovata per inviare la segnalazione"
+                                        "Invio non riuscito. Controlla la connessione e riprova."
                                     },
                                 )
                             }
@@ -807,15 +806,15 @@ private fun MangaDownloaderAppContent(
             report = report,
             crashPath = remember(appContext) { CrashReporter.crashFilePath(appContext).orEmpty() },
             onSend = {
-                val launched = FeedbackReporter.sendCrashReport(context, report)
                 CrashReporter.clearLastCrash(appContext)
                 lastCrashReport = null
                 scope.launch {
+                    val ok = FeedbackReporter.sendCrashReport(context, report)
                     snackbarHostState.showSnackbar(
-                        if (launched) {
-                            "Completa l'invio dalla tua app email. Grazie!"
+                        if (ok) {
+                            "Segnalazione inviata. Grazie!"
                         } else {
-                            "Nessuna app email trovata per inviare la segnalazione"
+                            "Invio non riuscito. Riprova più tardi."
                         },
                     )
                 }

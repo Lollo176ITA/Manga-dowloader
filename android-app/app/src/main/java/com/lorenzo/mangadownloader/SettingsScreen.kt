@@ -10,7 +10,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
@@ -136,10 +135,6 @@ fun SettingsScreen(
             BackupContent(onOpenBackup = onOpenBackup)
         }
 
-        SettingsSection(title = "Aiuto", icon = Icons.Default.Feedback) {
-            ReportProblemContent(onOpenReportProblem = onOpenReportProblem)
-        }
-
         SettingsSection(title = "Labs (sperimentale)", icon = Icons.Default.Science) {
             LabsContent(
                 labsEnabled = settings.labsEnabled,
@@ -160,6 +155,8 @@ fun SettingsScreen(
                 appVersion = appVersion,
                 onOpenChangelog = onOpenChangelog,
             )
+            SettingsDivider()
+            ReportProblemContent(onOpenReportProblem = onOpenReportProblem)
         }
     }
 }

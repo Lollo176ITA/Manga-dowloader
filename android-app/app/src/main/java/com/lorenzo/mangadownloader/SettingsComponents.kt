@@ -413,7 +413,7 @@ fun BackupContent(
     }
 }
 
-/** Riga azione che apre la schermata "Segnala un problema". */
+/** Riga azione che apre la schermata "Aiutaci a migliorare" (segnalazioni e proposte). */
 @Composable
 fun ReportProblemContent(
     onOpenReportProblem: () -> Unit,
@@ -427,12 +427,12 @@ fun ReportProblemContent(
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "Segnala un problema",
+                text = "Aiutaci a migliorare",
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
             Text(
-                text = "Invia un bug, un'idea o un feedback con testo, foto o un vocale",
+                text = "Segnala un bug, proponi una funzionalità o lascia un feedback (con foto o vocale)",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

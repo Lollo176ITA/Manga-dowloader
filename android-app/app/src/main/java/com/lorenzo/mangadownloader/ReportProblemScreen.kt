@@ -172,8 +172,8 @@ fun ReportProblemScreen(
             }
         }
 
-        // 3) Descrizione
-        Column {
+        // 3) Descrizione (compare dopo aver scelto il sottotipo)
+        if (subtype != null) Column {
             FormLabel("Descrizione")
             OutlinedTextField(
                 value = message,
@@ -186,8 +186,8 @@ fun ReportProblemScreen(
             )
         }
 
-        // 4) Allegati
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 4) Allegati (compaiono dopo la descrizione)
+        if (canSubmit) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             FormLabel("Allegati (facoltativi)")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(
@@ -234,8 +234,8 @@ fun ReportProblemScreen(
             )
         }
 
-        // 5) Email facoltativa
-        Column {
+        // 5) Email facoltativa (dopo la descrizione)
+        if (canSubmit) Column {
             FormLabel("La tua email (facoltativa)")
             OutlinedTextField(
                 value = contactEmail,
@@ -249,7 +249,8 @@ fun ReportProblemScreen(
             )
         }
 
-        Button(
+        // Invia: compare quando i campi obbligatori (tipo, sottotipo, descrizione) sono compilati.
+        if (canSubmit) Button(
             onClick = {
                 val selectedCategory = category ?: return@Button
                 val selectedSubtype = subtype ?: return@Button
@@ -266,10 +267,19 @@ fun ReportProblemScreen(
                     submitting = true
                     val ok = FeedbackReporter.sendReport(context, draft)
                     submitting = false
+                    if (ok) {
+                        // Reset del form dopo l'invio: riaprendolo è pulito (prima la descrizione restava).
+                        category = null
+                        subtype = null
+                        message = ""
+                        contactEmail = ""
+                        images = emptyList()
+                        recorder.discard()
+                    }
                     onResult(ok)
                 }
             },
-            enabled = canSubmit && !submitting,
+            enabled = !submitting,
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (submitting) {

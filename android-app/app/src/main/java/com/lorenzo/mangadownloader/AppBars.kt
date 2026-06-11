@@ -89,7 +89,7 @@ fun AppTopBar(
     val title = when (screen) {
         Screen.StorageManager -> "Gestisci memoria"
         Screen.Backup -> "Backup"
-        Screen.Feedback -> "Segnala un problema"
+        Screen.Feedback -> "Aiutaci a migliorare"
         Screen.Changelog -> "Novità"
         Screen.Settings -> "Impostazioni"
         Screen.Updates -> "Aggiornamenti"

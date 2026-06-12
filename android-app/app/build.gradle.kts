@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
@@ -115,7 +114,7 @@ val hasReleaseSigning =
 
 android {
     namespace = "com.lorenzo.mangadownloader"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.lorenzo.mangadownloader"
@@ -182,11 +181,8 @@ android {
 
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-    }
-}
+// Col Kotlin integrato di AGP 9 il jvmTarget eredita compileOptions.targetCompatibility (17):
+// non serve più il blocco kotlin.compilerOptions.
 
 // Il changelog mostrato in-app (schermata "Novità") ha un'unica fonte di verità: il
 // CHANGELOG.md nella root del repo. Lo copiamo negli assets a ogni build, prima del merge
@@ -204,15 +200,13 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
-    // 1.17.0: le core-ktx successive richiedono compileSdk 37 / AGP 9.x.
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    // alpha18: dalle alpha19+ material3 trascina Compose 1.12 alpha che richiede compileSdk 37 / AGP 9.x.
-    implementation("androidx.compose.material3:material3:1.5.0-alpha18")
-    implementation("androidx.compose.material3:material3-window-size-class:1.5.0-alpha18")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha21")
+    implementation("androidx.compose.material3:material3-window-size-class:1.5.0-alpha21")
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.compose.material:material-icons-extended")

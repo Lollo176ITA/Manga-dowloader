@@ -6,10 +6,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.content.pm.SigningInfo
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -83,7 +84,7 @@ open class AppUpdateRepository(
 
         val raw = httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
-            response.body?.string() ?: return null
+            response.body.string()
         }
 
         return parseCommitMessage(raw)
@@ -108,7 +109,7 @@ open class AppUpdateRepository(
             if (!response.isSuccessful) {
                 throw IOException("Impossibile leggere la latest release: HTTP ${response.code}")
             }
-            response.body?.string() ?: throw IOException("Latest release GitHub vuota")
+            response.body.string()
         }
 
         return parseLatestReleaseInfo(
@@ -138,7 +139,7 @@ open class AppUpdateRepository(
             if (!response.isSuccessful) {
                 throw IOException("Impossibile leggere le preview GitHub: HTTP ${response.code}")
             }
-            response.body?.string() ?: throw IOException("Lista release GitHub vuota")
+            response.body.string()
         }
 
         return parseLatestPreviewReleaseInfo(
@@ -159,7 +160,7 @@ open class AppUpdateRepository(
             if (!response.isSuccessful) {
                 throw IOException("Impossibile controllare gli aggiornamenti: HTTP ${response.code}")
             }
-            response.body?.string() ?: throw IOException("Configurazione update vuota")
+            response.body.string()
         }
 
         return parseUpdateConfigInfo(raw)
@@ -186,9 +187,8 @@ open class AppUpdateRepository(
             if (!response.isSuccessful) {
                 throw IOException("Impossibile scaricare l'update: HTTP ${response.code}")
             }
-            val body = response.body ?: throw IOException("APK update vuoto")
             tempFile.outputStream().buffered().use { output ->
-                body.byteStream().use { input -> input.copyTo(output) }
+                response.body.byteStream().use { input -> input.copyTo(output) }
             }
         }
 
@@ -408,14 +408,13 @@ private const val STABLE_VERSION_CODE_SUFFIX = 99
 
 object AppUpdateInstaller {
     fun canInstallPackages(context: Context): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            context.packageManager.canRequestPackageInstalls()
+        return context.packageManager.canRequestPackageInstalls()
     }
 
     fun openInstallPermissionSettings(context: Context) {
         val intent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${context.packageName}"),
+            "package:${context.packageName}".toUri(),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
@@ -485,6 +484,7 @@ object AppUpdateInstaller {
         }
     }.getOrDefault(emptySet())
 
+    @RequiresApi(Build.VERSION_CODES.P)
     private fun signingInfoHashes(signingInfo: SigningInfo?): Set<String> {
         if (signingInfo == null) return emptySet()
         val signatures = if (signingInfo.hasMultipleSigners()) {

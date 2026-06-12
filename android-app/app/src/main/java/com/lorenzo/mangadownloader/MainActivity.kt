@@ -6,7 +6,6 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
@@ -45,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -666,7 +666,7 @@ private fun MangaDownloaderAppContent(
                             }
                             try {
                                 context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(AniListAuth.authorizationUrl())),
+                                    Intent(Intent.ACTION_VIEW, AniListAuth.authorizationUrl().toUri()),
                                 )
                             } catch (_: ActivityNotFoundException) {
                                 snackbarHostState.showSnackbar("Nessun browser disponibile")
@@ -925,7 +925,7 @@ private fun MangaDownloaderAppContent(
                 onOpenOnSite = {
                     try {
                         context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(tracking.siteUrl())),
+                            Intent(Intent.ACTION_VIEW, tracking.siteUrl().toUri()),
                         )
                     } catch (_: ActivityNotFoundException) {
                         scope.launch { snackbarHostState.showSnackbar("Nessun browser disponibile") }

@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -166,9 +167,6 @@ class FavoriteUpdateNotifier(private val context: Context) {
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(CHANNEL_ID) != null) {
             return
@@ -220,7 +218,7 @@ object FavoriteUpdatesScheduler {
         if (lastRun != 0L && nowMillis - lastRun < APP_OPEN_MIN_INTERVAL_MS) {
             return
         }
-        prefs.edit().putLong(KEY_LAST_RUN_AT, nowMillis).apply()
+        prefs.edit { putLong(KEY_LAST_RUN_AT, nowMillis) }
         WorkManager.getInstance(context).enqueueUniqueWork(
             ONE_SHOT_WORK_NAME,
             ExistingWorkPolicy.KEEP,

@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -246,7 +247,7 @@ fun AniListTrackerDialog(
     var statusMenuExpanded by remember { mutableStateOf(false) }
     var progressText by remember(tracking) { mutableStateOf(tracking.progress.toString()) }
     var score by remember(tracking, scoreFormat) {
-        mutableStateOf((tracking.score ?: 0.0).toFloat().coerceIn(0f, scoreFormat.maxValue))
+        mutableFloatStateOf((tracking.score ?: 0.0).toFloat().coerceIn(0f, scoreFormat.maxValue))
     }
 
     val progress = progressText.toIntOrNull()?.coerceAtLeast(0)

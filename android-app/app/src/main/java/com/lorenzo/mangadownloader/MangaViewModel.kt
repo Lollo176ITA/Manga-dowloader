@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import androidx.biometric.BiometricManager
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.File
@@ -375,10 +376,10 @@ class MangaViewModel internal constructor(
         flushPendingAniListSync()
         // Le cartelle dei preferiti sono state rimosse (lo stato di lettura è automatico):
         // ripulisce le chiavi legacy rimaste su disco dalle versioni precedenti.
-        prefs.edit()
-            .remove("favorite_categories_json")
-            .remove("favorite_category_assignments_json")
-            .apply()
+        prefs.edit {
+            remove("favorite_categories_json")
+            remove("favorite_category_assignments_json")
+        }
     }
 
     @OptIn(FlowPreview::class)
@@ -1460,9 +1461,9 @@ class MangaViewModel internal constructor(
         // Override ricordato per la serie attualmente in lettura.
         val state = _state.value
         val seriesKey = state.readerSeriesKey ?: return
-        prefs.edit()
-            .putString(KEY_READING_MODE_SERIES_PREFIX + seriesKey, mode.name)
-            .apply()
+        prefs.edit {
+            putString(KEY_READING_MODE_SERIES_PREFIX + seriesKey, mode.name)
+        }
         // Riparte dalla pagina corrente così il cambio modalità non perde il segno.
         val currentPage = (state.readerChapter?.readerPageIndex ?: state.readerInitialPageIndex)
             .coerceAtLeast(0)
@@ -1592,7 +1593,7 @@ class MangaViewModel internal constructor(
                         if (this.readerChapter?.relativePath != readerChapter.relativePath) {
                             this
                         } else {
-                            val currentReaderChapter = this.readerChapter ?: readerChapter
+                            val currentReaderChapter = this.readerChapter
                             copy(
                                 readerChapter = currentReaderChapter.copy(
                                     readerPageIndex = restored,
@@ -1622,7 +1623,7 @@ class MangaViewModel internal constructor(
                     if (this.readerChapter?.relativePath != readerChapter.relativePath) {
                         this
                     } else {
-                        val currentReaderChapter = this.readerChapter ?: readerChapter
+                        val currentReaderChapter = this.readerChapter
                         copy(
                             readerChapter = currentReaderChapter.copy(
                                 readerPageIndex = restored,
@@ -1654,7 +1655,7 @@ class MangaViewModel internal constructor(
                             if (this.readerChapter?.relativePath != readerChapter.relativePath) {
                                 this
                             } else {
-                                val currentReaderChapter = this.readerChapter ?: readerChapter
+                                val currentReaderChapter = this.readerChapter
                                 copy(
                                     readerChapter = currentReaderChapter.copy(readerPageCount = completed.pages.size),
                                     readerPages = completed.pages.map(ReaderPage::Local),
@@ -2029,9 +2030,9 @@ class MangaViewModel internal constructor(
                 }
             } finally {
                 if (shouldRecordStableCheck && stableCheckCompleted) {
-                    prefs.edit()
-                        .putLong(KEY_LAST_UPDATE_CHECK_AT, System.currentTimeMillis())
-                        .apply()
+                    prefs.edit {
+                        putLong(KEY_LAST_UPDATE_CHECK_AT, System.currentTimeMillis())
+                    }
                 }
             }
         }

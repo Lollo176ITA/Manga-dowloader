@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.io.File
+import java.util.Locale
 
 @Composable
 fun LibrarySeriesCard(
@@ -198,5 +199,5 @@ internal fun formatBytes(bytes: Long): String {
         value /= 1024.0
         unitIndex += 1
     }
-    return String.format("%.1f %s", value, units[unitIndex])
+    return String.format(Locale.getDefault(), "%.1f %s", value, units[unitIndex])
 }

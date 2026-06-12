@@ -43,7 +43,7 @@ class MangaNetworkClient(
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} su $url")
             }
-            return response.body?.string() ?: throw IOException("Risposta vuota da $url")
+            return response.body.string()
         }
     }
 
@@ -67,7 +67,7 @@ class MangaNetworkClient(
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} scaricando $url")
             }
-            return response.body?.bytes() ?: throw IOException("Immagine vuota da $url")
+            return response.body.bytes()
         }
     }
 

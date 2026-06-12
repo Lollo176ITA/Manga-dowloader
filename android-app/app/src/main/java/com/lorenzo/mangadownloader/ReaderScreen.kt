@@ -50,6 +50,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -317,9 +318,9 @@ private fun VerticalReader(
 ) {
     val minScale = 1f
     val maxScale = 4f
-    var readerScale by remember(chapterKey) { mutableStateOf(minScale) }
-    var readerOffsetX by remember(chapterKey) { mutableStateOf(0f) }
-    var readerOffsetY by remember(chapterKey) { mutableStateOf(0f) }
+    var readerScale by remember(chapterKey) { mutableFloatStateOf(minScale) }
+    var readerOffsetX by remember(chapterKey) { mutableFloatStateOf(0f) }
+    var readerOffsetY by remember(chapterKey) { mutableFloatStateOf(0f) }
     var viewportSize by remember(chapterKey) { mutableStateOf(IntSize.Zero) }
     var restoreComplete by remember(chapterKey) { mutableStateOf(false) }
     var hasReaderMovedAfterRestore by remember(chapterKey) { mutableStateOf(false) }
@@ -776,9 +777,9 @@ private fun ZoomablePage(
 ) {
     val minScale = 1f
     val maxScale = 4f
-    var scale by remember(page.stableKey) { mutableStateOf(minScale) }
-    var offsetX by remember(page.stableKey) { mutableStateOf(0f) }
-    var offsetY by remember(page.stableKey) { mutableStateOf(0f) }
+    var scale by remember(page.stableKey) { mutableFloatStateOf(minScale) }
+    var offsetX by remember(page.stableKey) { mutableFloatStateOf(0f) }
+    var offsetY by remember(page.stableKey) { mutableFloatStateOf(0f) }
     var viewportSize by remember(page.stableKey) { mutableStateOf(IntSize.Zero) }
 
     fun clamp() {

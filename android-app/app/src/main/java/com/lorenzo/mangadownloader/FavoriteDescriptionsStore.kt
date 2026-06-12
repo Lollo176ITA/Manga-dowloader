@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -31,9 +32,9 @@ class FavoriteDescriptionsStore(private val prefs: SharedPreferences) {
     }
 
     fun write(descriptions: Map<String, String>) {
-        prefs.edit()
-            .putString(KEY_FAVORITE_DESCRIPTIONS_JSON, json.encodeToString(descriptions))
-            .apply()
+        prefs.edit {
+            putString(KEY_FAVORITE_DESCRIPTIONS_JSON, json.encodeToString(descriptions))
+        }
     }
 
     private companion object {

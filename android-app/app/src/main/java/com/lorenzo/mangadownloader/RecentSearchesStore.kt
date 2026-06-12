@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -29,9 +30,9 @@ class RecentSearchesStore(private val prefs: SharedPreferences) {
     }
 
     fun persist(searches: List<String>) {
-        prefs.edit()
-            .putString(KEY_RECENT_SEARCHES, json.encodeToString(searches))
-            .apply()
+        prefs.edit {
+            putString(KEY_RECENT_SEARCHES, json.encodeToString(searches))
+        }
     }
 
     companion object {

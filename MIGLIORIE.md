@@ -130,7 +130,7 @@
   - Perché: Le notifiche usano android.R.drawable.ic_popup_reminder (FavoriteUpdatesWorker.kt:134), un'icona di sistema anonima che nella status bar non è riconoscibile come Manga Downloader (il download usa un'altra icona di sistema ancora, stat_sys_download — DownloadWorker.kt:255: incoerenza percepibile). Inoltre ogni preferito posta una notifica separata senza setGroup né summary: dopo una notte con 6 uscite l'utente trova 6 notifiche sparse e indistinguibili nel pannello.
   - Dove: FavoriteUpdatesWorker.kt:133-139 (builder senza setGroup/summary, icona generica), DownloadWorker.kt:255 (icona diversa), FavoriteUpdatesWorker.kt:132 (un notificationId per manga)
   - Cosa fare: Usare un'icona monocromatica dedicata dell'app come smallIcon per entrambi i canali e raggruppare le notifiche dei nuovi capitoli con setGroup("favorite_new_chapters") + una summary notification InboxStyle ("3 nuovi capitoli: Titolo A, Titolo B…"), così il pannello resta compatto e riconoscibile.
-  - Nota dalla verifica: res/drawable non esiste ancora — va creato prima un VectorDrawable monocromatico (derivabile da res/raw/manga_logo.svg); la summary notification richiede un ID stabile distinto dagli ID per-manga.
+  - Nota dalla verifica: res/drawable non esiste ancora — va creato prima un VectorDrawable monocromatico (derivabile da android-app/art/manga_logo.svg); la summary notification richiede un ID stabile distinto dagli ID per-manga.
 
 ### Impostazioni, errori & accessibilità
 

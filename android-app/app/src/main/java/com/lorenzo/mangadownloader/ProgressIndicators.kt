@@ -18,7 +18,7 @@ fun AppLoadingIndicator(modifier: Modifier = Modifier) {
 fun DownloadProgressIndicator(
     doneChapters: Int,
     totalChapters: Int,
-    modifier: Modifier = Modifier.fillMaxWidth(),
+    modifier: Modifier = Modifier,
 ) {
     val fraction = if (doneChapters >= 0 && totalChapters > 0) {
         (doneChapters.toFloat() / totalChapters.toFloat()).coerceIn(0f, 1f)
@@ -28,9 +28,9 @@ fun DownloadProgressIndicator(
     if (fraction != null) {
         LinearWavyProgressIndicator(
             progress = { fraction },
-            modifier = modifier,
+            modifier = modifier.fillMaxWidth(),
         )
     } else {
-        LinearWavyProgressIndicator(modifier = modifier)
+        LinearWavyProgressIndicator(modifier = modifier.fillMaxWidth())
     }
 }

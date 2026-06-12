@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 
 /**
  * Persistenza di [AppSettings] su [SharedPreferences]. Estratta da `MangaViewModel` per
@@ -67,36 +68,36 @@ class SettingsStore(private val prefs: SharedPreferences) {
     }
 
     fun persist(settings: AppSettings) {
-        prefs.edit()
-            .putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
-            .putBoolean(KEY_DISCOVERY_ENABLED, settings.discoveryEnabled)
-            .putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
-            .putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
-            .putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
-            .putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
-            .putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
-            .putBoolean(KEY_STREAMING_READER_ENABLED, settings.streamingReaderEnabled)
-            .putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
-            .putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
-            .putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
-            .putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
-            .putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
-            .putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
-            .putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
-            .putBoolean(KEY_HIGH_RES_IMAGES, settings.highResImages)
-            .putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
-            .putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
-            .putString(KEY_READING_MODE, settings.readingMode.name)
-            .putInt(KEY_READER_PAGE_SPACING, settings.readerPageSpacingDp)
-            .putBoolean(KEY_DOUBLE_TAP_ZOOM, settings.doubleTapZoomEnabled)
-            .putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
-            .putString(KEY_THEME_MODE, settings.themeMode.name)
-            .putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
-            .putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
-            .putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
-            .putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
-            .putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
-            .apply()
+        prefs.edit {
+            putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
+            putBoolean(KEY_DISCOVERY_ENABLED, settings.discoveryEnabled)
+            putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
+            putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
+            putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
+            putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
+            putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
+            putBoolean(KEY_STREAMING_READER_ENABLED, settings.streamingReaderEnabled)
+            putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
+            putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
+            putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
+            putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
+            putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
+            putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
+            putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
+            putBoolean(KEY_HIGH_RES_IMAGES, settings.highResImages)
+            putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
+            putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
+            putString(KEY_READING_MODE, settings.readingMode.name)
+            putInt(KEY_READER_PAGE_SPACING, settings.readerPageSpacingDp)
+            putBoolean(KEY_DOUBLE_TAP_ZOOM, settings.doubleTapZoomEnabled)
+            putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
+            putString(KEY_THEME_MODE, settings.themeMode.name)
+            putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
+            putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
+            putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
+            putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
+            putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
+        }
     }
 
     companion object {

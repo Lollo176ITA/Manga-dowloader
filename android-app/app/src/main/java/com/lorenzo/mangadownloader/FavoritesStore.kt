@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -51,9 +52,9 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                 addedAt = it.addedAt,
             )
         }
-        prefs.edit()
-            .putString(KEY_FAVORITES_JSON, json.encodeToString(payload))
-            .apply()
+        prefs.edit {
+            putString(KEY_FAVORITES_JSON, json.encodeToString(payload))
+        }
     }
 
     /** Forma su disco di un preferito; i campi combaciano col formato storico. */

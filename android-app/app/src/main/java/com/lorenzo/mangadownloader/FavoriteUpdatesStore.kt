@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -85,9 +86,9 @@ class FavoriteUpdatesStore(private val prefs: SharedPreferences) {
     }
 
     fun write(state: Map<String, FavoriteSeenState>) {
-        prefs.edit()
-            .putString(KEY_FAVORITE_UPDATES_JSON, json.encodeToString(state))
-            .apply()
+        prefs.edit {
+            putString(KEY_FAVORITE_UPDATES_JSON, json.encodeToString(state))
+        }
     }
 
     private companion object {

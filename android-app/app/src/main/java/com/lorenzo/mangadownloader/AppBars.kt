@@ -457,7 +457,7 @@ fun AppBottomBar(
             icon = Icons.Default.Search,
             label = "Cerca",
             onSelect = onSelect,
-            anchorModifier = anchorFor(TutorialAnchor.SEARCH_TAB),
+            modifier = anchorFor(TutorialAnchor.SEARCH_TAB),
         )
         AppTabEntry(
             tab = AppTab.FAVORITES,
@@ -465,7 +465,7 @@ fun AppBottomBar(
             icon = Icons.Default.Star,
             label = "Preferiti",
             onSelect = onSelect,
-            anchorModifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
+            modifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
         )
         AppTabEntry(
             tab = AppTab.LIBRARY,
@@ -473,7 +473,7 @@ fun AppBottomBar(
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             label = "Libreria",
             onSelect = onSelect,
-            anchorModifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
+            modifier = anchorFor(TutorialAnchor.LIBRARY_TAB),
         )
     }
 }
@@ -485,10 +485,10 @@ private fun AppTabEntry(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onSelect: (AppTab) -> Unit,
-    anchorModifier: Modifier = Modifier,
+    modifier: Modifier = Modifier,
 ) {
     ShortNavigationBarItem(
-        modifier = anchorModifier,
+        modifier = modifier,
         selected = selected,
         onClick = { onSelect(tab) },
         icon = { Icon(icon, contentDescription = null) },

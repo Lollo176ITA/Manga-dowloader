@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -136,9 +137,9 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
     }
 
     private fun writeLocked(events: List<FavoriteUpdateEvent>) {
-        prefs.edit()
-            .putString(KEY_FAVORITE_UPDATES_FEED_JSON, json.encodeToString(events))
-            .apply()
+        prefs.edit {
+            putString(KEY_FAVORITE_UPDATES_FEED_JSON, json.encodeToString(events))
+        }
     }
 
     private companion object {

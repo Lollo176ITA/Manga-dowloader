@@ -129,11 +129,8 @@ class MangaViewModelParentalControlTest {
         assertEquals(AppTab.FAVORITES, pendingState.pendingSearchAccessReturnTab)
 
         when {
-            pendingState.biometricPromptRequest != null -> {
-                val request = pendingState.biometricPromptRequest
-                    ?: throw AssertionError("Expected biometric request")
-                viewModel.cancelBiometricAuthentication(request.requestId)
-            }
+            pendingState.biometricPromptRequest != null ->
+                viewModel.cancelBiometricAuthentication(pendingState.biometricPromptRequest.requestId)
             pendingState.parentalPinEntryState != null ->
                 viewModel.dismissParentalPinEntry()
             else -> fail("Expected an authentication prompt for Cerca")

@@ -194,7 +194,7 @@ class AniListClient(
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} da AniList")
             }
-            return response.body?.string() ?: throw IOException("Risposta vuota da AniList")
+            return response.body.string()
         }
     }
 

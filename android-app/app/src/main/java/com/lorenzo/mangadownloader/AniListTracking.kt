@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.util.Locale
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -154,22 +155,22 @@ class AniListStore(private val prefs: SharedPreferences) {
     }
 
     fun persistAccount(token: String, viewer: AniListViewer) {
-        prefs.edit()
-            .putString(KEY_TOKEN, token)
-            .putInt(KEY_VIEWER_ID, viewer.id)
-            .putString(KEY_VIEWER_NAME, viewer.name)
-            .putString(KEY_VIEWER_SCORE_FORMAT, viewer.scoreFormat.name)
-            .apply()
+        prefs.edit {
+            putString(KEY_TOKEN, token)
+            putInt(KEY_VIEWER_ID, viewer.id)
+            putString(KEY_VIEWER_NAME, viewer.name)
+            putString(KEY_VIEWER_SCORE_FORMAT, viewer.scoreFormat.name)
+        }
     }
 
     /** Scollega l'account. I legami serie→media restano: tornano utili al prossimo login. */
     fun clearAccount() {
-        prefs.edit()
-            .remove(KEY_TOKEN)
-            .remove(KEY_VIEWER_ID)
-            .remove(KEY_VIEWER_NAME)
-            .remove(KEY_VIEWER_SCORE_FORMAT)
-            .apply()
+        prefs.edit {
+            remove(KEY_TOKEN)
+            remove(KEY_VIEWER_ID)
+            remove(KEY_VIEWER_NAME)
+            remove(KEY_VIEWER_SCORE_FORMAT)
+        }
     }
 
     fun readTrackings(): Map<String, AniListTracking> {
@@ -206,9 +207,9 @@ class AniListStore(private val prefs: SharedPreferences) {
                 pendingProgress = tracking.pendingProgress,
             )
         }
-        prefs.edit()
-            .putString(KEY_TRACKINGS_JSON, json.encodeToString(payload))
-            .apply()
+        prefs.edit {
+            putString(KEY_TRACKINGS_JSON, json.encodeToString(payload))
+        }
     }
 
     /** Forma su disco di un legame serie→media. */

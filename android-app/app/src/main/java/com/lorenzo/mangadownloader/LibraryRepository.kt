@@ -3,6 +3,7 @@ package com.lorenzo.mangadownloader
 import android.content.Context
 import android.os.Environment
 import android.os.StatFs
+import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -451,9 +452,9 @@ class LibraryRepository(
     }
 
     fun markChapterRead(chapter: DownloadedChapter) {
-        prefs.edit()
-            .putBoolean(readPrefKey(chapter.relativePath), true)
-            .apply()
+        prefs.edit {
+            putBoolean(readPrefKey(chapter.relativePath), true)
+        }
         val parentDirectory = chapter.file.parentFile ?: return
         updateSeriesMetadata(parentDirectory) { metadata ->
             val updatedReadIds = metadata.readChapterIds + chapter.chapterId
@@ -483,9 +484,9 @@ class LibraryRepository(
     ): String {
         val chapterId = DownloadStorage.stableChapterId(chapter)
         val updated = streamingReadChapterIds(sourceId, mangaUrl) + chapterId
-        prefs.edit()
-            .putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
-            .apply()
+        prefs.edit {
+            putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
+        }
         return chapterId
     }
 
@@ -577,17 +578,15 @@ class LibraryRepository(
         pageCount: Int?,
         lastReadAtMillis: Long? = null,
     ) {
-        prefs.edit()
-            .putInt(readerPageIndexPrefKey(relativePath), pageIndex.coerceAtLeast(0))
-            .apply {
-                if (pageCount != null && pageCount > 0) {
-                    putInt(readerPageCountPrefKey(relativePath), pageCount)
-                }
-                if (lastReadAtMillis != null && lastReadAtMillis > 0L) {
-                    putLong(readerReadAtPrefKey(relativePath), lastReadAtMillis)
-                }
+        prefs.edit {
+            putInt(readerPageIndexPrefKey(relativePath), pageIndex.coerceAtLeast(0))
+            if (pageCount != null && pageCount > 0) {
+                putInt(readerPageCountPrefKey(relativePath), pageCount)
             }
-            .apply()
+            if (lastReadAtMillis != null && lastReadAtMillis > 0L) {
+                putLong(readerReadAtPrefKey(relativePath), lastReadAtMillis)
+            }
+        }
     }
 
     suspend fun extractReaderPages(chapter: DownloadedChapter): List<File> = withContext(Dispatchers.IO) {
@@ -738,18 +737,18 @@ class LibraryRepository(
 
     private fun clearChapterState(relativePath: String, clearReadState: Boolean) {
         if (clearReadState) {
-            prefs.edit()
-                .remove(readPrefKey(relativePath))
-                .remove(readerPageIndexPrefKey(relativePath))
-                .remove(readerPageCountPrefKey(relativePath))
-                .remove(readerReadAtPrefKey(relativePath))
-                .apply()
+            prefs.edit {
+                remove(readPrefKey(relativePath))
+                remove(readerPageIndexPrefKey(relativePath))
+                remove(readerPageCountPrefKey(relativePath))
+                remove(readerReadAtPrefKey(relativePath))
+            }
         } else {
-            prefs.edit()
-                .remove(readerPageIndexPrefKey(relativePath))
-                .remove(readerPageCountPrefKey(relativePath))
-                .remove(readerReadAtPrefKey(relativePath))
-                .apply()
+            prefs.edit {
+                remove(readerPageIndexPrefKey(relativePath))
+                remove(readerPageCountPrefKey(relativePath))
+                remove(readerReadAtPrefKey(relativePath))
+            }
         }
         val cacheDir = File(
             File(context.cacheDir, "reader-pages"),

@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -101,7 +102,7 @@ fun ReportProblemScreen(
     ) { granted -> if (granted) recorder.start() }
 
     // Cronometro della registrazione in corso; dopo lo stop trattiene la durata finale.
-    var elapsedSeconds by remember { mutableStateOf(0) }
+    var elapsedSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(recorder.isRecording) {
         if (recorder.isRecording) {
             elapsedSeconds = 0

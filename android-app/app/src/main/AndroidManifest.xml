@@ -34,12 +34,15 @@
         </provider>
 
         <!-- singleTask: il redirect OAuth di AniList dal browser deve rientrare nell'istanza
-             esistente (onNewIntent) invece di crearne una seconda nel task del browser. -->
+             esistente (onNewIntent) invece di crearne una seconda nel task del browser.
+             portrait: scelta deliberata, l'app è pensata per la lettura verticale; da Android 16
+             il lock viene ignorato sui grandi schermi e l'app deve comunque restare usabile. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

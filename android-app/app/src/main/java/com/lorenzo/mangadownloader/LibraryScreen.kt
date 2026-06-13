@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,9 +13,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,12 +42,15 @@ fun LibraryScreen(
     onBrowse: () -> Unit,
     onStopDownloads: () -> Unit,
     onResume: (DownloadedChapter) -> Unit,
+    onSelectSort: (LibrarySort) -> Unit,
+    onMarkAllRead: (DownloadedSeries) -> Unit,
 ) {
-    val rows = remember(state.library, state.libraryQuery, downloadStatuses) {
+    val rows = remember(state.library, state.libraryQuery, downloadStatuses, state.settings.librarySort) {
         buildLibraryRowItems(
             library = state.library,
             downloadStatuses = downloadStatuses,
             query = state.libraryQuery.trim(),
+            sort = state.settings.librarySort,
         )
     }
     val hasActiveDownloads = remember(downloadStatuses) {
@@ -69,6 +77,15 @@ fun LibraryScreen(
                 placeholder = "Cerca nella libreria",
                 onValueChange = onQueryChange,
             )
+
+            // Ordinamento persistito (come Preferiti e Gestione memoria): prima la lista
+            // era solo alfabetica. Visibile solo quando c'è qualcosa da ordinare.
+            if (state.library.isNotEmpty()) {
+                LibrarySortPicker(
+                    selected = state.settings.librarySort,
+                    onSelect = onSelectSort,
+                )
+            }
 
             when {
                 state.isLoadingLibrary && rows.isEmpty() -> {
@@ -125,6 +142,7 @@ fun LibraryScreen(
                                     onDelete = { row.series?.let(onDeleteSeries) },
                                     onDeleteReadChapters = { row.series?.let(onDeleteReadChapters) },
                                     onStopDownloads = requestStopDownloads,
+                                    onMarkAllRead = { row.series?.let(onMarkAllRead) },
                                 )
                             }
                         }
@@ -163,6 +181,31 @@ fun LibraryScreen(
                 onStopDownloads()
             },
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibrarySortPicker(
+    selected: LibrarySort,
+    onSelect: (LibrarySort) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+    ) {
+        LibrarySort.entries.forEachIndexed { index, sort ->
+            SegmentedButton(
+                selected = selected == sort,
+                onClick = { onSelect(sort) },
+                shape = SegmentedButtonDefaults.itemShape(
+                    index = index,
+                    count = LibrarySort.entries.size,
+                ),
+                label = { Text(sort.label, maxLines = 1) },
+            )
+        }
     }
 }
 

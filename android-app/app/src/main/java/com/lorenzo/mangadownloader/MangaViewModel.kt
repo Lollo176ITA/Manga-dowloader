@@ -120,12 +120,14 @@ data class AppSettings(
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
     val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
+    val keepScreenOnEnabled: Boolean = true,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val useDynamicColor: Boolean = false,
     val tutorialCompleted: Boolean = false,
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
     val favoriteSort: FavoriteSort = FavoriteSort.DATE_ADDED,
+    val librarySort: LibrarySort = LibrarySort.TITLE_ASC,
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
@@ -205,8 +207,9 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
-    // Ricerca arrivata dalla tab Scopri (ponte AniList→fonti): aggrega TUTTE le fonti invece
-    // della sola fonte selezionata. Si disattiva appena l'utente ridigita nella barra.
+    // Ricerca aggregata su TUTTE le fonti invece della sola fonte selezionata. Attivata dal
+    // chip "Tutte" della tab Cerca o dal ponte AniList (tab Scopri); resta attiva anche
+    // digitando e si disattiva scegliendo una fonte singola dai chip o dal dialog.
     val bridgeSearchActive: Boolean = false,
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
@@ -215,6 +218,12 @@ data class MangaUiState(
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
     val isSearching: Boolean = false,
+    // Fallimento dell'ultima ricerca (rete assente, fonte down): mostrato dalla tab Cerca
+    // come stato dedicato con "Riprova", invece di un falso "Nessun risultato".
+    val searchError: String? = null,
+    // Quando il fetch dei dettagli fallisce, il manga da ritentare: la snackbar d'errore
+    // offre "Riprova" che rilancia selectManga senza dover ripetere la ricerca.
+    val errorRetrySearchResult: MangaSearchResult? = null,
     val selected: MangaDetails? = null,
     val selectedMangaReadChapterIds: Set<String> = emptySet(),
     val isLoadingDetails: Boolean = false,
@@ -391,8 +400,15 @@ class MangaViewModel internal constructor(
                 .debounce(DEBOUNCE_MS)
                 .collect { (q, sourceId, bridge) ->
                     if (bridge) {
-                        // Ponte dalla tab Scopri: cerca su tutte le fonti, ignora la fonte singola.
-                        if (q.isNotEmpty()) runAggregatedSearch(q)
+                        // Modalità "Tutte le fonti" (chip o ponte Scopri): aggregata a ogni query.
+                        if (q.isNotEmpty()) {
+                            runAggregatedSearch(q)
+                        } else {
+                            searchJob?.cancel()
+                            updateState {
+                                copy(results = emptyList(), isSearching = false, searchError = null)
+                            }
+                        }
                         return@collect
                     }
                     val searchConfig = MangaSourceCatalog.searchConfig(sourceId)
@@ -404,6 +420,7 @@ class MangaViewModel internal constructor(
                                 copy(
                                     results = emptyList(),
                                     isSearching = false,
+                                    searchError = null,
                                     errorMessage = null,
                                 )
                             }
@@ -415,6 +432,7 @@ class MangaViewModel internal constructor(
                                 copy(
                                     results = emptyList(),
                                     isSearching = false,
+                                    searchError = null,
                                 )
                             }
                         }
@@ -424,8 +442,7 @@ class MangaViewModel internal constructor(
     }
 
     fun onQueryChange(text: String) {
-        // Digitare nella barra esce dalla modalità "ponte" e torna alla ricerca per fonte singola.
-        updateState { copy(query = text, bridgeSearchActive = false) }
+        updateState { copy(query = text) }
     }
 
     fun submitSearch() {
@@ -544,6 +561,8 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(searchSourceId = resolvedSourceId) }
         updateState {
             copy(
+                // Scegliere una fonte singola esce dalla modalità "Tutte le fonti".
+                bridgeSearchActive = false,
                 errorMessage = null,
             )
         }
@@ -573,6 +592,25 @@ class MangaViewModel internal constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Chip "Tutte" (o CTA "Cerca su tutte le fonti" a zero risultati): attiva la ricerca
+     * aggregata. Il rilancio della query corrente lo fa [observeQueryChanges], che osserva
+     * anche `bridgeSearchActive`.
+     */
+    fun selectAllSourcesSearch() {
+        if (_state.value.bridgeSearchActive) return
+        val query = _state.value.query.trim()
+        updateState {
+            copy(
+                bridgeSearchActive = true,
+                results = emptyList(),
+                isSearching = query.isNotEmpty(),
+                searchError = null,
+                errorMessage = null,
+            )
         }
     }
 
@@ -716,10 +754,71 @@ class MangaViewModel internal constructor(
         updateState { copy(favoriteUpdates = seen) }
     }
 
-    /** Tap su una riga del feed: chiude il feed e apre il dettaglio del manga. */
+    /**
+     * Tap su una notifica "nuovo capitolo": apre direttamente il dettaglio del manga,
+     * marcando come visti i suoi eventi nel feed. Chiude reader/feed se aperti.
+     */
+    fun openMangaFromNotification(sourceId: String, title: String, mangaUrl: String, coverUrl: String?) {
+        readerJob?.cancel()
+        streamingCacheJob?.cancel()
+        markUpdatesSeenForManga(MangaSourceCatalog.identityKey(sourceId, mangaUrl))
+        updateState { clearedReaderState().copy(showUpdates = false) }
+        selectManga(
+            MangaSearchResult(
+                sourceId = sourceId,
+                title = title,
+                mangaUrl = mangaUrl,
+                coverUrl = coverUrl,
+            ),
+        )
+    }
+
+    /** Tap sul riepilogo delle notifiche ("N nuovi capitoli"): porta dritto al feed Aggiornamenti. */
+    fun openUpdatesFromNotification() {
+        readerJob?.cancel()
+        streamingCacheJob?.cancel()
+        updateState {
+            clearedReaderState().copy(
+                selected = null,
+                showUpdates = true,
+                favoriteUpdates = favoriteUpdatesFeedStore.read(),
+            )
+        }
+    }
+
+    /** Marca come visti tutti gli eventi del feed relativi a un manga (tap su notifica). */
+    private fun markUpdatesSeenForManga(identityKey: String) {
+        val updated = favoriteUpdatesFeedStore.update { events ->
+            events.map {
+                if (it.identityKey == identityKey && !it.seen) it.copy(seen = true) else it
+            }
+        }
+        updateState { copy(favoriteUpdates = updated) }
+    }
+
+    /** Marca come visto il singolo evento toccato, lasciando evidenziati gli altri. */
+    private fun markUpdateSeen(event: FavoriteUpdateEvent) {
+        val updated = favoriteUpdatesFeedStore.update { events ->
+            events.map {
+                if (it.identityKey == event.identityKey &&
+                    it.chapterNumber == event.chapterNumber &&
+                    !it.seen
+                ) {
+                    it.copy(seen = true)
+                } else {
+                    it
+                }
+            }
+        }
+        updateState { copy(favoriteUpdates = updated) }
+    }
+
+    /**
+     * Tap su una riga del feed: marca come visto SOLO quell'evento e apre il dettaglio
+     * sopra il feed (che resta aperto: il back ci torna con gli altri eventi evidenziati).
+     */
     fun openMangaFromUpdate(event: FavoriteUpdateEvent) {
-        markAllUpdatesSeen()
-        updateState { copy(showUpdates = false) }
+        markUpdateSeen(event)
         selectManga(
             MangaSearchResult(
                 sourceId = event.sourceId,
@@ -1056,6 +1155,14 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(doubleTapZoomEnabled = enabled) }
     }
 
+    fun setKeepScreenOnEnabled(enabled: Boolean) {
+        updateSettings { it.copy(keepScreenOnEnabled = enabled) }
+    }
+
+    fun setLibrarySort(sort: LibrarySort) {
+        updateSettings { it.copy(librarySort = sort) }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         updateSettings { it.copy(themeMode = mode) }
     }
@@ -1079,6 +1186,36 @@ class MangaViewModel internal constructor(
 
     fun onTutorialWelcomeSkip() {
         markTutorialCompleted()
+    }
+
+    /**
+     * Tap fuori dal dialogo di benvenuto (o back): chiude il tour SENZA segnarlo completato,
+     * così un mis-tap non brucia l'onboarding — si ripresenta al prossimo avvio. Lo skip
+     * definitivo resta solo sul bottone "Salta".
+     */
+    fun dismissTutorialWelcome() {
+        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
+        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
+    }
+
+    /**
+     * Voce "Rivedi il tutorial" delle impostazioni: torna alle tab e ripropone il benvenuto.
+     * Da lì in poi vale il flusso normale del tour (preload, fallback, completamento).
+     */
+    fun restartTutorial() {
+        updateState {
+            copy(
+                showSettings = false,
+                showStorageManager = false,
+                showBackup = false,
+                showChangelog = false,
+                showFeedback = false,
+                showUpdates = false,
+                selected = null,
+                selectedDownloadedSeries = null,
+                tutorialState = TutorialUiState(phase = TutorialPhase.Welcome),
+            )
+        }
     }
 
     fun onTutorialFallbackCompleted() {
@@ -1254,7 +1391,8 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingDetails = false,
-                        errorMessage = exc.message ?: "Errore caricamento manga",
+                        errorMessage = userFacingErrorMessage(exc, "Errore nel caricare il manga"),
+                        errorRetrySearchResult = result,
                     )
                 }
             }
@@ -1527,7 +1665,7 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingReader = false,
-                        errorMessage = exc.message ?: "Impossibile aprire il reader",
+                        errorMessage = userFacingErrorMessage(exc, "Impossibile aprire il reader"),
                     )
                 }
             }
@@ -1675,7 +1813,7 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingReader = false,
-                        errorMessage = exc.message ?: "Impossibile aprire il reader online",
+                        errorMessage = userFacingErrorMessage(exc, "Impossibile aprire il reader online"),
                     )
                 }
             }
@@ -1838,7 +1976,7 @@ class MangaViewModel internal constructor(
     }
 
     fun dismissError() {
-        updateState { copy(errorMessage = null) }
+        updateState { copy(errorMessage = null, errorRetrySearchResult = null) }
     }
 
     /**
@@ -1858,6 +1996,54 @@ class MangaViewModel internal constructor(
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
             Screen.Tabs -> Unit
+        }
+    }
+
+    /**
+     * Long-press su un capitolo scaricato: letto/non letto a mano, senza doverlo aprire
+     * (es. già letto altrove in streaming, o da rileggere). Prima lo stato cambiava solo
+     * arrivando in fondo al capitolo nel reader.
+     */
+    fun setChapterRead(chapter: DownloadedChapter, read: Boolean) {
+        if (read) {
+            libraryRepository.markChapterRead(chapter)
+        } else {
+            libraryRepository.markChapterUnread(chapter)
+        }
+        refreshLibraryAfterReadChange()
+    }
+
+    /** "Segna come letti fino a qui": tutti i capitoli della serie fino a [chapter] incluso. */
+    fun markChaptersReadUpTo(chapter: DownloadedChapter) {
+        val series = _state.value.selectedDownloadedSeries ?: return
+        val index = series.chapters.indexOfFirst { it.relativePath == chapter.relativePath }
+        if (index < 0) {
+            return
+        }
+        libraryRepository.markChaptersRead(
+            series.chapters.take(index + 1).filterNot { it.isRead },
+        )
+        refreshLibraryAfterReadChange()
+    }
+
+    /** Voce del menu serie in libreria: tutti i capitoli scaricati segnati come letti. */
+    fun markAllChaptersRead(series: DownloadedSeries) {
+        libraryRepository.markChaptersRead(series.chapters.filterNot { it.isRead })
+        refreshLibraryAfterReadChange()
+    }
+
+    /** Riallinea libreria/serie aperta dopo un cambio manuale dello stato di lettura. */
+    private fun refreshLibraryAfterReadChange() {
+        libraryJob?.cancel()
+        libraryJob = viewModelScope.launch {
+            try {
+                val snapshot = scanLibrarySnapshot()
+                updateState { withLibrarySnapshot(snapshot) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort: lo stato su disco è già scritto, la UI si riallinea al prossimo refresh.
+            }
         }
     }
 
@@ -1968,6 +2154,11 @@ class MangaViewModel internal constructor(
 
     fun openNextReaderChapter() {
         _state.value.readerNextChapter?.let(::openReaderChapter)
+    }
+
+    /** Riapre il capitolo corrente del reader: CTA "Riprova" quando il fetch delle pagine fallisce. */
+    fun retryReaderLoad() {
+        _state.value.readerChapter?.let(::openReaderChapter)
     }
 
     private fun openReaderChapter(chapter: ReaderChapter) {
@@ -2083,7 +2274,7 @@ class MangaViewModel internal constructor(
 
     private fun runSearch(q: String) {
         searchJob?.cancel()
-        updateState { copy(isSearching = true, errorMessage = null) }
+        updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
                 val results = withContext(Dispatchers.IO) {
@@ -2093,10 +2284,15 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
+                // L'errore vive nello stato della schermata: con risultati vuoti la tab Cerca
+                // mostra "Ricerca non riuscita" + Riprova. Se invece a schermo ci sono ancora
+                // i risultati precedenti (refresh fallito), il segnale passa dalla snackbar.
+                val friendly = userFacingErrorMessage(exc, "Errore di ricerca")
                 updateState {
                     copy(
                         isSearching = false,
-                        errorMessage = exc.message ?: "Errore di ricerca",
+                        searchError = friendly,
+                        errorMessage = if (results.isNotEmpty()) friendly else errorMessage,
                     )
                 }
             }
@@ -2111,7 +2307,7 @@ class MangaViewModel internal constructor(
      */
     private fun runAggregatedSearch(query: String) {
         searchJob?.cancel()
-        updateState { copy(isSearching = true, errorMessage = null) }
+        updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
                 val results = withContext(Dispatchers.IO) {
@@ -2132,10 +2328,12 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
+                val friendly = userFacingErrorMessage(exc, "Errore di ricerca")
                 updateState {
                     copy(
                         isSearching = false,
-                        errorMessage = exc.message ?: "Errore di ricerca",
+                        searchError = friendly,
+                        errorMessage = if (results.isNotEmpty()) friendly else errorMessage,
                     )
                 }
             }
@@ -2254,6 +2452,7 @@ class MangaViewModel internal constructor(
                 bridgeSearchActive = true,
                 results = emptyList(),
                 isSearching = true,
+                searchError = null,
                 errorMessage = null,
                 discovery = discovery.copy(info = null),
             )

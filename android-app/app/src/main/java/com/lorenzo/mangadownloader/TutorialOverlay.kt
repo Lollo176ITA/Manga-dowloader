@@ -69,6 +69,7 @@ fun TutorialOverlay(
     state: MangaUiState,
     onWelcomeStart: () -> Unit,
     onWelcomeSkip: () -> Unit,
+    onWelcomeDismiss: () -> Unit,
     onFallbackCompleted: () -> Unit,
     onAdvancePhase: (from: TutorialPhase, to: TutorialPhase) -> Unit,
     onTargetTap: (TutorialAnchor) -> Unit,
@@ -107,12 +108,6 @@ fun TutorialOverlay(
         controller.show(target.toCoachmarkTarget())
     }
 
-    LaunchedEffect(phase, state.readerChapter?.relativePath) {
-        if (phase != TutorialPhase.InReader || state.readerChapter == null) return@LaunchedEffect
-        delay(4500)
-        onTargetTap(TutorialAnchor.READER_FULLSCREEN)
-    }
-
     val anchorRecorder: (TutorialAnchor) -> Modifier = remember(controller) {
         { anchor -> Modifier.coachmarkTarget(controller, anchor.coachmarkId) }
     }
@@ -148,7 +143,11 @@ fun TutorialOverlay(
     InteractivePhaseObservers(state = state, onAdvancePhase = onAdvancePhase)
 
     if (phase == TutorialPhase.Welcome) {
-        WelcomeTutorialDialog(onSkip = onWelcomeSkip, onStart = onWelcomeStart)
+        WelcomeTutorialDialog(
+            onSkip = onWelcomeSkip,
+            onStart = onWelcomeStart,
+            onDismiss = onWelcomeDismiss,
+        )
     }
     if (phase == TutorialPhase.Preloading) {
         PreloadingTutorialDialog()
@@ -381,9 +380,15 @@ private fun InteractivePhaseObservers(
 }
 
 @Composable
-private fun WelcomeTutorialDialog(onSkip: () -> Unit, onStart: () -> Unit) {
+private fun WelcomeTutorialDialog(
+    onSkip: () -> Unit,
+    onStart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Tap fuori/back = chiusura morbida (il tour si ripropone al prossimo avvio):
+    // solo il bottone "Salta" segna il tutorial come completato per sempre.
     AlertDialog(
-        onDismissRequest = onSkip,
+        onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         icon = {
             Icon(

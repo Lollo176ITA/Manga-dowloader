@@ -65,11 +65,13 @@ data class SettingsBackup(
     val readingMode: String = ReadingMode.VERTICAL.name,
     val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
+    val keepScreenOnEnabled: Boolean = true,
     val allowLandscapeRotation: Boolean = false,
     val themeMode: String = ThemeMode.AUTO.name,
     val useDynamicColor: Boolean = false,
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
     val favoriteSort: String = FavoriteSort.DATE_ADDED.name,
+    val librarySort: String = LibrarySort.TITLE_ASC.name,
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -111,11 +113,13 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     readingMode = readingMode.name,
     readerPageSpacingDp = readerPageSpacingDp,
     doubleTapZoomEnabled = doubleTapZoomEnabled,
+    keepScreenOnEnabled = keepScreenOnEnabled,
     allowLandscapeRotation = allowLandscapeRotation,
     themeMode = themeMode.name,
     useDynamicColor = useDynamicColor,
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = favoriteSort.name,
+    librarySort = librarySort.name,
 )
 
 /**
@@ -143,11 +147,13 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     readingMode = runCatching { ReadingMode.valueOf(readingMode) }.getOrDefault(current.readingMode),
     readerPageSpacingDp = readerPageSpacingDp.coerceIn(0, MAX_READER_PAGE_SPACING_DP),
     doubleTapZoomEnabled = doubleTapZoomEnabled,
+    keepScreenOnEnabled = keepScreenOnEnabled,
     allowLandscapeRotation = allowLandscapeRotation,
     themeMode = runCatching { ThemeMode.valueOf(themeMode) }.getOrDefault(current.themeMode),
     useDynamicColor = useDynamicColor,
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = runCatching { FavoriteSort.valueOf(favoriteSort) }.getOrDefault(current.favoriteSort),
+    librarySort = runCatching { LibrarySort.valueOf(librarySort) }.getOrDefault(current.librarySort),
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =

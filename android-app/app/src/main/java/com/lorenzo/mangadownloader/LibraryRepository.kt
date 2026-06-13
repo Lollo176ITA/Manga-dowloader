@@ -452,17 +452,43 @@ class LibraryRepository(
     }
 
     fun markChapterRead(chapter: DownloadedChapter) {
-        prefs.edit {
-            putBoolean(readPrefKey(chapter.relativePath), true)
+        markChaptersRead(listOf(chapter))
+    }
+
+    /**
+     * Marca letti più capitoli della stessa serie in un colpo solo (un solo write dei
+     * metadata): usato da "Segna come letti fino a qui" e "Segna tutti come letti".
+     */
+    fun markChaptersRead(chapters: List<DownloadedChapter>) {
+        if (chapters.isEmpty()) {
+            return
         }
-        val parentDirectory = chapter.file.parentFile ?: return
+        prefs.edit {
+            chapters.forEach { putBoolean(readPrefKey(it.relativePath), true) }
+        }
+        val parentDirectory = chapters.firstNotNullOfOrNull { it.file.parentFile } ?: return
         updateSeriesMetadata(parentDirectory) { metadata ->
-            val updatedReadIds = metadata.readChapterIds + chapter.chapterId
+            val updatedReadIds = metadata.readChapterIds + chapters.map { it.chapterId }
             metadata.copy(
                 totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
                     .coerceAtLeast(updatedReadIds.size),
                 readChapterIds = updatedReadIds,
             )
+        }
+        invalidateCache()
+    }
+
+    /**
+     * Duale di [markChapterRead] (prima inesistente: lo stato "letto" si poteva solo
+     * acquisire finendo il capitolo nel reader). Azzera anche il progresso di lettura:
+     * un capitolo segnato "da leggere" riparte da pagina 1 e non deve più risultare
+     * completato nelle righe della serie.
+     */
+    fun markChapterUnread(chapter: DownloadedChapter) {
+        clearChapterState(chapter.relativePath, clearReadState = true)
+        val parentDirectory = chapter.file.parentFile ?: return
+        updateSeriesMetadata(parentDirectory) { metadata ->
+            metadata.copy(readChapterIds = metadata.readChapterIds - chapter.chapterId)
         }
         invalidateCache()
     }

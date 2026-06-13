@@ -21,6 +21,16 @@ data class LibraryRowItem(
     val downloadStatus: SeriesDownloadStatus?,
 )
 
+/**
+ * Criterio di ordinamento della Libreria, persistito nelle impostazioni (come il sort dei
+ * Preferiti). Prima la lista era solo alfabetica, hardcoded.
+ */
+enum class LibrarySort(val label: String) {
+    LAST_READ("Recenti"),
+    TITLE_ASC("A-Z"),
+    UNREAD_FIRST("Da leggere"),
+}
+
 fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDownloadStatus> {
     val sorted = workInfos.sortedBy { statePriority(it.state) }
     val grouped = linkedMapOf<String, MutableList<WorkInfo>>()
@@ -76,6 +86,7 @@ fun buildLibraryRowItems(
     library: List<DownloadedSeries>,
     downloadStatuses: Map<String, SeriesDownloadStatus>,
     query: String,
+    sort: LibrarySort = LibrarySort.TITLE_ASC,
 ): List<LibraryRowItem> {
     val rows = mutableListOf<LibraryRowItem>()
     val usedStatusKeys = linkedSetOf<String>()
@@ -111,10 +122,26 @@ fun buildLibraryRowItems(
         )
     }
 
-    return rows.sortedWith(
-        compareBy<LibraryRowItem> { it.title.lowercase() },
-    )
+    return when (sort) {
+        LibrarySort.TITLE_ASC -> rows.sortedWith(
+            compareBy { it.title.lowercase() },
+        )
+        // Serie mai aperte (nessun timestamp) in fondo, in ordine alfabetico tra loro.
+        LibrarySort.LAST_READ -> rows.sortedWith(
+            compareByDescending<LibraryRowItem> { it.lastReadAtMillis() }
+                .thenBy { it.title.lowercase() },
+        )
+        // Le serie con capitoli ancora da leggere prima; i download in arrivo (senza serie)
+        // contano come "da leggere".
+        LibrarySort.UNREAD_FIRST -> rows.sortedWith(
+            compareBy<LibraryRowItem> { it.series?.isFullyRead() ?: false }
+                .thenBy { it.title.lowercase() },
+        )
+    }
 }
+
+private fun LibraryRowItem.lastReadAtMillis(): Long =
+    series?.chapters?.maxOfOrNull { it.lastReadAtMillis ?: 0L } ?: 0L
 
 private fun downloadStatusForSeries(
     downloadStatuses: Map<String, SeriesDownloadStatus>,

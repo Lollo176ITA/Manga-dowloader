@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
@@ -52,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -68,6 +71,7 @@ fun AppTopBar(
     onSelectReadingMode: (ReadingMode) -> Unit,
     unseenUpdatesCount: Int,
     onOpenUpdates: () -> Unit,
+    onMarkAllUpdatesSeen: () -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val resolvedSourceId = remember(state.settings.searchSourceId) {
@@ -176,6 +180,16 @@ fun AppTopBar(
                     onToggle = onToggleFavorite,
                     modifier = anchorFor(TutorialAnchor.DETAIL_FAVORITE),
                 )
+            }
+
+            // Nel feed Aggiornamenti: azzera i "non visti" senza dover chiudere la schermata.
+            if (screen == Screen.Updates && unseenUpdatesCount > 0) {
+                IconButton(onClick = onMarkAllUpdatesSeen) {
+                    Icon(
+                        imageVector = Icons.Default.DoneAll,
+                        contentDescription = "Segna tutti come visti",
+                    )
+                }
             }
 
             if (showUpdatesAction) {
@@ -437,6 +451,7 @@ fun AppBottomBar(
     currentTab: AppTab,
     showDiscovery: Boolean,
     onSelect: (AppTab) -> Unit,
+    favoritesBadgeCount: Int = 0,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
@@ -466,6 +481,8 @@ fun AppBottomBar(
             label = "Preferiti",
             onSelect = onSelect,
             modifier = anchorFor(TutorialAnchor.FAVORITES_TAB),
+            // Nuovi capitoli non ancora visti: visibili da qualunque tab, non solo dai Preferiti.
+            badgeCount = favoritesBadgeCount,
         )
         AppTabEntry(
             tab = AppTab.LIBRARY,
@@ -486,12 +503,32 @@ private fun AppTabEntry(
     label: String,
     onSelect: (AppTab) -> Unit,
     modifier: Modifier = Modifier,
+    badgeCount: Int = 0,
 ) {
     ShortNavigationBarItem(
         modifier = modifier,
         selected = selected,
         onClick = { onSelect(tab) },
-        icon = { Icon(icon, contentDescription = null) },
+        icon = {
+            if (badgeCount > 0) {
+                BadgedBox(
+                    badge = {
+                        Badge {
+                            Text(
+                                text = badgeCount.toString(),
+                                modifier = Modifier.semantics {
+                                    contentDescription = "$badgeCount nuovi capitoli"
+                                },
+                            )
+                        }
+                    },
+                ) {
+                    Icon(icon, contentDescription = null)
+                }
+            } else {
+                Icon(icon, contentDescription = null)
+            }
+        },
         label = { Text(label) },
     )
 }

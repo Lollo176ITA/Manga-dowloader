@@ -48,6 +48,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
                 .getInt(KEY_READER_PAGE_SPACING, DEFAULT_READER_PAGE_SPACING_DP)
                 .coerceIn(0, MAX_READER_PAGE_SPACING_DP),
             doubleTapZoomEnabled = prefs.getBoolean(KEY_DOUBLE_TAP_ZOOM, false),
+            keepScreenOnEnabled = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
             allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
             themeMode = runCatching {
                 ThemeMode.valueOf(
@@ -63,6 +64,12 @@ class SettingsStore(private val prefs: SharedPreferences) {
                         ?: FavoriteSort.DATE_ADDED.name,
                 )
             }.getOrDefault(FavoriteSort.DATE_ADDED),
+            librarySort = runCatching {
+                LibrarySort.valueOf(
+                    prefs.getString(KEY_LIBRARY_SORT, LibrarySort.TITLE_ASC.name)
+                        ?: LibrarySort.TITLE_ASC.name,
+                )
+            }.getOrDefault(LibrarySort.TITLE_ASC),
             aniListSyncEnabled = prefs.getBoolean(KEY_ANILIST_SYNC_ENABLED, true),
         )
     }
@@ -90,12 +97,14 @@ class SettingsStore(private val prefs: SharedPreferences) {
             putString(KEY_READING_MODE, settings.readingMode.name)
             putInt(KEY_READER_PAGE_SPACING, settings.readerPageSpacingDp)
             putBoolean(KEY_DOUBLE_TAP_ZOOM, settings.doubleTapZoomEnabled)
+            putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOnEnabled)
             putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
             putString(KEY_THEME_MODE, settings.themeMode.name)
             putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
             putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
+            putString(KEY_LIBRARY_SORT, settings.librarySort.name)
             putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
         }
     }
@@ -123,12 +132,14 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_READING_MODE = "reading_mode"
         const val KEY_READER_PAGE_SPACING = "reader_page_spacing_dp"
         const val KEY_DOUBLE_TAP_ZOOM = "double_tap_zoom"
+        const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         const val KEY_ALLOW_LANDSCAPE_ROTATION = "allow_landscape_rotation"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
         const val KEY_TUTORIAL_COMPLETED = "tutorial_completed"
         const val KEY_FAVORITE_NOTIFICATIONS = "favorite_new_chapter_notifications"
         const val KEY_FAVORITE_SORT = "favorite_sort"
+        const val KEY_LIBRARY_SORT = "library_sort"
         const val KEY_ANILIST_SYNC_ENABLED = "anilist_sync_enabled"
     }
 }

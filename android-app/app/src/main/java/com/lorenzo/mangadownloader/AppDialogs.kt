@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -71,43 +73,39 @@ fun DeleteReadChaptersDialog(
     )
 }
 
+/**
+ * Spiega il perché PRIMA del prompt di sistema per POST_NOTIFICATIONS (mostrato a fine
+ * tutorial): una richiesta con contesto evita la negazione riflessa, che su Android
+ * diventa permanente al secondo rifiuto.
+ */
 @Composable
-fun CrashReportDialog(
-    report: String,
-    crashPath: String,
-    onSend: () -> Unit,
+fun NotificationPermissionRationaleDialog(
+    onAccept: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val canSend = FeedbackReporter.isConfigured()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ultimo crash rilevato") },
         shape = MaterialTheme.shapes.extraLarge,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = { Text("Attiva le notifiche") },
         text = {
             Text(
-                text = buildString {
-                    append(report.lineSequence().take(10).joinToString("\n"))
-                    if (crashPath.isNotBlank()) {
-                        append("\n\nFile: $crashPath")
-                    }
-                },
+                "Per avvisarti quando escono nuovi capitoli dei tuoi preferiti e per " +
+                    "non interrompere i download lunghi ci serve il permesso di inviarti " +
+                    "notifiche. Puoi cambiare idea in qualsiasi momento dalle impostazioni.",
             )
         },
         confirmButton = {
-            if (canSend) {
-                TextButton(onClick = onSend) {
-                    Text("Invia segnalazione")
-                }
-            } else {
-                TextButton(onClick = onDismiss) {
-                    Text("Chiudi")
-                }
-            }
+            TextButton(onClick = onAccept) { Text("Attiva") }
         },
-        dismissButton = if (canSend) {
-            { TextButton(onClick = onDismiss) { Text("Chiudi") } }
-        } else {
-            null
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Non ora") }
         },
     )
 }
@@ -309,11 +307,12 @@ fun ConfirmationDialog(
     )
 }
 
-/** Azioni rapide su un preferito (long-press): leggi subito i primi capitoli. */
+/** Azioni rapide su un preferito (long-press): leggi subito o rimuovi senza aprire il dettaglio. */
 @Composable
 fun FavoriteActionsDialog(
     title: String,
     onRead: () -> Unit,
+    onRemoveFromFavorites: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -327,6 +326,15 @@ fun FavoriteActionsDialog(
                     title = "Leggi",
                     description = null,
                     onClick = onRead,
+                )
+                // Rimozione locale e immediata (nessun fetch di rete come dal dettaglio);
+                // il ripensamento passa dalla snackbar "Annulla" mostrata dal chiamante.
+                FavoriteActionRow(
+                    icon = Icons.Outlined.StarBorder,
+                    title = "Rimuovi dai preferiti",
+                    description = null,
+                    onClick = onRemoveFromFavorites,
+                    tint = MaterialTheme.colorScheme.error,
                 )
             }
         },
@@ -342,6 +350,7 @@ private fun FavoriteActionRow(
     title: String,
     description: String?,
     onClick: () -> Unit,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
 ) {
     Row(
         modifier = Modifier
@@ -353,7 +362,7 @@ private fun FavoriteActionRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = tint,
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {

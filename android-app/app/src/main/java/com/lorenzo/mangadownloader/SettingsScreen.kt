@@ -23,6 +23,7 @@ fun SettingsScreen(
     settings: AppSettings,
     isBiometricAvailable: Boolean,
     isParentalAuthInProgress: Boolean,
+    notificationsPermissionGranted: Boolean,
     aniListViewerName: String?,
     isAniListConnecting: Boolean,
     padding: PaddingValues,
@@ -41,6 +42,7 @@ fun SettingsScreen(
     onSelectReadingMode: (ReadingMode) -> Unit,
     onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -55,6 +57,7 @@ fun SettingsScreen(
     onOpenReportProblem: () -> Unit,
     appVersion: String,
     onOpenChangelog: () -> Unit,
+    onRestartTutorial: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -86,6 +89,11 @@ fun SettingsScreen(
             DoubleTapZoomContent(
                 enabled = settings.doubleTapZoomEnabled,
                 onToggle = onToggleDoubleTapZoom,
+            )
+            SettingsDivider()
+            KeepScreenOnContent(
+                enabled = settings.keepScreenOnEnabled,
+                onToggle = onToggleKeepScreenOn,
             )
         }
 
@@ -131,6 +139,7 @@ fun SettingsScreen(
             SettingsDivider()
             FavoriteNotificationsContent(
                 enabled = settings.favoriteNewChapterNotificationsEnabled,
+                notificationsPermissionGranted = notificationsPermissionGranted,
                 onToggle = onToggleFavoriteNotifications,
             )
             SettingsDivider()
@@ -168,6 +177,7 @@ fun SettingsScreen(
             InfoContent(
                 appVersion = appVersion,
                 onOpenChangelog = onOpenChangelog,
+                onRestartTutorial = onRestartTutorial,
             )
             SettingsDivider()
             ReportProblemContent(onOpenReportProblem = onOpenReportProblem)

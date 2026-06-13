@@ -8,6 +8,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -27,10 +28,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -49,6 +53,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
@@ -60,6 +66,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleAniListRedirect(intent)
+        handleNotificationIntent(intent)
 
         setContent {
             MangaDownloaderApp()
@@ -71,6 +78,7 @@ class MainActivity : FragmentActivity() {
         // launchMode=singleTask: i nuovi intent (redirect OAuth, tap su notifica) arrivano qui.
         setIntent(intent)
         handleAniListRedirect(intent)
+        handleNotificationIntent(intent)
     }
 
     /** Consuma il redirect OAuth di AniList (`mangapp://anilist-auth#access_token=…`). */
@@ -82,6 +90,29 @@ class MainActivity : FragmentActivity() {
         intent.data = null
         ViewModelProvider(this)[MangaViewModel::class.java]
             .onAniListAuthRedirect(uri.fragment ?: uri.encodedQuery)
+    }
+
+    /**
+     * Consuma gli extras del tap su una notifica "nuovo capitolo": apre direttamente il
+     * dettaglio del manga (notifica singola) o il feed Aggiornamenti (riepilogo), invece
+     * della tab generica. Gli extras vengono rimossi così non riscattano alla ricomposizione.
+     */
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
+        val viewModel = ViewModelProvider(this)[MangaViewModel::class.java]
+        if (intent.getBooleanExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED, false)) {
+            intent.removeExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED)
+            viewModel.openUpdatesFromNotification()
+            return
+        }
+        val mangaUrl = intent.getStringExtra(FavoriteUpdateNotifier.EXTRA_OPEN_MANGA_URL) ?: return
+        intent.removeExtra(FavoriteUpdateNotifier.EXTRA_OPEN_MANGA_URL)
+        viewModel.openMangaFromNotification(
+            sourceId = intent.getStringExtra(FavoriteUpdateNotifier.EXTRA_OPEN_MANGA_SOURCE_ID).orEmpty(),
+            title = intent.getStringExtra(FavoriteUpdateNotifier.EXTRA_OPEN_MANGA_TITLE).orEmpty(),
+            mangaUrl = mangaUrl,
+            coverUrl = intent.getStringExtra(FavoriteUpdateNotifier.EXTRA_OPEN_MANGA_COVER),
+        )
     }
 }
 
@@ -170,9 +201,18 @@ private fun MangaDownloaderAppContent(
 
     LaunchedEffect(state.errorMessage) {
         val message = state.errorMessage ?: return@LaunchedEffect
+        // Dove il retry è naturale (fetch dei dettagli fallito) la snackbar offre "Riprova",
+        // che rilancia lo stesso manga senza dover ripetere la ricerca.
+        val retryResult = state.errorRetrySearchResult
         scope.launch {
-            snackbarHostState.showSnackbar(message)
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = if (retryResult != null) "Riprova" else null,
+            )
             viewModel.dismissError()
+            if (result == SnackbarResult.ActionPerformed && retryResult != null) {
+                viewModel.selectManga(retryResult)
+            }
         }
     }
 
@@ -228,6 +268,57 @@ private fun MangaDownloaderAppContent(
         contract = ActivityResultContracts.RequestPermission(),
     ) { }
 
+    // Il permesso notifiche può cambiare fuori dall'app (impostazioni di sistema):
+    // ricontrollato a ogni ritorno in foreground, così l'avviso sotto "Notifiche
+    // preferiti" resta veritiero anche dopo una revoca.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var notificationsPermissionTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) notificationsPermissionTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val notificationsPermissionGranted = remember(notificationsPermissionTick) {
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // Esito del permesso per "Notifiche preferiti": il toggle si accende SOLO se il
+    // permesso viene concesso; se negato resta spento e la snackbar porta alle
+    // impostazioni di sistema (al secondo rifiuto Android non mostra più il prompt).
+    val favoriteNotificationsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationsPermissionTick++
+        if (granted) {
+            viewModel.setFavoriteNotificationsEnabled(true)
+        } else {
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Le notifiche sono bloccate per l'app",
+                    actionLabel = "Impostazioni",
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    runCatching {
+                        appContext.startActivity(
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(
+                                    android.provider.Settings.EXTRA_APP_PACKAGE,
+                                    appContext.packageName,
+                                )
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // Backup (Storage Access Framework): la modalità di import scelta viene ricordata tra il tap
     // e il ritorno dal selettore di file. La sostituzione passa da una conferma esplicita.
     // rememberSaveable: la scelta MERGE/REPLACE deve sopravvivere a una morte del processo
@@ -241,15 +332,32 @@ private fun MangaDownloaderAppContent(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let { viewModel.importBackup(it, backupImportMode) } }
 
-    LaunchedEffect(Unit) {
+    // Niente più richiesta "alla cieca" del permesso notifiche al primo avvio (si impilava
+    // sul dialogo di benvenuto e portava a negazioni riflesse): la chiediamo nei momenti in
+    // cui il valore è evidente — fine del tutorial (con spiegazione, qui sotto), avvio di un
+    // download lungo e attivazione delle notifiche preferiti.
+    var showNotificationsRationale by rememberSaveable { mutableStateOf(false) }
+    val maybeAskNotificationsPermission: () -> Unit = {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
-                context,
+                appContext,
                 Manifest.permission.POST_NOTIFICATIONS,
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            showNotificationsRationale = true
         }
+    }
+    if (showNotificationsRationale) {
+        NotificationPermissionRationaleDialog(
+            onAccept = {
+                showNotificationsRationale = false
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            },
+            onDismiss = { showNotificationsRationale = false },
+        )
+    }
+
+    LaunchedEffect(Unit) {
         // Aperti dal tap su una notifica di download: porta direttamente alla Libreria.
         // L'extra viene consumato così non riscatta a ogni ricomposizione/rotazione.
         val intent = activity?.intent
@@ -439,6 +547,20 @@ private fun MangaDownloaderAppContent(
         }
     }
 
+    // Durante la lettura i tocchi sono rari (pagine lunghe, tavole dense): senza questo
+    // flag il timeout di sistema spegne lo schermo a metà pagina. Attivo solo a reader
+    // aperto (e con l'impostazione dedicata accesa); onDispose lo ripulisce sempre.
+    val keepScreenOn = state.readerChapter != null && state.settings.keepScreenOnEnabled
+    DisposableEffect(keepScreenOn, view) {
+        val window = (view.context as? Activity)?.window
+        if (keepScreenOn && window != null && !view.isInEditMode) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
     // trasforma il vicolo cieco in un passo successivo chiaro. Rispetta il lock parentale.
     val goToSearchTab: () -> Unit = {
@@ -488,7 +610,13 @@ private fun MangaDownloaderAppContent(
         state = state,
         onWelcomeStart = viewModel::onTutorialWelcomeStart,
         onWelcomeSkip = viewModel::onTutorialWelcomeSkip,
-        onFallbackCompleted = viewModel::onTutorialFallbackCompleted,
+        onWelcomeDismiss = viewModel::dismissTutorialWelcome,
+        onFallbackCompleted = {
+            viewModel.onTutorialFallbackCompleted()
+            // A tour appena concluso il valore delle notifiche è chiaro: è il momento
+            // giusto per chiedere il permesso, con la spiegazione del perché.
+            maybeAskNotificationsPermission()
+        },
         onAdvancePhase = viewModel::advanceTutorialPhase,
         onTargetTap = { anchor ->
             when (anchor) {
@@ -529,7 +657,10 @@ private fun MangaDownloaderAppContent(
                 TutorialAnchor.DETAIL_DOWNLOAD -> Unit
             }
         },
-        onFinish = viewModel::onTutorialFinish,
+        onFinish = { keepSample ->
+            viewModel.onTutorialFinish(keepSample)
+            maybeAskNotificationsPermission()
+        },
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -546,6 +677,7 @@ private fun MangaDownloaderAppContent(
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
+                    onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
                 )
             }
         },
@@ -554,6 +686,7 @@ private fun MangaDownloaderAppContent(
                 AppBottomBar(
                     currentTab = visiblePagerTab,
                     showDiscovery = state.settings.discoveryEnabled,
+                    favoritesBadgeCount = unseenCount(state.favoriteUpdates),
                     onSelect = { tab ->
                         viewModel.selectTab(tab)
                         val requiresSearchUnlock = tab == AppTab.SEARCH &&
@@ -594,6 +727,7 @@ private fun MangaDownloaderAppContent(
                     onOpenNext = viewModel::openNextReaderChapter,
                     onPageVisible = viewModel::saveReaderPagePosition,
                     onToggleFullscreen = { isReaderFullscreen = !isReaderFullscreen },
+                    onRetry = viewModel::retryReaderLoad,
                 )
             }
             Screen.StorageManager -> {
@@ -650,6 +784,7 @@ private fun MangaDownloaderAppContent(
                     settings = state.settings,
                     isBiometricAvailable = state.isBiometricAvailable,
                     isParentalAuthInProgress = state.isParentalAuthInProgress,
+                    notificationsPermissionGranted = notificationsPermissionGranted,
                     aniListViewerName = state.aniList.viewer?.name,
                     isAniListConnecting = state.aniList.isConnecting,
                     padding = innerPadding,
@@ -684,6 +819,7 @@ private fun MangaDownloaderAppContent(
                     onSelectReadingMode = viewModel::setReadingMode,
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
+                    onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
@@ -693,20 +829,20 @@ private fun MangaDownloaderAppContent(
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
                     onToggleFavoriteNotifications = { enabled ->
-                        if (enabled &&
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(
-                                context,
+                        if (enabled && !notificationsPermissionGranted) {
+                            // L'attivazione vera avviene nel callback del launcher,
+                            // solo a permesso concesso: niente switch ON "a vuoto".
+                            favoriteNotificationsPermissionLauncher.launch(
                                 Manifest.permission.POST_NOTIFICATIONS,
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            )
+                        } else {
+                            viewModel.setFavoriteNotificationsEnabled(enabled)
                         }
-                        viewModel.setFavoriteNotificationsEnabled(enabled)
                     },
                     onOpenStorageManager = viewModel::openStorageManager,
                     onOpenBackup = viewModel::openBackup,
                     onOpenReportProblem = viewModel::openFeedback,
+                    onRestartTutorial = viewModel::restartTutorial,
                     appVersion = BuildConfig.VERSION_NAME,
                     onOpenChangelog = viewModel::openChangelog,
                 )
@@ -752,6 +888,8 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onOpenChapter = viewModel::openReader,
                     onDeleteChapter = viewModel::deleteDownloadedChapter,
+                    onSetChapterRead = viewModel::setChapterRead,
+                    onMarkReadUpTo = viewModel::markChaptersReadUpTo,
                 )
             }
             Screen.Tabs -> {
@@ -780,6 +918,8 @@ private fun MangaDownloaderAppContent(
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                             onShowInfo = viewModel::showMangaInfo,
                             onDismissInfo = viewModel::dismissMangaInfo,
+                            onSelectSource = viewModel::selectSearchSource,
+                            onSelectAllSources = viewModel::selectAllSourcesSearch,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
@@ -805,6 +945,18 @@ private fun MangaDownloaderAppContent(
                             onSelectSort = viewModel::setFavoriteSort,
                             onSelectReadingState = viewModel::setFavoriteFilterReadingState,
                             onReadNow = viewModel::readNowFromFavorite,
+                            onRemoveFavorite = { favorite ->
+                                viewModel.toggleFavorite(favorite)
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Rimosso dai preferiti: ${favorite.title}",
+                                        actionLabel = "Annulla",
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.toggleFavorite(favorite)
+                                    }
+                                }
+                            },
                         )
                         AppTab.LIBRARY -> LibraryScreen(
                             state = state,
@@ -819,6 +971,8 @@ private fun MangaDownloaderAppContent(
                                 workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
                             },
                             onResume = viewModel::openReader,
+                            onSelectSort = viewModel::setLibrarySort,
+                            onMarkAllRead = viewModel::markAllChaptersRead,
                         )
                     }
                 }
@@ -850,29 +1004,21 @@ private fun MangaDownloaderAppContent(
         )
     }
 
-    lastCrashReport?.let { report ->
-        CrashReportDialog(
-            report = report,
-            crashPath = remember(appContext) { CrashReporter.crashFilePath(appContext).orEmpty() },
-            onSend = {
-                CrashReporter.clearLastCrash(appContext)
-                lastCrashReport = null
-                scope.launch {
-                    val ok = FeedbackReporter.sendCrashReport(context, report)
-                    snackbarHostState.showSnackbar(
-                        if (ok) {
-                            "Segnalazione inviata. Grazie!"
-                        } else {
-                            "Invio non riuscito. Riprova più tardi."
-                        },
-                    )
-                }
-            },
-            onDismiss = {
-                CrashReporter.clearLastCrash(appContext)
-                lastCrashReport = null
-            },
-        )
+    // Crash del run precedente: la segnalazione parte da sola in background, senza
+    // disturbare l'utente con stack trace incomprensibili (scelta deliberata). Se l'invio
+    // fallisce il report resta su disco e si ritenta al prossimo avvio.
+    LaunchedEffect(lastCrashReport) {
+        val report = lastCrashReport ?: return@LaunchedEffect
+        if (!FeedbackReporter.isConfigured()) {
+            CrashReporter.clearLastCrash(appContext)
+            lastCrashReport = null
+            return@LaunchedEffect
+        }
+        val sent = FeedbackReporter.sendCrashReport(appContext, report)
+        if (sent) {
+            CrashReporter.clearLastCrash(appContext)
+        }
+        lastCrashReport = null
     }
 
     state.parentalPinSetupState?.let { setupState ->

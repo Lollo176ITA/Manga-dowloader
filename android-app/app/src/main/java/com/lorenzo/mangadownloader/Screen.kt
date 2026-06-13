@@ -35,8 +35,10 @@ fun MangaUiState.currentScreen(): Screen = when {
     showFeedback -> Screen.Feedback
     showChangelog -> Screen.Changelog
     showSettings -> Screen.Settings
-    showUpdates -> Screen.Updates
+    // Il dettaglio sta SOPRA il feed Aggiornamenti: aprendo un manga dal feed, il back
+    // (clearSelection) riporta al feed con gli altri eventi ancora evidenziati.
     selected != null -> Screen.Detail
+    showUpdates -> Screen.Updates
     currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
     else -> Screen.Tabs
 }

@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.AnimationState
@@ -26,10 +27,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,6 +56,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,7 +83,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -104,7 +111,13 @@ fun ReaderScreen(
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
+    onRetry: () -> Unit,
 ) {
+    // In modalità a pagine il salto di capitolo vive solo nella barra in basso, nascosta in
+    // fullscreen: quando il pager si assesta sull'ultima pagina la barra riappare da sola,
+    // così il passaggio al capitolo successivo non richiede tap + tap.
+    var pagedAtLastPage by remember(chapter?.relativePath, readingMode) { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = chapter?.relativePath,
@@ -138,14 +151,17 @@ fun ReaderScreen(
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
                 onToggleFullscreen = onToggleFullscreen,
+                onRetry = onRetry,
+                onAtLastPageChange = { pagedAtLastPage = it },
             )
         }
 
         // Barra di navigazione capitoli fissa in basso: resta sopra al contenuto del
         // reader (sia scroll verticale che a pagine) e segue lo stato del fullscreen
         // tramite [navBarVisible], così con un tap immersivo sparisce insieme alle barre.
+        // Sull'ultima pagina del pager riappare anche in fullscreen (pagedAtLastPage).
         ReaderBottomNavBar(
-            visible = navBarVisible &&
+            visible = (navBarVisible || pagedAtLastPage) &&
                 chapter != null &&
                 !isLoading &&
                 (previousChapter != null || nextChapter != null),
@@ -247,6 +263,8 @@ private fun ReaderContent(
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
+    onRetry: () -> Unit,
+    onAtLastPageChange: (Boolean) -> Unit,
 ) {
     when {
         isLoading -> {
@@ -263,6 +281,9 @@ private fun ReaderContent(
             EmptyState(
                 icon = Icons.Default.BrokenImage,
                 title = "Nessuna pagina disponibile",
+                description = "Potrebbe essere un problema di rete o della fonte.",
+                actionLabel = if (chapter != null) "Riprova" else null,
+                onAction = if (chapter != null) onRetry else null,
                 modifier = Modifier.padding(padding),
             )
         }
@@ -278,6 +299,7 @@ private fun ReaderContent(
                 initialPageIndex = initialPageIndex,
                 onPageVisible = onPageVisible,
                 onToggleFullscreen = onToggleFullscreen,
+                onAtLastPageChange = onAtLastPageChange,
             )
         }
         else -> {
@@ -328,6 +350,7 @@ private fun VerticalReader(
     val zoomFlingDecay = remember { exponentialDecay<Float>() }
     val zoomFlingScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
+    val context = LocalContext.current
 
     DisposableEffect(chapterKey) {
         onDispose { zoomFlingJob?.cancel() }
@@ -384,6 +407,7 @@ private fun VerticalReader(
             .distinctUntilChanged()
             .collect { (reachedPageIndex, allowCompletion) ->
                 onPageVisible(reachedPageIndex, pages.size, allowCompletion)
+                prefetchReaderPages(context, pages, reachedPageIndex)
             }
     }
 
@@ -629,11 +653,11 @@ private fun VerticalReader(
                 )
             }
             items(pages, key = { it.stableKey }) { page ->
-                AsyncImage(
-                    model = rememberReaderImageModel(page),
+                ReaderPageImage(
+                    page = page,
                     contentDescription = chapter.title,
-                    modifier = Modifier.fillMaxWidth(),
                     contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             item("reader-nav-bottom") {
@@ -661,6 +685,7 @@ private fun PagedReader(
     initialPageIndex: Int,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
+    onAtLastPageChange: (Boolean) -> Unit,
 ) {
     // Solo le pagine reali: niente più "pagine di navigazione" all'inizio/fine. Il salto
     // al capitolo precedente/successivo vive nella barra fissa in basso (ReaderBottomNavBar),
@@ -670,6 +695,7 @@ private fun PagedReader(
         pageCount = { pages.size },
     )
     var hasMoved by remember(chapterKey) { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(chapterKey) {
         snapshotFlow { pagerState.currentPage }
@@ -683,6 +709,8 @@ private fun PagedReader(
             .collect { settled ->
                 val pageIndex = settled.coerceIn(0, pages.lastIndex)
                 onPageVisible(pageIndex, pages.size, hasMoved)
+                onAtLastPageChange(pageIndex == pages.lastIndex)
+                prefetchReaderPages(context, pages, pageIndex)
             }
     }
 
@@ -705,6 +733,9 @@ private fun PagedReader(
                 // Visibile solo durante lo swipe: separa otticamente le pagine come in un volume.
                 pageSpacing = pageSpacing,
                 key = { index -> pages[index].stableKey },
+                // La pagina successiva è già composta (e la sua immagine in caricamento)
+                // prima dello swipe: in streaming evita la pagina nera a ogni cambio.
+                beyondViewportPageCount = 1,
             ) { index ->
                 ZoomablePage(
                     page = pages[index],
@@ -860,9 +891,10 @@ private fun ZoomablePage(
             },
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
-            model = rememberReaderImageModel(page),
+        ReaderPageImage(
+            page = page,
             contentDescription = contentDescription,
+            contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -871,29 +903,122 @@ private fun ZoomablePage(
                     translationX = offsetX
                     translationY = offsetY
                 },
-            contentScale = ContentScale.Fit,
         )
     }
 }
 
 /**
- * Modello immagine per Coil. Le pagine locali sono semplici file; quelle remote
- * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
- * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
+ * Pagina del reader con feedback di stato: spinner finché l'immagine carica e, in caso
+ * di fallimento, una card "Tocca per riprovare" — così una pagina remota fallita non
+ * collassa ad altezza zero sparendo dal flusso verticale, né resta schermata nera muta
+ * in modalità a pagine. Il retry incrementa un contatore che entra nella richiesta Coil
+ * come parametro: la chiave nuova forza un vero nuovo tentativo di rete.
  */
 @Composable
-private fun rememberReaderImageModel(page: ReaderPage): Any {
+private fun ReaderPageImage(
+    page: ReaderPage,
+    contentDescription: String,
+    contentScale: ContentScale,
+    modifier: Modifier = Modifier,
+) {
+    var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
     val context = LocalContext.current
-    return when (page) {
-        is ReaderPage.Local -> page.file
-        is ReaderPage.Remote -> remember(page.url, page.referer) {
-            ImageRequest.Builder(context)
-                .data(page.url)
-                .setHeader("Referer", page.referer)
-                .build()
-        }
+    val model = remember(page.stableKey, retryAttempt) {
+        readerImageRequest(context, page, retryAttempt)
+    }
+    SubcomposeAsyncImage(
+        model = model,
+        contentDescription = contentDescription,
+        modifier = modifier,
+        contentScale = contentScale,
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = ReaderPagePlaceholderMinHeight),
+                contentAlignment = Alignment.Center,
+            ) {
+                AppLoadingIndicator()
+            }
+        },
+        error = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = ReaderPagePlaceholderMinHeight),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    onClick = { retryAttempt++ },
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BrokenImage,
+                            contentDescription = null,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Pagina non caricata",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = "Tocca per riprovare",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * Richiesta immagine per Coil. Le pagine locali sono semplici file; quelle remote
+ * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
+ * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
+ * [retryAttempt] > 0 entra nella cache key per distinguere il retry dalla richiesta fallita.
+ */
+private fun readerImageRequest(
+    context: Context,
+    page: ReaderPage,
+    retryAttempt: Int = 0,
+): ImageRequest {
+    val builder = ImageRequest.Builder(context)
+    when (page) {
+        is ReaderPage.Local -> builder.data(page.file)
+        is ReaderPage.Remote -> builder.data(page.url).setHeader("Referer", page.referer)
+    }
+    if (retryAttempt > 0) {
+        builder.setParameter("retry", retryAttempt)
+    }
+    return builder.build()
+}
+
+/**
+ * Scalda la cache Coil (memoria + disco) delle pagine remote successive a [fromIndex]:
+ * allo swipe/scroll l'immagine è già pronta invece di una pagina nera che scarica.
+ * Best-effort: le pagine locali non ne hanno bisogno, le richieste duplicate le
+ * deduplica Coil tramite cache.
+ */
+private fun prefetchReaderPages(context: Context, pages: List<ReaderPage>, fromIndex: Int) {
+    val first = fromIndex + 1
+    val last = (fromIndex + ReaderPrefetchPagesAhead).coerceAtMost(pages.lastIndex)
+    for (index in first..last) {
+        val page = pages.getOrNull(index) as? ReaderPage.Remote ?: continue
+        context.imageLoader.enqueue(readerImageRequest(context, page))
     }
 }
 
 private const val ReaderPageItemOffset = 1
 private const val MinZoomFlingVelocityPxPerSecond = 120f
+private const val ReaderPrefetchPagesAhead = 3
+
+// Ingombro delle pagine non ancora caricate (spinner/errore): evita item ad altezza
+// zero in verticale e dà un bersaglio visibile al "tocca per riprovare".
+private val ReaderPagePlaceholderMinHeight = 360.dp

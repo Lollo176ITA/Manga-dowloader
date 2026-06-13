@@ -49,6 +49,7 @@ fun FavoritesScreen(
     onSelectSort: (FavoriteSort) -> Unit,
     onSelectReadingState: (FavoriteReadingState?) -> Unit,
     onReadNow: (FavoriteManga) -> Unit,
+    onRemoveFavorite: (FavoriteManga) -> Unit,
 ) {
     val displayed = remember(
         favorites, query, sort, statusByKey, seenByKey, filterReadingState, readingStateByKey,
@@ -190,6 +191,10 @@ fun FavoritesScreen(
             title = favorite.title,
             onRead = {
                 onReadNow(favorite)
+                actionsFor = null
+            },
+            onRemoveFromFavorites = {
+                onRemoveFavorite(favorite)
                 actionsFor = null
             },
             onDismiss = { actionsFor = null },

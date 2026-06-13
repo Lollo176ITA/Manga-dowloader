@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -29,11 +31,14 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
@@ -72,8 +77,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,7 +118,12 @@ fun SearchField(
     placeholder: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onSearch: (() -> Unit)? = null,
 ) {
+    // Tasto "Cerca" sulla tastiera al posto del generico "Fine": l'invio chiude sempre la
+    // tastiera (libera la griglia dei risultati) e, dove ha senso confermare subito
+    // (tab Cerca), lancia la ricerca senza aspettare il debounce via [onSearch].
+    val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -130,6 +142,13 @@ fun SearchField(
                 }
             }
         },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(
+            onSearch = {
+                focusManager.clearFocus()
+                onSearch?.invoke()
+            },
+        ),
         shape = MaterialTheme.shapes.extraLarge,
     )
 }
@@ -174,6 +193,8 @@ fun EmptyState(
     description: String? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -208,6 +229,12 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(20.dp))
             Button(onClick = onAction, shape = MaterialTheme.shapes.large) {
                 Text(actionLabel)
+            }
+        }
+        if (secondaryActionLabel != null && onSecondaryAction != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onSecondaryAction) {
+                Text(secondaryActionLabel)
             }
         }
     }
@@ -331,6 +358,7 @@ fun ResultCard(
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     onShowInfo: () -> Unit,
+    sourceLabel: String? = null,
 ) {
     Card(
         modifier = Modifier
@@ -362,6 +390,14 @@ fun ResultCard(
                         .align(Alignment.TopEnd)
                         .padding(6.dp),
                 )
+                if (sourceLabel != null) {
+                    SourceBadge(
+                        label = sourceLabel,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(6.dp),
+                    )
+                }
             }
             Text(
                 text = result.title,
@@ -373,6 +409,28 @@ fun ResultCard(
             )
         }
     }
+}
+
+/**
+ * Badge col nome corto della fonte, sovrapposto alla cover (stesso stile dello ScoreBadge
+ * di Scopri). Usato nella ricerca aggregata, dove lo stesso titolo appare da più fonti
+ * con card altrimenti identiche.
+ */
+@Composable
+fun SourceBadge(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White,
+        fontWeight = FontWeight.SemiBold,
+        modifier = modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
 }
 
 @Composable
@@ -602,20 +660,68 @@ fun DownloadedChapterRow(
     chapter: DownloadedChapter,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onSetRead: ((Boolean) -> Unit)? = null,
+    onMarkReadUpTo: (() -> Unit)? = null,
 ) {
     val containerColor = if (chapter.isRead) {
         MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
     } else {
         MaterialTheme.colorScheme.surfaceContainerLow
     }
+    // Long-press: gestione manuale dello stato "letto" (capitolo letto altrove, o da
+    // rileggere) senza doverlo aprire nel reader.
+    var readMenuExpanded by remember(chapter.relativePath) { mutableStateOf(false) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(MaterialTheme.shapes.large)
-            .clickable(onClick = onOpen),
+            .combinedClickable(
+                onClick = onOpen,
+                onLongClick = if (onSetRead != null) {
+                    { readMenuExpanded = true }
+                } else {
+                    null
+                },
+            ),
         color = containerColor,
     ) {
+        if (onSetRead != null) {
+            DropdownMenu(
+                expanded = readMenuExpanded,
+                onDismissRequest = { readMenuExpanded = false },
+            ) {
+                if (chapter.isRead) {
+                    DropdownMenuItem(
+                        text = { Text("Segna come non letto") },
+                        leadingIcon = { Icon(Icons.Default.RemoveDone, contentDescription = null) },
+                        onClick = {
+                            readMenuExpanded = false
+                            onSetRead(false)
+                        },
+                    )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text("Segna come letto") },
+                        leadingIcon = { Icon(Icons.Default.Done, contentDescription = null) },
+                        onClick = {
+                            readMenuExpanded = false
+                            onSetRead(true)
+                        },
+                    )
+                }
+                if (onMarkReadUpTo != null) {
+                    DropdownMenuItem(
+                        text = { Text("Segna come letti fino a qui") },
+                        leadingIcon = { Icon(Icons.Default.DoneAll, contentDescription = null) },
+                        onClick = {
+                            readMenuExpanded = false
+                            onMarkReadUpTo()
+                        },
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -804,6 +910,8 @@ fun SeriesActionsMenu(
     onDelete: () -> Unit,
     // Mostrata solo quando ci sono capitoli letti da poter liberare (altrimenti null).
     onDeleteReadChapters: (() -> Unit)? = null,
+    // Mostrata solo quando ci sono capitoli ancora da leggere (altrimenti null).
+    onMarkAllRead: (() -> Unit)? = null,
 ) {
     Box {
         IconButton(onClick = onExpand) {
@@ -821,6 +929,13 @@ fun SeriesActionsMenu(
                 leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
                 onClick = onShowInfo,
             )
+            if (onMarkAllRead != null) {
+                DropdownMenuItem(
+                    text = { Text("Segna tutti come letti") },
+                    leadingIcon = { Icon(Icons.Default.DoneAll, contentDescription = null) },
+                    onClick = onMarkAllRead,
+                )
+            }
             if (onDeleteReadChapters != null) {
                 DropdownMenuItem(
                     text = { Text("Elimina capitoli letti") },

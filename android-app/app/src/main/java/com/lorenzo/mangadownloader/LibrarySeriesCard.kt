@@ -34,6 +34,7 @@ fun LibrarySeriesCard(
     onDelete: () -> Unit,
     onDeleteReadChapters: () -> Unit,
     onStopDownloads: () -> Unit,
+    onMarkAllRead: () -> Unit,
 ) {
     val series = row.series
     val downloadStatus = row.downloadStatus
@@ -122,6 +123,15 @@ fun LibrarySeriesCard(
                             {
                                 menuExpanded = false
                                 showDeleteReadDialog = true
+                            }
+                        } else {
+                            null
+                        },
+                        // Visibile solo se resta qualcosa da leggere.
+                        onMarkAllRead = if (!isFullyRead) {
+                            {
+                                menuExpanded = false
+                                onMarkAllRead()
                             }
                         } else {
                             null

@@ -272,7 +272,7 @@ class DownloadWorker(
     private fun makeForegroundInfo(message: String): ForegroundInfo {
         ensureNotificationChannel()
         val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ic_stat_manga)
             .setContentTitle("Manga Downloader")
             .setContentText(message)
             .setOngoing(true)
@@ -300,7 +300,7 @@ class DownloadWorker(
         ensureNotificationChannel()
         val notificationId = COMPLETION_ID_BASE + (key and 0xFFFF)
         val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_manga)
             .setContentTitle(title?.takeIf(String::isNotBlank) ?: "Manga Downloader")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

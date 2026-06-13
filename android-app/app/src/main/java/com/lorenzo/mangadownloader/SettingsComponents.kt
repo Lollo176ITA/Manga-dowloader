@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -102,7 +104,17 @@ private fun SettingRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // L'intera riga commuta l'interruttore (non solo il piccolo Switch a destra)
+            // e TalkBack la annuncia come un unico elemento "titolo, descrizione, attivato".
+            // Lo Switch resta senza handler proprio: un solo nodo interattivo per riga.
+            .toggleable(
+                value = checked,
+                onValueChange = onCheckedChange,
+                role = Role.Switch,
+            )
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -120,7 +132,7 @@ private fun SettingRow(
         Spacer(modifier = Modifier.width(12.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
         )
     }
 }
@@ -237,6 +249,19 @@ fun DoubleTapZoomContent(
 }
 
 @Composable
+fun KeepScreenOnContent(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    SettingRow(
+        title = "Mantieni schermo acceso",
+        description = "Durante la lettura lo schermo non si spegne da solo.",
+        checked = enabled,
+        onCheckedChange = onToggle,
+    )
+}
+
+@Composable
 fun StreamingReaderContent(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
@@ -342,6 +367,7 @@ fun StorageManagerContent(
 fun InfoContent(
     appVersion: String,
     onOpenChangelog: () -> Unit,
+    onRestartTutorial: () -> Unit,
 ) {
     Column {
         Row(
@@ -378,6 +404,27 @@ fun InfoContent(
                 )
                 Text(
                     text = "Scopri cosa è cambiato nelle ultime versioni",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        SettingsDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onRestartTutorial),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Rivedi il tutorial",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "Ripercorri il tour guidato delle funzioni principali",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -513,14 +560,28 @@ fun AniListAccountContent(
 @Composable
 fun FavoriteNotificationsContent(
     enabled: Boolean,
+    notificationsPermissionGranted: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
-    SettingRow(
-        title = "Notifiche preferiti",
-        description = "Ricevi una notifica quando esce un nuovo capitolo dei tuoi preferiti",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
+    Column {
+        SettingRow(
+            title = "Notifiche preferiti",
+            description = "Ricevi una notifica quando esce un nuovo capitolo dei tuoi preferiti",
+            checked = enabled,
+            onCheckedChange = onToggle,
+        )
+        // Permesso revocato a posteriori dalle impostazioni di sistema: senza questo avviso
+        // il toggle ON sarebbe un fallimento silenzioso (nessuna notifica arriverà mai).
+        if (enabled && !notificationsPermissionGranted) {
+            Text(
+                text = "Permesso notifiche disattivato: non riceverai avvisi. " +
+                    "Riattivalo dalle impostazioni di sistema.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
 }
 
 @Composable

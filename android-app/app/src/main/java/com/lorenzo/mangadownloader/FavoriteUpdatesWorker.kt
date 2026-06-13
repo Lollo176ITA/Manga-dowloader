@@ -54,6 +54,7 @@ class FavoriteUpdatesWorker(
         val feedStore = FavoriteUpdatesFeedStore(prefs)
         val registry = sharedSourceRegistry(context)
         val notifier = FavoriteUpdateNotifier(context)
+        var notifiedCount = 0
 
         try {
         for (favorite in favorites) {
@@ -103,12 +104,18 @@ class FavoriteUpdatesWorker(
                         )
                     }
                     notifier.notifyNewChapter(favorite, label)
+                    notifiedCount++
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
                 // Best-effort: rete/parsing fallito su un preferito → si riprova al giro dopo.
             }
+        }
+        // Riepilogo del gruppo: con 2+ capitoli non visti il pannello resta compatto
+        // (una voce sola che espande le singole) invece di N notifiche sparse.
+        if (notifiedCount > 0) {
+            notifier.notifySummary(feedStore.read().filter { !it.seen })
         }
         } finally {
             // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà
@@ -122,7 +129,11 @@ class FavoriteUpdatesWorker(
     }
 }
 
-/** Invio delle notifiche "nuovo capitolo". Canale dedicato; il tap apre l'app. */
+/**
+ * Invio delle notifiche "nuovo capitolo". Canale dedicato e gruppo con riepilogo: il tap
+ * sulla singola apre direttamente il manga, il tap sul riepilogo apre il feed Aggiornamenti
+ * (extras gestiti da MainActivity).
+ */
 class FavoriteUpdateNotifier(private val context: Context) {
 
     fun notifyNewChapter(favorite: FavoriteManga, chapterLabel: String) {
@@ -132,11 +143,12 @@ class FavoriteUpdateNotifier(private val context: Context) {
         ensureChannel()
         val notificationId = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl).hashCode()
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(R.drawable.ic_stat_manga)
             .setContentTitle(favorite.title)
             .setContentText("Nuovo capitolo disponibile: $chapterLabel")
             .setAutoCancel(true)
-            .setContentIntent(appLaunchIntent(notificationId))
+            .setGroup(GROUP_KEY)
+            .setContentIntent(openMangaIntent(favorite, notificationId))
             .build()
         try {
             NotificationManagerCompat.from(context).notify(notificationId, notification)
@@ -145,12 +157,59 @@ class FavoriteUpdateNotifier(private val context: Context) {
         }
     }
 
-    private fun appLaunchIntent(requestCode: Int): PendingIntent? {
+    /**
+     * Riepilogo del gruppo: con più capitoli usciti il pannello mostra una voce compatta
+     * ("3 nuovi capitoli") che raccoglie le singole. Tap → feed Aggiornamenti in-app.
+     */
+    fun notifySummary(unseenEvents: List<FavoriteUpdateEvent>) {
+        if (unseenEvents.size < 2 || !canPostNotifications()) {
+            return
+        }
+        ensureChannel()
+        val summaryTitle = "${unseenEvents.size} nuovi capitoli"
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(summaryTitle)
+        unseenEvents.take(6).forEach { style.addLine("${it.title} — ${it.chapterLabel}") }
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_manga)
+            .setContentTitle(summaryTitle)
+            .setContentText(unseenEvents.joinToString(", ") { it.title })
+            .setStyle(style)
+            .setGroup(GROUP_KEY)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .setContentIntent(openUpdatesFeedIntent())
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(SUMMARY_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // Permesso revocato tra il controllo e l'invio: ignora.
+        }
+    }
+
+    /** Tap sulla singola notifica: extras per aprire direttamente il dettaglio del manga. */
+    private fun openMangaIntent(favorite: FavoriteManga, requestCode: Int): PendingIntent? {
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: return null
+        launchIntent.putExtra(EXTRA_OPEN_MANGA_SOURCE_ID, favorite.sourceId)
+        launchIntent.putExtra(EXTRA_OPEN_MANGA_TITLE, favorite.title)
+        launchIntent.putExtra(EXTRA_OPEN_MANGA_URL, favorite.mangaUrl)
+        launchIntent.putExtra(EXTRA_OPEN_MANGA_COVER, favorite.coverUrl)
         return PendingIntent.getActivity(
             context,
             requestCode,
+            launchIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    /** Tap sul riepilogo: extra per aprire il feed Aggiornamenti. */
+    private fun openUpdatesFeedIntent(): PendingIntent? {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: return null
+        launchIntent.putExtra(EXTRA_OPEN_UPDATES_FEED, true)
+        return PendingIntent.getActivity(
+            context,
+            SUMMARY_NOTIFICATION_ID,
             launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -182,8 +241,19 @@ class FavoriteUpdateNotifier(private val context: Context) {
         )
     }
 
-    private companion object {
-        const val CHANNEL_ID = "favorite_new_chapters"
+    companion object {
+        private const val CHANNEL_ID = "favorite_new_chapters"
+        private const val GROUP_KEY = "favorite_new_chapters_group"
+
+        // ID stabile e fuori dal range tipico degli hashCode dei manga: il riepilogo
+        // del gruppo non deve mai sovrascrivere una notifica singola.
+        private const val SUMMARY_NOTIFICATION_ID = 920_001
+
+        const val EXTRA_OPEN_MANGA_SOURCE_ID = "notif_open_manga_source_id"
+        const val EXTRA_OPEN_MANGA_TITLE = "notif_open_manga_title"
+        const val EXTRA_OPEN_MANGA_URL = "notif_open_manga_url"
+        const val EXTRA_OPEN_MANGA_COVER = "notif_open_manga_cover"
+        const val EXTRA_OPEN_UPDATES_FEED = "notif_open_updates_feed"
     }
 }
 

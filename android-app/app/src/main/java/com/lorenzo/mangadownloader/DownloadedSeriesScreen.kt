@@ -24,6 +24,8 @@ fun DownloadedSeriesScreen(
     padding: PaddingValues,
     onOpenChapter: (DownloadedChapter) -> Unit,
     onDeleteChapter: (DownloadedChapter) -> Unit,
+    onSetChapterRead: (DownloadedChapter, Boolean) -> Unit,
+    onMarkReadUpTo: (DownloadedChapter) -> Unit,
 ) {
     val isFullyRead = series.isFullyRead()
     var chapterPendingDelete by remember { mutableStateOf<DownloadedChapter?>(null) }
@@ -74,6 +76,8 @@ fun DownloadedSeriesScreen(
                         chapter = chapter,
                         onOpen = { onOpenChapter(chapter) },
                         onDelete = { chapterPendingDelete = chapter },
+                        onSetRead = { read -> onSetChapterRead(chapter, read) },
+                        onMarkReadUpTo = { onMarkReadUpTo(chapter) },
                     )
                 }
             }

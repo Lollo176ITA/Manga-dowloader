@@ -17,6 +17,7 @@ class MangaWorldSource(
         id = MangaSourceIds.MANGA_WORLD,
         displayName = "MangaWorld",
         shortName = "MW",
+        language = MangaSourceLanguage.ITA,
     )
 
     override val invalidChapterUrlMessage: String =

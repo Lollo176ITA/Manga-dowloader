@@ -16,6 +16,7 @@ class MangapillSource(
         id = MangaSourceIds.MANGAPILL,
         displayName = "Mangapill",
         shortName = "MP",
+        language = MangaSourceLanguage.ENG,
     )
 
     override val invalidChapterUrlMessage: String =

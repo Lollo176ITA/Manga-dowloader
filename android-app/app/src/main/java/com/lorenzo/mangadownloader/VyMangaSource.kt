@@ -37,6 +37,7 @@ class VyMangaSource(
         id = MangaSourceIds.VYMANGA,
         displayName = "VyManga",
         shortName = "VY",
+        language = MangaSourceLanguage.ENG,
     )
 
     override val invalidChapterUrlMessage: String =

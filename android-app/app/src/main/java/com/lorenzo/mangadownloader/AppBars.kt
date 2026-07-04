@@ -3,7 +3,6 @@ package com.lorenzo.mangadownloader
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,35 +14,26 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledIconToggleButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -66,7 +56,6 @@ fun AppTopBar(
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSelectSource: (String) -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
     unseenUpdatesCount: Int,
@@ -74,15 +63,6 @@ fun AppTopBar(
     onMarkAllUpdatesSeen: () -> Unit,
 ) {
     val anchorFor = LocalTutorialAnchor.current
-    val resolvedSourceId = remember(state.settings.searchSourceId) {
-        MangaSourceCatalog.resolveSourceId(state.settings.searchSourceId)
-    }
-    val selectedSourceName = remember(resolvedSourceId) {
-        MangaSourceCatalog.displayName(resolvedSourceId)
-    }
-    val selectedSourceShortName = remember(resolvedSourceId) {
-        MangaSourceCatalog.shortDisplayName(resolvedSourceId)
-    }
     val readerChapter = state.readerChapter
     val selectedManga = state.selected
     val selectedSeries = state.selectedDownloadedSeries
@@ -107,12 +87,11 @@ fun AppTopBar(
             AppTab.LIBRARY -> "Libreria"
         }
     }
-    var overflowExpanded by remember { mutableStateOf(false) }
     var brightnessExpanded by remember(readerChapter?.relativePath) { mutableStateOf(false) }
-    var showServerDialog by remember { mutableStateOf(false) }
-    var serverSelectorExpanded by remember { mutableStateOf(false) }
 
-    val showOverflow = screen == Screen.Tabs
+    // La scelta del server vive nelle chip della tab Cerca (per lingua): in alto a destra
+    // resta solo l'accesso diretto alle Impostazioni, senza menu intermedio.
+    val showSettingsAction = screen == Screen.Tabs
     val showUpdatesAction = visibleTab == AppTab.FAVORITES && screen == Screen.Tabs
 
     CenterAlignedTopAppBar(
@@ -199,110 +178,20 @@ fun AppTopBar(
                 )
             }
 
-            if (showOverflow) {
-                Box {
-                    IconButton(
-                        onClick = { overflowExpanded = true },
-                        modifier = anchorFor(TutorialAnchor.OVERFLOW),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Altre azioni",
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = overflowExpanded,
-                        onDismissRequest = { overflowExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Server: $selectedSourceShortName") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Storage, contentDescription = null)
-                            },
-                            onClick = {
-                                overflowExpanded = false
-                                showServerDialog = true
-                            },
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Impostazioni") },
-                            leadingIcon = {
-                                Icon(Icons.Default.Settings, contentDescription = null)
-                            },
-                            onClick = {
-                                overflowExpanded = false
-                                onOpenSettings()
-                            },
-                        )
-                    }
+            if (showSettingsAction) {
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = anchorFor(TutorialAnchor.SETTINGS),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Impostazioni",
+                    )
                 }
             }
 
         },
     )
-
-    if (showServerDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                serverSelectorExpanded = false
-                showServerDialog = false
-            },
-            title = { Text("Seleziona server") },
-            shape = MaterialTheme.shapes.extraLarge,
-            text = {
-                ExposedDropdownMenuBox(
-                    expanded = serverSelectorExpanded,
-                    onExpandedChange = { serverSelectorExpanded = !serverSelectorExpanded },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                ) {
-                    OutlinedTextField(
-                        value = selectedSourceName,
-                        onValueChange = {},
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth(),
-                        readOnly = true,
-                        singleLine = true,
-                        label = { Text("Server") },
-                        leadingIcon = {
-                            Icon(imageVector = Icons.Default.Storage, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = serverSelectorExpanded)
-                        },
-                        shape = MaterialTheme.shapes.large,
-                    )
-                    ExposedDropdownMenu(
-                        expanded = serverSelectorExpanded,
-                        onDismissRequest = { serverSelectorExpanded = false },
-                    ) {
-                        MangaSourceCatalog.descriptors.forEach { source ->
-                            DropdownMenuItem(
-                                text = { Text(source.displayName) },
-                                onClick = {
-                                    serverSelectorExpanded = false
-                                    onSelectSource(source.id)
-                                    showServerDialog = false
-                                },
-                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    serverSelectorExpanded = false
-                    showServerDialog = false
-                }) {
-                    Text("Chiudi")
-                }
-            },
-        )
-    }
 }
 
 @Composable

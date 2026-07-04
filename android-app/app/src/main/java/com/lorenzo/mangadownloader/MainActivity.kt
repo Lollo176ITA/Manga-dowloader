@@ -653,7 +653,7 @@ private fun MangaDownloaderAppContent(
                 }
                 TutorialAnchor.SEARCH_TAB,
                 TutorialAnchor.SEARCH_BAR,
-                TutorialAnchor.OVERFLOW,
+                TutorialAnchor.SETTINGS,
                 TutorialAnchor.DETAIL_DOWNLOAD -> Unit
             }
         },
@@ -672,7 +672,6 @@ private fun MangaDownloaderAppContent(
                     onBack = viewModel::handleBack,
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                     onOpenSettings = viewModel::openSettings,
-                    onSelectSource = viewModel::selectSearchSource,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
@@ -790,6 +789,7 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
+                    onToggleShowIndividualSources = viewModel::setShowIndividualSources,
                     onToggleDiscovery = viewModel::setDiscoveryEnabled,
                     onConnectAniList = {
                         scope.launch {
@@ -919,6 +919,7 @@ private fun MangaDownloaderAppContent(
                             onShowInfo = viewModel::showMangaInfo,
                             onDismissInfo = viewModel::dismissMangaInfo,
                             onSelectSource = viewModel::selectSearchSource,
+                            onSelectLanguage = viewModel::selectLanguageSearch,
                             onSelectAllSources = viewModel::selectAllSourcesSearch,
                         )
                         AppTab.FAVORITES -> FavoritesScreen(

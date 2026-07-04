@@ -21,6 +21,7 @@ class HastaTeamSource(
         id = MangaSourceIds.HASTA_TEAM,
         displayName = "Hasta Team",
         shortName = "HT",
+        language = MangaSourceLanguage.ITA,
     )
 
     override val invalidChapterUrlMessage: String =

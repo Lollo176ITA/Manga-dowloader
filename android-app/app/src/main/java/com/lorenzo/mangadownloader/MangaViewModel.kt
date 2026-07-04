@@ -99,7 +99,12 @@ const val DEFAULT_READER_PAGE_SPACING_DP = 8
 const val MAX_READER_PAGE_SPACING_DP = 24
 
 data class AppSettings(
+    // Ambito della ricerca: per lingua di default (ITA per un'app in italiano); la fonte
+    // singola (scope SOURCE + searchSourceId) esiste solo con showIndividualSources attivo.
+    val searchScope: SearchScope = SearchScope.ITA,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
+    // Mostra nella tab Cerca anche le chip delle singole fonti (per chi conosce i server).
+    val showIndividualSources: Boolean = false,
     val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
@@ -207,10 +212,6 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
-    // Ricerca aggregata su TUTTE le fonti invece della sola fonte selezionata. Attivata dal
-    // chip "Tutte" della tab Cerca o dal ponte AniList (tab Scopri); resta attiva anche
-    // digitando e si disattiva scegliendo una fonte singola dai chip o dal dialog.
-    val bridgeSearchActive: Boolean = false,
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
@@ -258,7 +259,11 @@ data class MangaUiState(
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
     val tutorialState: TutorialUiState = TutorialUiState(),
     val errorMessage: String? = null,
-)
+) {
+    /** Ricerca aggregata su più fonti (Tutte o per lingua), invece della fonte singola. */
+    val aggregatedSearchActive: Boolean
+        get() = settings.searchScope != SearchScope.SOURCE
+}
 
 private fun AppSettings.shouldStartTutorial(favorites: List<FavoriteManga>): Boolean {
     return !tutorialCompleted && favorites.isEmpty()
@@ -395,12 +400,12 @@ class MangaViewModel internal constructor(
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { Triple(it.query.trim(), it.settings.searchSourceId, it.bridgeSearchActive) }
+                .map { Triple(it.query.trim(), it.settings.searchSourceId, it.settings.searchScope) }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (q, sourceId, bridge) ->
-                    if (bridge) {
-                        // Modalità "Tutte le fonti" (chip o ponte Scopri): aggregata a ogni query.
+                .collect { (q, sourceId, scope) ->
+                    if (scope != SearchScope.SOURCE) {
+                        // Ambito aggregato (Tutte o per lingua): parte con qualunque query non vuota.
                         if (q.isNotEmpty()) {
                             runAggregatedSearch(q)
                         } else {
@@ -447,7 +452,7 @@ class MangaViewModel internal constructor(
 
     fun submitSearch() {
         val q = _state.value.query.trim()
-        if (_state.value.bridgeSearchActive) {
+        if (_state.value.aggregatedSearchActive) {
             if (q.isNotEmpty()) runAggregatedSearch(q)
             return
         }
@@ -558,14 +563,11 @@ class MangaViewModel internal constructor(
         val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
         val query = _state.value.query.trim()
         val searchConfig = MangaSourceCatalog.searchConfig(resolvedSourceId)
-        updateSettings { it.copy(searchSourceId = resolvedSourceId) }
-        updateState {
-            copy(
-                // Scegliere una fonte singola esce dalla modalità "Tutte le fonti".
-                bridgeSearchActive = false,
-                errorMessage = null,
-            )
+        // Scegliere una fonte singola esce dall'ambito aggregato (Tutte/lingua).
+        updateSettings {
+            it.copy(searchScope = SearchScope.SOURCE, searchSourceId = resolvedSourceId)
         }
+        updateState { copy(errorMessage = null) }
         when {
             query.isEmpty() && searchConfig.showAllOnEmptyQuery -> {
                 updateState {
@@ -597,20 +599,42 @@ class MangaViewModel internal constructor(
 
     /**
      * Chip "Tutte" (o CTA "Cerca su tutte le fonti" a zero risultati): attiva la ricerca
-     * aggregata. Il rilancio della query corrente lo fa [observeQueryChanges], che osserva
-     * anche `bridgeSearchActive`.
+     * aggregata su ogni fonte. Il rilancio della query corrente lo fa [observeQueryChanges],
+     * che osserva anche `settings.searchScope`.
      */
     fun selectAllSourcesSearch() {
-        if (_state.value.bridgeSearchActive) return
+        setAggregatedSearchScope(SearchScope.ALL)
+    }
+
+    /** Chip lingua ("Italiano"/"English"): ricerca aggregata sulle fonti di quella lingua. */
+    fun selectLanguageSearch(language: MangaSourceLanguage) {
+        setAggregatedSearchScope(SearchScope.forLanguage(language))
+    }
+
+    private fun setAggregatedSearchScope(scope: SearchScope) {
+        require(scope != SearchScope.SOURCE) { "Per la fonte singola usare selectSearchSource" }
+        if (_state.value.settings.searchScope == scope) return
         val query = _state.value.query.trim()
+        updateSettings { it.copy(searchScope = scope) }
         updateState {
             copy(
-                bridgeSearchActive = true,
                 results = emptyList(),
                 isSearching = query.isNotEmpty(),
                 searchError = null,
                 errorMessage = null,
             )
+        }
+    }
+
+    /**
+     * Impostazione "Mostra fonti singole". Spegnendola, un'eventuale fonte singola attiva
+     * non sarebbe più visibile né deselezionabile dai chip: si torna alla sua lingua.
+     */
+    fun setShowIndividualSources(enabled: Boolean) {
+        updateSettings { it.copy(showIndividualSources = enabled) }
+        if (!enabled && _state.value.settings.searchScope == SearchScope.SOURCE) {
+            val language = MangaSourceCatalog.languageOf(_state.value.settings.searchSourceId)
+            setAggregatedSearchScope(SearchScope.forLanguage(language))
         }
     }
 
@@ -2300,10 +2324,11 @@ class MangaViewModel internal constructor(
     }
 
     /**
-     * Ricerca aggregata su TUTTE le fonti, usata dal ponte AniList→fonti (tab Scopri): lo stesso
-     * titolo può esistere su fonti diverse e l'utente sceglie quale scaricare. Ogni fonte è
-     * interrogata in parallelo e i fallimenti della singola fonte sono ignorati (best-effort),
-     * così una fonte down non azzera i risultati delle altre.
+     * Ricerca aggregata sulle fonti dello scope attivo: tutte (chip "Tutte" o ponte
+     * AniList→fonti della tab Scopri) o solo quelle di una lingua (chip "Italiano"/"English").
+     * Lo stesso titolo può esistere su fonti diverse e l'utente sceglie quale scaricare.
+     * Ogni fonte è interrogata in parallelo e i fallimenti della singola fonte sono ignorati
+     * (best-effort), così una fonte down non azzera i risultati delle altre.
      */
     private fun runAggregatedSearch(query: String) {
         searchJob?.cancel()
@@ -2312,7 +2337,7 @@ class MangaViewModel internal constructor(
             try {
                 val results = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        MangaSourceCatalog.descriptors
+                        MangaSourceCatalog.descriptorsForScope(_state.value.settings.searchScope)
                             .map { descriptor ->
                                 async {
                                     runCatching {
@@ -2446,10 +2471,10 @@ class MangaViewModel internal constructor(
      */
     fun onPickAniListManga(manga: AniListManga) {
         val title = manga.searchTitle() ?: return
+        updateSettings { it.copy(searchScope = SearchScope.ALL) }
         updateState {
             copy(
                 query = title,
-                bridgeSearchActive = true,
                 results = emptyList(),
                 isSearching = true,
                 searchError = null,

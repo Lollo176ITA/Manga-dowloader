@@ -252,7 +252,8 @@ class DownloadPlanAndCbzTest {
         private val pageUrls: List<String>,
         private val freeSpace: Long,
     ) : BaseMangaSource(context, networkClient) {
-        override val descriptor = MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Test", "T")
+        override val descriptor =
+            MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Test", "T", MangaSourceLanguage.ENG)
         override val invalidChapterUrlMessage = "Invalid test URL"
         override fun canHandleUrl(url: String) = canonical != null
         override fun searchManga(query: String): List<MangaSearchResult> = emptyList()

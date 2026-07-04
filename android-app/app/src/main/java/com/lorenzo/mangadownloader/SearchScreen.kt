@@ -44,9 +44,11 @@ fun SearchScreen(
     onShowInfo: (MangaSearchResult) -> Unit,
     onDismissInfo: () -> Unit,
     onSelectSource: (String) -> Unit,
+    onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
     val trimmed = state.query.trim()
+    val scope = state.settings.searchScope
     val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
     val pullState = rememberPullToRefreshState()
 
@@ -65,12 +67,16 @@ fun SearchScreen(
             onSearch = onRefresh,
         )
 
-        // Fonte attiva sempre visibile e cambiabile a 1 tap (prima: 4 tap via overflow→dialog).
-        // "Tutte" attiva la ricerca aggregata, la stessa del ponte AniList della tab Scopri.
-        SourceFilterChips(
+        // Ambito sempre visibile e cambiabile a 1 tap. L'utente sceglie per lingua
+        // (Tutte · Italiano · English), non per server: i nomi delle fonti non dicono
+        // nulla a chi non le conosce. Le chip delle fonti singole compaiono solo con
+        // l'impostazione "Mostra fonti singole" attiva.
+        SearchScopeChips(
+            scope = scope,
             selectedSourceId = state.settings.searchSourceId,
-            allSourcesActive = state.bridgeSearchActive,
+            showIndividualSources = state.settings.showIndividualSources,
             onSelectSource = onSelectSource,
+            onSelectLanguage = onSelectLanguage,
             onSelectAllSources = onSelectAllSources,
         )
 
@@ -103,9 +109,9 @@ fun SearchScreen(
                             state.results.first().mangaUrl,
                         )
                         Column(modifier = Modifier.fillMaxSize()) {
-                            if (state.bridgeSearchActive) {
+                            if (state.aggregatedSearchActive) {
                                 Text(
-                                    text = "${state.results.size} risultati da tutte le fonti",
+                                    text = "${state.results.size} risultati ${scope.resultsCaption()}",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(start = 16.dp, top = 4.dp),
@@ -139,8 +145,9 @@ fun SearchScreen(
                                             onToggleFavorite = { onToggleFavorite(result) },
                                             onShowInfo = { onShowInfo(result) },
                                             // In aggregata lo stesso titolo arriva da più fonti:
-                                            // il badge le rende distinguibili senza aprire il dettaglio.
-                                            sourceLabel = if (state.bridgeSearchActive) {
+                                            // il badge le rende distinguibili senza aprire il
+                                            // dettaglio (due edizioni diverse, non un doppione).
+                                            sourceLabel = if (state.aggregatedSearchActive) {
                                                 MangaSourceCatalog.shortDisplayName(result.sourceId)
                                             } else {
                                                 null
@@ -153,7 +160,7 @@ fun SearchScreen(
                     }
                     trimmed.isEmpty() -> {
                         when {
-                            !state.bridgeSearchActive && searchConfig.showAllOnEmptyQuery -> EmptyState(
+                            !state.aggregatedSearchActive && searchConfig.showAllOnEmptyQuery -> EmptyState(
                                 icon = Icons.Default.SearchOff,
                                 title = "Nessun risultato",
                             )
@@ -171,7 +178,7 @@ fun SearchScreen(
                     }
                     // Il minimo di caratteri vale per la fonte singola: l'aggregata parte
                     // con qualunque query non vuota.
-                    !state.bridgeSearchActive && trimmed.length < searchConfig.minQueryLength -> {
+                    !state.aggregatedSearchActive && trimmed.length < searchConfig.minQueryLength -> {
                         EmptyState(
                             icon = Icons.Default.Search,
                             title = if (searchConfig.minQueryLength == 1) {
@@ -181,7 +188,7 @@ fun SearchScreen(
                             },
                         )
                     }
-                    state.bridgeSearchActive -> {
+                    scope == SearchScope.ALL -> {
                         EmptyState(
                             icon = Icons.Default.SearchOff,
                             title = "Nessun risultato",
@@ -192,13 +199,14 @@ fun SearchScreen(
                         )
                     }
                     else -> {
-                        // Vicolo cieco più frequente della ricerca: il titolo magari esiste su
-                        // un'altra fonte. La CTA primaria estende la ricerca a tutte in 1 tap.
+                        // Vicolo cieco più frequente della ricerca: il titolo magari esiste
+                        // in un'altra lingua o su un'altra fonte. La CTA primaria estende
+                        // la ricerca a tutte in 1 tap.
                         EmptyState(
                             icon = Icons.Default.SearchOff,
                             title = "Nessun risultato",
-                            description = "Nessun manga trovato per \"$trimmed\" su " +
-                                "${MangaSourceCatalog.shortDisplayName(state.settings.searchSourceId)}.",
+                            description = "Nessun manga trovato per \"$trimmed\" " +
+                                "${scope.emptyResultsPlace(state.settings.searchSourceId)}.",
                             actionLabel = "Cerca su tutte le fonti",
                             onAction = onSelectAllSources,
                             secondaryActionLabel = "Cancella ricerca",
@@ -218,33 +226,69 @@ fun SearchScreen(
     }
 }
 
+/** Complemento per la caption "N risultati …" della ricerca aggregata. */
+private fun SearchScope.resultsCaption(): String = when (this) {
+    SearchScope.ALL -> "da tutte le fonti"
+    SearchScope.ITA -> "dalle fonti in italiano"
+    SearchScope.ENG -> "dalle fonti in inglese"
+    SearchScope.SOURCE -> ""
+}
+
+/** Complemento di luogo per lo stato vuoto "Nessun manga trovato per \"q\" …". */
+private fun SearchScope.emptyResultsPlace(selectedSourceId: String): String = when (this) {
+    SearchScope.ITA -> "sulle fonti in italiano"
+    SearchScope.ENG -> "sulle fonti in inglese"
+    else -> "su ${MangaSourceCatalog.shortDisplayName(selectedSourceId)}"
+}
+
 /**
- * Riga di FilterChip per lo scope della ricerca: "Tutte" (aggregata su ogni fonte) più una
- * chip per fonte. Stesso pattern dei GenreChips della tab Scopri.
+ * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per lingua
+ * (Italiano/English), che attivano la ricerca aggregata sulle fonti corrispondenti.
+ * Con "Mostra fonti singole" attivo si aggiungono le chip delle fonti dell'ambito
+ * corrente (tutte, o solo quelle della lingua scelta). Stesso pattern dei GenreChips
+ * della tab Scopri.
  */
 @Composable
-private fun SourceFilterChips(
+private fun SearchScopeChips(
+    scope: SearchScope,
     selectedSourceId: String,
-    allSourcesActive: Boolean,
+    showIndividualSources: Boolean,
     onSelectSource: (String) -> Unit,
+    onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
     val resolvedSourceId = MangaSourceCatalog.resolveSourceId(selectedSourceId)
+    // Con una fonte singola attiva, le fonti mostrate restano quelle della sua lingua.
+    val visibleSources = when {
+        !showIndividualSources -> emptyList()
+        scope == SearchScope.SOURCE ->
+            MangaSourceCatalog.descriptorsForScope(
+                SearchScope.forLanguage(MangaSourceCatalog.languageOf(resolvedSourceId)),
+            )
+        else -> MangaSourceCatalog.descriptorsForScope(scope)
+    }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
+        item(key = "all") {
             FilterChip(
-                selected = allSourcesActive,
+                selected = scope == SearchScope.ALL,
                 onClick = onSelectAllSources,
                 label = { Text("Tutte") },
             )
         }
-        items(MangaSourceCatalog.descriptors, key = { it.id }) { descriptor ->
+        items(MangaSourceLanguage.entries, key = { "lang_${it.name}" }) { language ->
             FilterChip(
-                selected = !allSourcesActive && resolvedSourceId == descriptor.id,
+                selected = scope.language == language,
+                onClick = { onSelectLanguage(language) },
+                label = { Text(language.displayName) },
+            )
+        }
+        items(visibleSources, key = { it.id }) { descriptor ->
+            FilterChip(
+                selected = scope == SearchScope.SOURCE && resolvedSourceId == descriptor.id,
                 onClick = { onSelectSource(descriptor.id) },
                 label = { Text(descriptor.shortName) },
             )

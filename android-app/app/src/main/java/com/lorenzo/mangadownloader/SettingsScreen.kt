@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ fun SettingsScreen(
     padding: PaddingValues,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
+    onToggleShowIndividualSources: (Boolean) -> Unit,
     onToggleDiscovery: (Boolean) -> Unit,
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
@@ -94,6 +96,13 @@ fun SettingsScreen(
             KeepScreenOnContent(
                 enabled = settings.keepScreenOnEnabled,
                 onToggle = onToggleKeepScreenOn,
+            )
+        }
+
+        SettingsSection(title = "Ricerca", icon = Icons.Default.Search) {
+            ShowIndividualSourcesContent(
+                enabled = settings.showIndividualSources,
+                onToggle = onToggleShowIndividualSources,
             )
         }
 

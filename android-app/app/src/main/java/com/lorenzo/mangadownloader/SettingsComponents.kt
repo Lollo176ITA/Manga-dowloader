@@ -487,6 +487,32 @@ fun ReportProblemContent(
     }
 }
 
+/**
+ * Impostazione "Mostra fonti singole" della tab Cerca: di default l'app parla solo di lingue
+ * (Italiano/English); chi conosce i server può attivare le chip per fonte. È l'unico posto
+ * dove i server vengono nominati per esteso, così la descrizione spiega anche le sigle.
+ */
+@Composable
+fun ShowIndividualSourcesContent(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    // Elenco generato dal catalogo: resta corretto se le fonti cambiano.
+    val sourcesByLanguage = MangaSourceLanguage.entries.joinToString(separator = "; ") { language ->
+        val names = MangaSourceCatalog.descriptors
+            .filter { it.language == language }
+            .joinToString(" e ") { it.displayName }
+        "$names (${language.displayName})"
+    }
+    SettingRow(
+        title = "Mostra fonti singole",
+        description = "Nella ricerca, oltre a Italiano e English, mostra una chip per ogni " +
+            "server: $sourcesByLanguage",
+        checked = enabled,
+        onCheckedChange = onToggle,
+    )
+}
+
 @Composable
 fun DiscoveryContent(
     enabled: Boolean,

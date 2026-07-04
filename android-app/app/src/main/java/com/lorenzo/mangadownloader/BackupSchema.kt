@@ -47,7 +47,9 @@ data class FavoriteBackupEntry(
  */
 @Serializable
 data class SettingsBackup(
+    val searchScope: String = SearchScope.ITA.name,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
+    val showIndividualSources: Boolean = false,
     val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
@@ -95,7 +97,9 @@ fun decodeBackup(raw: String): MangaBackup? {
 }
 
 fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
+    searchScope = searchScope.name,
     searchSourceId = searchSourceId,
+    showIndividualSources = showIndividualSources,
     discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters,
@@ -129,7 +133,9 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
  * `parentalControlEnabled` viene riacceso solo se sul device c'è già un PIN configurato.
  */
 fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
+    searchScope = runCatching { SearchScope.valueOf(searchScope) }.getOrDefault(current.searchScope),
     searchSourceId = MangaSourceCatalog.resolveSourceId(searchSourceId),
+    showIndividualSources = showIndividualSources,
     discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters.coerceAtLeast(1),

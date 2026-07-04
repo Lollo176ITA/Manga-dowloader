@@ -451,6 +451,47 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun sourceCatalog_groupsSourcesByLanguage() {
+        val ita = MangaSourceCatalog.descriptorsForScope(SearchScope.ITA).map { it.id }
+        val eng = MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id }
+
+        assertEquals(listOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD), ita)
+        assertEquals(listOf(MangaSourceIds.MANGAPILL, MangaSourceIds.VYMANGA), eng)
+        // Ogni fonte appartiene a esattamente una lingua: ITA+ENG coprono tutto il catalogo.
+        assertEquals(
+            MangaSourceCatalog.descriptors.map { it.id }.toSet(),
+            (ita + eng).toSet(),
+        )
+    }
+
+    @Test
+    fun sourceCatalog_scopeAllAndSourceUseFullCatalog() {
+        assertEquals(
+            MangaSourceCatalog.descriptors,
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ALL),
+        )
+        // SOURCE non ha una lingua propria: la ricerca usa searchSourceId, non questo elenco.
+        assertEquals(
+            MangaSourceCatalog.descriptors,
+            MangaSourceCatalog.descriptorsForScope(SearchScope.SOURCE),
+        )
+    }
+
+    @Test
+    fun sourceCatalog_languageOfResolvesAndFallsBack() {
+        assertEquals(MangaSourceLanguage.ITA, MangaSourceCatalog.languageOf(MangaSourceIds.MANGA_WORLD))
+        assertEquals(MangaSourceLanguage.ENG, MangaSourceCatalog.languageOf(MangaSourceIds.VYMANGA))
+        // Id sconosciuto → lingua della fonte di default (Mangapill, ENG).
+        assertEquals(MangaSourceLanguage.ENG, MangaSourceCatalog.languageOf("boh"))
+    }
+
+    @Test
+    fun searchScope_forLanguageMapsBothLanguages() {
+        assertEquals(SearchScope.ITA, SearchScope.forLanguage(MangaSourceLanguage.ITA))
+        assertEquals(SearchScope.ENG, SearchScope.forLanguage(MangaSourceLanguage.ENG))
+    }
+
+    @Test
     fun searchConfig_allowsBrowseAllForHastaTeam() {
         val hastaConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.HASTA_TEAM)
         val mangapillConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.MANGAPILL)

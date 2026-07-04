@@ -4,6 +4,15 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-07-04
+
+### Migliorato
+
+- La ricerca ora si filtra per lingua: chip "Tutte · Italiano · English" al posto delle sigle dei server (MP, MW…), che non dicevano nulla a chi non li conosce. Scegliere una lingua cerca su tutte le fonti in quella lingua; il badge sulla copertina distingue le edizioni quando lo stesso titolo arriva da più fonti.
+- Per chi conosce i server: nuova opzione "Mostra fonti singole" nelle Impostazioni (sezione Ricerca) che aggiunge le chip delle singole fonti, con i nomi completi spiegati nella descrizione.
+- Il menu a 3 puntini in alto a destra è stato sostituito dall'icona Impostazioni diretta: la voce "Server" era ridondante con le chip della ricerca (e il dialog di selezione è stato rimosso).
+- La lingua di ricerca predefinita ora è Italiano (prima il server predefinito era in inglese).
+
 ## 2026-06-11
 
 ### Aggiunto

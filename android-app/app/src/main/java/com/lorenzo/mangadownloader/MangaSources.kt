@@ -16,11 +16,45 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.jsoup.nodes.Document
 
+/** Lingua dei contenuti di una fonte: è il criterio con cui l'utente sceglie dove cercare. */
+enum class MangaSourceLanguage(val displayName: String) {
+    ITA("Italiano"),
+    ENG("English"),
+}
+
 data class MangaSourceDescriptor(
     val id: String,
     val displayName: String,
     val shortName: String,
+    val language: MangaSourceLanguage,
 )
+
+/**
+ * Ambito della ricerca nella tab Cerca. L'utente ragiona per lingua ("lo voglio in italiano
+ * o in inglese?"), non per server: le fonti singole restano raggiungibili solo con
+ * l'impostazione "Mostra fonti singole" attiva (scope [SOURCE] + `AppSettings.searchSourceId`).
+ */
+enum class SearchScope(val language: MangaSourceLanguage?) {
+    /** Aggregata su tutte le fonti (chip "Tutte" o ponte AniList della tab Scopri). */
+    ALL(null),
+
+    /** Aggregata sulle sole fonti italiane. */
+    ITA(MangaSourceLanguage.ITA),
+
+    /** Aggregata sulle sole fonti inglesi. */
+    ENG(MangaSourceLanguage.ENG),
+
+    /** Una singola fonte, quella di `AppSettings.searchSourceId`. */
+    SOURCE(null),
+    ;
+
+    companion object {
+        fun forLanguage(language: MangaSourceLanguage): SearchScope = when (language) {
+            MangaSourceLanguage.ITA -> ITA
+            MangaSourceLanguage.ENG -> ENG
+        }
+    }
+}
 
 data class MangaSearchConfig(
     val minQueryLength: Int,
@@ -44,11 +78,23 @@ object MangaSourceIds {
 
 object MangaSourceCatalog {
     val descriptors = listOf(
-        MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP"),
-        MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT"),
-        MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW"),
-        MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY"),
+        MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT", MangaSourceLanguage.ITA),
+        MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW", MangaSourceLanguage.ITA),
+        MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY", MangaSourceLanguage.ENG),
     )
+
+    /** Fonti interrogate dalla ricerca aggregata per [scope]: tutte, o solo quelle della lingua. */
+    fun descriptorsForScope(scope: SearchScope): List<MangaSourceDescriptor> {
+        val language = scope.language ?: return descriptors
+        return descriptors.filter { it.language == language }
+    }
+
+    /** Lingua della fonte [sourceId] (con fallback sulla fonte di default se sconosciuta). */
+    fun languageOf(sourceId: String): MangaSourceLanguage {
+        val resolved = resolveSourceId(sourceId)
+        return descriptors.first { it.id == resolved }.language
+    }
 
     fun resolveSourceId(
         sourceId: String?,

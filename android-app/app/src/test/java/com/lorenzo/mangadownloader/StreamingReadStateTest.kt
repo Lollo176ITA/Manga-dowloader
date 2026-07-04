@@ -143,6 +143,7 @@ class StreamingReadStateTest {
             id = MangaSourceIds.MANGAPILL,
             displayName = "Test",
             shortName = "T",
+            language = MangaSourceLanguage.ENG,
         )
         override val invalidChapterUrlMessage: String = "Invalid test URL"
 

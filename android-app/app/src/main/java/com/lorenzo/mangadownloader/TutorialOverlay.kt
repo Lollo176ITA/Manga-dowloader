@@ -52,7 +52,7 @@ enum class TutorialAnchor {
     SEARCH_TAB,
     FAVORITES_TAB,
     LIBRARY_TAB,
-    OVERFLOW,
+    SETTINGS,
     SEARCH_BAR,
     SEARCH_RESULT_FIRST,
     DETAIL_FAVORITE,
@@ -260,9 +260,9 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
             handlesTargetTap = true,
         )
         TutorialPhase.AwaitingOverflow -> TutorialTargetContent(
-            anchor = TutorialAnchor.OVERFLOW,
-            title = "Menu e server",
-            description = "Da qui puoi cambiare server di ricerca e aprire le impostazioni. Il tutorial termina qui.",
+            anchor = TutorialAnchor.SETTINGS,
+            title = "Impostazioni",
+            description = "Da qui apri le impostazioni dell'app. La lingua delle fonti si sceglie direttamente nella ricerca. Il tutorial termina qui.",
             ctaText = "Finisci",
             shape = CutoutShape.Circle(radiusPadding = 10.dp),
             targetTapBehavior = TargetTapBehavior.PASS_THROUGH,

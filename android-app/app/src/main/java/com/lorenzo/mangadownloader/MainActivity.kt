@@ -60,6 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -205,7 +206,7 @@ private fun MangaDownloaderAppContent(
         // che rilancia lo stesso manga senza dover ripetere la ricerca.
         val retryResult = state.errorRetrySearchResult
         scope.launch {
-            val result = snackbarHostState.showSnackbar(
+            val result = snackbarHostState.showAutoDismissSnackbar(
                 message = message,
                 actionLabel = if (retryResult != null) "Riprova" else null,
             )
@@ -245,10 +246,9 @@ private fun MangaDownloaderAppContent(
         val firstUrl = field(DownloadWorker.PROGRESS_FIRST_URL)
         val label = title?.let { "Download di $it non riuscito" } ?: "Download non riuscito"
         scope.launch {
-            val result = snackbarHostState.showSnackbar(
+            val result = snackbarHostState.showAutoDismissSnackbar(
                 message = "$label: $message",
                 actionLabel = if (firstUrl != null) "Riprova" else null,
-                duration = SnackbarDuration.Long,
             )
             if (result == SnackbarResult.ActionPerformed && firstUrl != null) {
                 DownloadWorker.enqueue(
@@ -299,7 +299,7 @@ private fun MangaDownloaderAppContent(
             viewModel.setFavoriteNotificationsEnabled(true)
         } else {
             scope.launch {
-                val result = snackbarHostState.showSnackbar(
+                val result = snackbarHostState.showAutoDismissSnackbar(
                     message = "Le notifiche sono bloccate per l'app",
                     actionLabel = "Impostazioni",
                 )
@@ -475,7 +475,7 @@ private fun MangaDownloaderAppContent(
                 scope.launch {
                     // Azione "Libreria": progresso, coda e stop vivono nella tab Libreria;
                     // un tap ci porta dove si monitora la coda appena creata (chiude il dettaglio).
-                    val result = snackbarHostState.showSnackbar(
+                    val result = snackbarHostState.showAutoDismissSnackbar(
                         message = if (startChapter.url == endChapter.url) {
                             "Download aggiunto in coda: ${startChapter.displayLabel()}"
                         } else {
@@ -948,7 +948,7 @@ private fun MangaDownloaderAppContent(
                             onRemoveFavorite = { favorite ->
                                 viewModel.toggleFavorite(favorite)
                                 scope.launch {
-                                    val result = snackbarHostState.showSnackbar(
+                                    val result = snackbarHostState.showAutoDismissSnackbar(
                                         message = "Rimosso dai preferiti: ${favorite.title}",
                                         actionLabel = "Annulla",
                                     )
@@ -1100,4 +1100,26 @@ private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
 }
 
 private const val ReaderPrivacyMaxDimAlpha = 0.86f
+
+/** Permanenza massima delle snackbar con azione prima di sparire da sole. */
+private const val SnackbarWithActionTimeoutMs = 8_000L
+
+/**
+ * Come [SnackbarHostState.showSnackbar], ma le snackbar con azione spariscono da sole dopo
+ * [SnackbarWithActionTimeoutMs]: il default Material 3 con `actionLabel` è `Indefinite`
+ * (restano finché non le tocchi), e le durate predefinite non offrono una via di mezzo
+ * tra Short (4s) e Long (10s). Allo scadere il risultato è [SnackbarResult.Dismissed],
+ * come per uno swipe. Senza azione, comportamento standard (Short).
+ */
+private suspend fun SnackbarHostState.showAutoDismissSnackbar(
+    message: String,
+    actionLabel: String? = null,
+): SnackbarResult {
+    if (actionLabel == null) {
+        return showSnackbar(message)
+    }
+    return withTimeoutOrNull(SnackbarWithActionTimeoutMs) {
+        showSnackbar(message, actionLabel, duration = SnackbarDuration.Indefinite)
+    } ?: SnackbarResult.Dismissed
+}
 

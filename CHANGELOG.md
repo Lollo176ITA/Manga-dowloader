@@ -14,6 +14,10 @@
 - La lingua di ricerca predefinita ora è Italiano (prima il server predefinito era in inglese).
 - Nella ricerca su più fonti i risultati ora si alternano (il primo di ogni fonte, poi i secondi, …) invece di comparire a blocchi: prima tutta una fonte e poi l'altra. Il miglior risultato di ogni fonte è subito in cima — utile coi titoli alternativi: cercando "demon slayer", MangaWorld e Mangapill lo trovano ma lo mostrano col titolo originale "Kimetsu no Yaiba", che prima finiva sepolto in fondo alla lista.
 
+### Corretto
+
+- Gli avvisi in basso con un pulsante ("Download aggiunto in coda", "Rimosso dai preferiti", errori con "Riprova"…) non restavano più a schermo per sempre: ora spariscono da soli dopo 8 secondi se non li tocchi.
+
 ### Rimosso
 
 - Voce "Rivedi il tutorial" dalle Impostazioni: un tap accidentale fuori dal benvenuto già non brucia più il tour (si ripropone al riavvio), quindi la voce serviva solo a chi lo saltava di proposito.

@@ -12,6 +12,7 @@
 - Per chi conosce i server: nuova opzione "Mostra fonti singole" nelle Impostazioni (sezione Ricerca) che aggiunge le chip delle singole fonti, con i nomi completi spiegati nella descrizione.
 - Il menu a 3 puntini in alto a destra è stato sostituito dall'icona Impostazioni diretta: la voce "Server" era ridondante con le chip della ricerca (e il dialog di selezione è stato rimosso).
 - La lingua di ricerca predefinita ora è Italiano (prima il server predefinito era in inglese).
+- Nella ricerca su più fonti i risultati ora si alternano (il primo di ogni fonte, poi i secondi, …) invece di comparire a blocchi: prima tutta una fonte e poi l'altra. Il miglior risultato di ogni fonte è subito in cima — utile coi titoli alternativi: cercando "demon slayer", MangaWorld e Mangapill lo trovano ma lo mostrano col titolo originale "Kimetsu no Yaiba", che prima finiva sepolto in fondo alla lista.
 
 ### Rimosso
 

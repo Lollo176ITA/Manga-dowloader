@@ -2308,7 +2308,9 @@ class MangaViewModel internal constructor(
      * AniList→fonti della tab Scopri) o solo quelle di una lingua (chip "Italiano"/"English").
      * Lo stesso titolo può esistere su fonti diverse e l'utente sceglie quale scaricare.
      * Ogni fonte è interrogata in parallelo e i fallimenti della singola fonte sono ignorati
-     * (best-effort), così una fonte down non azzera i risultati delle altre.
+     * (best-effort), così una fonte down non azzera i risultati delle altre. I risultati sono
+     * combinati alternando le fonti (vedi [MangaSourceCatalog.interleaveBySource]), non
+     * accodati a blocchi.
      */
     private fun runAggregatedSearch(query: String) {
         searchJob?.cancel()
@@ -2326,10 +2328,14 @@ class MangaViewModel internal constructor(
                                 }
                             }
                             .awaitAll()
-                            .flatten()
                     }
                 }
-                updateState { copy(results = results, isSearching = false) }
+                updateState {
+                    copy(
+                        results = MangaSourceCatalog.interleaveBySource(results),
+                        isSearching = false,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {

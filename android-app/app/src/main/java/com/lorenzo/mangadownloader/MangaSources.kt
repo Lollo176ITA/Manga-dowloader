@@ -96,6 +96,29 @@ object MangaSourceCatalog {
         return descriptors.first { it.id == resolved }.language
     }
 
+    /**
+     * Combina i risultati per-fonte della ricerca aggregata alternandoli round-robin (il 1°
+     * di ogni fonte, poi i 2°, ...): le fonti si mescolano invece di accodarsi a blocchi, e
+     * l'ordine interno di ciascuna — la rilevanza calcolata dal suo server, che conosce anche
+     * i titoli alternativi (es. "demon slayer" → "Kimetsu no Yaiba") — resta intatto.
+     * Riordinare lato client per somiglianza col testo la distruggerebbe.
+     */
+    fun <T> interleaveBySource(resultsPerSource: List<List<T>>): List<T> {
+        val combined = ArrayList<T>(resultsPerSource.sumOf { it.size })
+        var index = 0
+        do {
+            var added = false
+            for (results in resultsPerSource) {
+                results.getOrNull(index)?.let {
+                    combined.add(it)
+                    added = true
+                }
+            }
+            index++
+        } while (added)
+        return combined
+    }
+
     fun resolveSourceId(
         sourceId: String?,
         url: String? = null,

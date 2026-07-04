@@ -492,6 +492,45 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun interleaveBySource_alternatesSourcesPreservingEachOrder() {
+        val combined = MangaSourceCatalog.interleaveBySource(
+            listOf(
+                listOf("a1", "a2", "a3", "a4"),
+                listOf("b1"),
+                listOf("c1", "c2"),
+            ),
+        )
+
+        // 1° di ogni fonte, poi i 2°, ...: fonti mescolate, ordine interno intatto.
+        assertEquals(listOf("a1", "b1", "c1", "a2", "c2", "a3", "a4"), combined)
+    }
+
+    @Test
+    fun interleaveBySource_handlesEmptyInputs() {
+        assertEquals(emptyList<String>(), MangaSourceCatalog.interleaveBySource<String>(emptyList()))
+        assertEquals(
+            listOf("a1", "a2"),
+            MangaSourceCatalog.interleaveBySource(listOf(emptyList(), listOf("a1", "a2"))),
+        )
+    }
+
+    @Test
+    fun mangaWorldSearchResults_readsMinifiedUnquotedMarkupWithAltTitleMatch() {
+        // Markup reale dell'archivio MangaWorld (minificato, attributi senza virgolette),
+        // risposta a keyword="demon slayer": il server matcha il titolo inglese alternativo
+        // ma espone quello canonico "Kimetsu no Yaiba".
+        val results = MangaWorldSource.parseSearchResults(
+            """
+            <div class=comics-grid><!--F#p_16[0]--><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba"><img src=https://cdn.mangaworld.mx/mangas/5f77ef0f640268083d44369e.jpg?178 alt="Kimetsu no Yaiba"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba">Kimetsu no Yaiba</a></p></div></div></div>
+            """.trimIndent(),
+        )
+
+        assertEquals(1, results.size)
+        assertEquals("Kimetsu no Yaiba", results.first().title)
+        assertEquals("https://www.mangaworld.mx/manga/716", results.first().mangaUrl)
+    }
+
+    @Test
     fun searchConfig_allowsBrowseAllForHastaTeam() {
         val hastaConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.HASTA_TEAM)
         val mangapillConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.MANGAPILL)

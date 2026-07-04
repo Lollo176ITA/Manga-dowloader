@@ -59,7 +59,6 @@ fun SettingsScreen(
     onOpenReportProblem: () -> Unit,
     appVersion: String,
     onOpenChangelog: () -> Unit,
-    onRestartTutorial: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     Column(
@@ -186,7 +185,6 @@ fun SettingsScreen(
             InfoContent(
                 appVersion = appVersion,
                 onOpenChangelog = onOpenChangelog,
-                onRestartTutorial = onRestartTutorial,
             )
             SettingsDivider()
             ReportProblemContent(onOpenReportProblem = onOpenReportProblem)

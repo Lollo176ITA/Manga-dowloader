@@ -842,7 +842,6 @@ private fun MangaDownloaderAppContent(
                     onOpenStorageManager = viewModel::openStorageManager,
                     onOpenBackup = viewModel::openBackup,
                     onOpenReportProblem = viewModel::openFeedback,
-                    onRestartTutorial = viewModel::restartTutorial,
                     appVersion = BuildConfig.VERSION_NAME,
                     onOpenChangelog = viewModel::openChangelog,
                 )

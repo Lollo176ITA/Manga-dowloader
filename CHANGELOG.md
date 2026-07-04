@@ -13,6 +13,10 @@
 - Il menu a 3 puntini in alto a destra è stato sostituito dall'icona Impostazioni diretta: la voce "Server" era ridondante con le chip della ricerca (e il dialog di selezione è stato rimosso).
 - La lingua di ricerca predefinita ora è Italiano (prima il server predefinito era in inglese).
 
+### Rimosso
+
+- Voce "Rivedi il tutorial" dalle Impostazioni: un tap accidentale fuori dal benvenuto già non brucia più il tour (si ripropone al riavvio), quindi la voce serviva solo a chi lo saltava di proposito.
+
 ## 2026-06-11
 
 ### Aggiunto

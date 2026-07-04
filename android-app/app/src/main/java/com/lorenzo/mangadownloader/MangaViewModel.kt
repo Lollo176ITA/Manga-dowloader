@@ -1222,26 +1222,6 @@ class MangaViewModel internal constructor(
         updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
     }
 
-    /**
-     * Voce "Rivedi il tutorial" delle impostazioni: torna alle tab e ripropone il benvenuto.
-     * Da lì in poi vale il flusso normale del tour (preload, fallback, completamento).
-     */
-    fun restartTutorial() {
-        updateState {
-            copy(
-                showSettings = false,
-                showStorageManager = false,
-                showBackup = false,
-                showChangelog = false,
-                showFeedback = false,
-                showUpdates = false,
-                selected = null,
-                selectedDownloadedSeries = null,
-                tutorialState = TutorialUiState(phase = TutorialPhase.Welcome),
-            )
-        }
-    }
-
     fun onTutorialFallbackCompleted() {
         markTutorialCompleted()
     }

@@ -367,7 +367,6 @@ fun StorageManagerContent(
 fun InfoContent(
     appVersion: String,
     onOpenChangelog: () -> Unit,
-    onRestartTutorial: () -> Unit,
 ) {
     Column {
         Row(
@@ -404,27 +403,6 @@ fun InfoContent(
                 )
                 Text(
                     text = "Scopri cosa è cambiato nelle ultime versioni",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        SettingsDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onRestartTutorial),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Rivedi il tutorial",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "Ripercorri il tour guidato delle funzioni principali",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

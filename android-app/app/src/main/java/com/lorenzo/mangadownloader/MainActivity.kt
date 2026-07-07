@@ -1101,15 +1101,15 @@ private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
 
 private const val ReaderPrivacyMaxDimAlpha = 0.86f
 
-/** Permanenza massima delle snackbar con azione prima di sparire da sole. */
-private const val SnackbarWithActionTimeoutMs = 8_000L
+/** Permanenza massima delle snackbar con azione prima di sparire da sole (come le Short). */
+private const val SnackbarWithActionTimeoutMs = 4_000L
 
 /**
  * Come [SnackbarHostState.showSnackbar], ma le snackbar con azione spariscono da sole dopo
- * [SnackbarWithActionTimeoutMs]: il default Material 3 con `actionLabel` è `Indefinite`
- * (restano finché non le tocchi), e le durate predefinite non offrono una via di mezzo
- * tra Short (4s) e Long (10s). Allo scadere il risultato è [SnackbarResult.Dismissed],
- * come per uno swipe. Senza azione, comportamento standard (Short).
+ * [SnackbarWithActionTimeoutMs], allineate ai 4s delle Short: il default Material 3 con
+ * `actionLabel` è `Indefinite` (restano finché non le tocchi). Allo scadere il risultato
+ * è [SnackbarResult.Dismissed], come per uno swipe. Senza azione, comportamento
+ * standard (Short).
  */
 private suspend fun SnackbarHostState.showAutoDismissSnackbar(
     message: String,

@@ -31,8 +31,9 @@ data class MangaSourceDescriptor(
 
 /**
  * Ambito della ricerca nella tab Cerca. L'utente ragiona per lingua ("lo voglio in italiano
- * o in inglese?"), non per server: le fonti singole restano raggiungibili solo con
- * l'impostazione "Mostra fonti singole" attiva (scope [SOURCE] + `AppSettings.searchSourceId`).
+ * o in inglese?"), non per server: lo scope [SOURCE] (fonte singola) non è più selezionabile
+ * dalla UI e i valori persistiti da versioni precedenti vengono riportati alla lingua della
+ * fonte in lettura (prefs e backup).
  */
 enum class SearchScope(val language: MangaSourceLanguage?) {
     /** Aggregata su tutte le fonti (chip "Tutte" o ponte AniList della tab Scopri). */

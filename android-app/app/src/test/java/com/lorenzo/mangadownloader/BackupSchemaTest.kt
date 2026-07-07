@@ -97,14 +97,14 @@ class BackupSchemaTest {
 
     @Test
     fun applyTo_restoresSearchScopeAndFallsBackOnUnknown() {
+        // Le chip per fonte singola non esistono più: uno scope SOURCE in un backup di
+        // una versione precedente torna alla lingua della fonte selezionata.
         val restored = AppSettings(
             searchScope = SearchScope.SOURCE,
             searchSourceId = MangaSourceIds.MANGA_WORLD,
-            showIndividualSources = true,
         ).toBackup().applyTo(AppSettings())
-        assertEquals(SearchScope.SOURCE, restored.searchScope)
+        assertEquals(SearchScope.ITA, restored.searchScope)
         assertEquals(MangaSourceIds.MANGA_WORLD, restored.searchSourceId)
-        assertTrue(restored.showIndividualSources)
 
         // Scope sconosciuto (backup manomesso o versione futura) → resta quello corrente.
         val tampered = SettingsBackup(searchScope = "KLINGON")

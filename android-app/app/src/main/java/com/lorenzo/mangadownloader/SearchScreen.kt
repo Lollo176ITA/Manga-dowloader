@@ -43,7 +43,6 @@ fun SearchScreen(
     onToggleFavorite: (MangaSearchResult) -> Unit,
     onShowInfo: (MangaSearchResult) -> Unit,
     onDismissInfo: () -> Unit,
-    onSelectSource: (String) -> Unit,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
@@ -69,13 +68,9 @@ fun SearchScreen(
 
         // Ambito sempre visibile e cambiabile a 1 tap. L'utente sceglie per lingua
         // (Tutte · Italiano · English), non per server: i nomi delle fonti non dicono
-        // nulla a chi non le conosce. Le chip delle fonti singole compaiono solo con
-        // l'impostazione "Mostra fonti singole" attiva.
+        // nulla a chi non le conosce.
         SearchScopeChips(
             scope = scope,
-            selectedSourceId = state.settings.searchSourceId,
-            showIndividualSources = state.settings.showIndividualSources,
-            onSelectSource = onSelectSource,
             onSelectLanguage = onSelectLanguage,
             onSelectAllSources = onSelectAllSources,
         )
@@ -244,29 +239,14 @@ private fun SearchScope.emptyResultsPlace(selectedSourceId: String): String = wh
 /**
  * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per lingua
  * (Italiano/English), che attivano la ricerca aggregata sulle fonti corrispondenti.
- * Con "Mostra fonti singole" attivo si aggiungono le chip delle fonti dell'ambito
- * corrente (tutte, o solo quelle della lingua scelta). Stesso pattern dei GenreChips
- * della tab Scopri.
+ * Stesso pattern dei GenreChips della tab Scopri.
  */
 @Composable
 private fun SearchScopeChips(
     scope: SearchScope,
-    selectedSourceId: String,
-    showIndividualSources: Boolean,
-    onSelectSource: (String) -> Unit,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
-    val resolvedSourceId = MangaSourceCatalog.resolveSourceId(selectedSourceId)
-    // Con una fonte singola attiva, le fonti mostrate restano quelle della sua lingua.
-    val visibleSources = when {
-        !showIndividualSources -> emptyList()
-        scope == SearchScope.SOURCE ->
-            MangaSourceCatalog.descriptorsForScope(
-                SearchScope.forLanguage(MangaSourceCatalog.languageOf(resolvedSourceId)),
-            )
-        else -> MangaSourceCatalog.descriptorsForScope(scope)
-    }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -284,13 +264,6 @@ private fun SearchScopeChips(
                 selected = scope.language == language,
                 onClick = { onSelectLanguage(language) },
                 label = { Text(language.displayName) },
-            )
-        }
-        items(visibleSources, key = { it.id }) { descriptor ->
-            FilterChip(
-                selected = scope == SearchScope.SOURCE && resolvedSourceId == descriptor.id,
-                onClick = { onSelectSource(descriptor.id) },
-                label = { Text(descriptor.shortName) },
             )
         }
     }

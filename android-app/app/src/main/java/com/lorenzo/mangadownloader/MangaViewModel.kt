@@ -99,12 +99,11 @@ const val DEFAULT_READER_PAGE_SPACING_DP = 8
 const val MAX_READER_PAGE_SPACING_DP = 24
 
 data class AppSettings(
-    // Ambito della ricerca: per lingua di default (ITA per un'app in italiano); la fonte
-    // singola (scope SOURCE + searchSourceId) esiste solo con showIndividualSources attivo.
+    // Ambito della ricerca: per lingua (ITA per un'app in italiano) o su tutte le fonti.
+    // Lo scope SOURCE (fonte singola) non è più raggiungibile dalla UI: un valore
+    // persistito da versioni precedenti viene riportato alla lingua della fonte in lettura.
     val searchScope: SearchScope = SearchScope.ITA,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
-    // Mostra nella tab Cerca anche le chip delle singole fonti (per chi conosce i server).
-    val showIndividualSources: Boolean = false,
     val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
@@ -623,18 +622,6 @@ class MangaViewModel internal constructor(
                 searchError = null,
                 errorMessage = null,
             )
-        }
-    }
-
-    /**
-     * Impostazione "Mostra fonti singole". Spegnendola, un'eventuale fonte singola attiva
-     * non sarebbe più visibile né deselezionabile dai chip: si torna alla sua lingua.
-     */
-    fun setShowIndividualSources(enabled: Boolean) {
-        updateSettings { it.copy(showIndividualSources = enabled) }
-        if (!enabled && _state.value.settings.searchScope == SearchScope.SOURCE) {
-            val language = MangaSourceCatalog.languageOf(_state.value.settings.searchSourceId)
-            setAggregatedSearchScope(SearchScope.forLanguage(language))
         }
     }
 

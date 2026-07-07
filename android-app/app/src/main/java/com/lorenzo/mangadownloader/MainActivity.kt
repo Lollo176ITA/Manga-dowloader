@@ -789,7 +789,6 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onToggleShowIndividualSources = viewModel::setShowIndividualSources,
                     onToggleDiscovery = viewModel::setDiscoveryEnabled,
                     onConnectAniList = {
                         scope.launch {
@@ -917,7 +916,6 @@ private fun MangaDownloaderAppContent(
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                             onShowInfo = viewModel::showMangaInfo,
                             onDismissInfo = viewModel::dismissMangaInfo,
-                            onSelectSource = viewModel::selectSearchSource,
                             onSelectLanguage = viewModel::selectLanguageSearch,
                             onSelectAllSources = viewModel::selectAllSourcesSearch,
                         )

@@ -44,7 +44,9 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +70,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -147,6 +150,7 @@ fun ReaderScreen(
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
+                resumeButtonVisible = navBarVisible,
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
@@ -259,6 +263,7 @@ private fun ReaderContent(
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
+    resumeButtonVisible: Boolean,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -266,6 +271,11 @@ private fun ReaderContent(
     onRetry: () -> Unit,
     onAtLastPageChange: (Boolean) -> Unit,
 ) {
+    // Il pulsante "riprendi" deve galleggiare sopra la barra capitoli quando questa
+    // è presente (stessa condizione di ReaderBottomNavBar: esiste un prev/next).
+    val resumeButtonBottomPadding =
+        if (previousChapter != null || nextChapter != null) 80.dp else 16.dp
+
     when {
         isLoading -> {
             Box(
@@ -297,6 +307,8 @@ private fun ReaderContent(
                 rightToLeft = readingMode.isRightToLeft,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
+                resumeButtonVisible = resumeButtonVisible,
+                resumeButtonBottomPadding = resumeButtonBottomPadding,
                 onPageVisible = onPageVisible,
                 onToggleFullscreen = onToggleFullscreen,
                 onAtLastPageChange = onAtLastPageChange,
@@ -313,6 +325,8 @@ private fun ReaderContent(
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
+                resumeButtonVisible = resumeButtonVisible,
+                resumeButtonBottomPadding = resumeButtonBottomPadding,
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
@@ -333,6 +347,8 @@ private fun VerticalReader(
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
+    resumeButtonVisible: Boolean,
+    resumeButtonBottomPadding: Dp,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -347,8 +363,12 @@ private fun VerticalReader(
     var restoreComplete by remember(chapterKey) { mutableStateOf(false) }
     var hasReaderMovedAfterRestore by remember(chapterKey) { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    // Pagina attualmente in vista e pagina più avanzata raggiunta nel capitolo: la
+    // differenza tra le due pilota il pulsante "riprendi" (torna dove ero arrivato).
+    var currentPageIndex by remember(chapterKey) { mutableStateOf(0) }
+    var furthestPageIndex by remember(chapterKey) { mutableStateOf(0) }
     val zoomFlingDecay = remember { exponentialDecay<Float>() }
-    val zoomFlingScope = rememberCoroutineScope()
+    val readerScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
     val context = LocalContext.current
 
@@ -374,6 +394,8 @@ private fun VerticalReader(
         val restoredPageIndex = initialPageIndex.coerceIn(0, pages.lastIndex)
         listState.scrollToItem(restoredPageIndex + ReaderPageItemOffset)
         restoreComplete = true
+        currentPageIndex = restoredPageIndex
+        furthestPageIndex = maxOf(furthestPageIndex, restoredPageIndex)
 
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
@@ -406,6 +428,10 @@ private fun VerticalReader(
         }
             .distinctUntilChanged()
             .collect { (reachedPageIndex, allowCompletion) ->
+                currentPageIndex = reachedPageIndex
+                if (reachedPageIndex > furthestPageIndex) {
+                    furthestPageIndex = reachedPageIndex
+                }
                 onPageVisible(reachedPageIndex, pages.size, allowCompletion)
                 prefetchReaderPages(context, pages, reachedPageIndex)
             }
@@ -473,7 +499,7 @@ private fun VerticalReader(
             return
         }
 
-        zoomFlingJob = zoomFlingScope.launch {
+        zoomFlingJob = readerScope.launch {
             val direction = velocity / velocityMagnitude
             var previousDistance = 0f
             AnimationState(
@@ -669,6 +695,22 @@ private fun VerticalReader(
                 )
             }
         }
+
+        // Pulsante "riprendi": compare quando si risale di qualche pagina (per esempio
+        // per ricontrollare un nome) e riporta alla pagina più avanzata raggiunta.
+        ReaderResumeButton(
+            visible = resumeButtonVisible &&
+                furthestPageIndex - currentPageIndex >= ReaderResumeMinPagesBehind,
+            targetPageNumber = furthestPageIndex + 1,
+            icon = Icons.Default.ArrowDownward,
+            bottomPadding = resumeButtonBottomPadding,
+            onClick = {
+                readerScope.launch {
+                    listState.animateScrollToItem(furthestPageIndex + ReaderPageItemOffset)
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 }
 
@@ -683,6 +725,8 @@ private fun PagedReader(
     rightToLeft: Boolean,
     padding: PaddingValues,
     initialPageIndex: Int,
+    resumeButtonVisible: Boolean,
+    resumeButtonBottomPadding: Dp,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
     onAtLastPageChange: (Boolean) -> Unit,
@@ -696,6 +740,12 @@ private fun PagedReader(
     )
     var hasMoved by remember(chapterKey) { mutableStateOf(false) }
     val context = LocalContext.current
+    // Pagina più avanzata raggiunta nel capitolo: pilota il pulsante "riprendi"
+    // quando si torna indietro di qualche pagina.
+    var furthestPageIndex by remember(chapterKey) {
+        mutableStateOf(initialPageIndex.coerceIn(0, pages.lastIndex))
+    }
+    val resumeScope = rememberCoroutineScope()
 
     LaunchedEffect(chapterKey) {
         snapshotFlow { pagerState.currentPage }
@@ -708,6 +758,9 @@ private fun PagedReader(
             .distinctUntilChanged()
             .collect { settled ->
                 val pageIndex = settled.coerceIn(0, pages.lastIndex)
+                if (pageIndex > furthestPageIndex) {
+                    furthestPageIndex = pageIndex
+                }
                 onPageVisible(pageIndex, pages.size, hasMoved)
                 onAtLastPageChange(pageIndex == pages.lastIndex)
                 prefetchReaderPages(context, pages, pageIndex)
@@ -755,6 +808,22 @@ private fun PagedReader(
             isScrolling = pagerState.isScrollInProgress,
             modifier = Modifier.align(Alignment.TopCenter),
         )
+
+        // Pulsante "riprendi": compare quando si sfoglia indietro di qualche pagina
+        // e riporta alla pagina più avanzata raggiunta. In modalità manga (RTL)
+        // "avanti" è visivamente verso sinistra, quindi la freccia viene specchiata.
+        ReaderResumeButton(
+            visible = resumeButtonVisible &&
+                furthestPageIndex - pagerState.currentPage >= ReaderResumeMinPagesBehind,
+            targetPageNumber = furthestPageIndex + 1,
+            icon = Icons.AutoMirrored.Filled.ArrowForward,
+            mirrorIcon = rightToLeft,
+            bottomPadding = resumeButtonBottomPadding,
+            onClick = {
+                resumeScope.launch { pagerState.animateScrollToPage(furthestPageIndex) }
+            },
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 }
 
@@ -796,6 +865,43 @@ private fun BoxScope.ReaderPageIndicator(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
+    }
+}
+
+/**
+ * Pulsante flottante "riprendi lettura", in basso a destra: compare quando l'utente
+ * risale/torna indietro di almeno [ReaderResumeMinPagesBehind] pagine rispetto al punto
+ * più avanzato raggiunto nel capitolo (per esempio per ricontrollare un nome) e con un
+ * tap lo riporta a quella pagina. Segue lo stato del fullscreen come le altre barre.
+ */
+@Composable
+private fun ReaderResumeButton(
+    visible: Boolean,
+    targetPageNumber: Int,
+    icon: ImageVector,
+    bottomPadding: Dp,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    mirrorIcon: Boolean = false,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 },
+        modifier = modifier,
+    ) {
+        ExtendedFloatingActionButton(
+            onClick = onClick,
+            icon = {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.graphicsLayer { scaleX = if (mirrorIcon) -1f else 1f },
+                )
+            },
+            text = { Text("Pag. $targetPageNumber") },
+            modifier = Modifier.padding(end = 16.dp, bottom = bottomPadding),
+        )
     }
 }
 
@@ -1022,3 +1128,7 @@ private const val ReaderPrefetchPagesAhead = 3
 // Ingombro delle pagine non ancora caricate (spinner/errore): evita item ad altezza
 // zero in verticale e dà un bersaglio visibile al "tocca per riprovare".
 private val ReaderPagePlaceholderMinHeight = 360.dp
+
+// Di quante pagine bisogna tornare indietro rispetto al punto più avanzato
+// raggiunto prima che compaia il pulsante "riprendi".
+private const val ReaderResumeMinPagesBehind = 2

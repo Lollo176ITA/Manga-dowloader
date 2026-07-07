@@ -44,9 +44,10 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.BrokenImage
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -702,7 +703,7 @@ private fun VerticalReader(
             visible = resumeButtonVisible &&
                 furthestPageIndex - currentPageIndex >= ReaderResumeMinPagesBehind,
             targetPageNumber = furthestPageIndex + 1,
-            icon = Icons.Default.ArrowDownward,
+            icon = Icons.Default.KeyboardDoubleArrowDown,
             bottomPadding = resumeButtonBottomPadding,
             onClick = {
                 readerScope.launch {
@@ -816,7 +817,7 @@ private fun PagedReader(
             visible = resumeButtonVisible &&
                 furthestPageIndex - pagerState.currentPage >= ReaderResumeMinPagesBehind,
             targetPageNumber = furthestPageIndex + 1,
-            icon = Icons.AutoMirrored.Filled.ArrowForward,
+            icon = Icons.Default.KeyboardDoubleArrowRight,
             mirrorIcon = rightToLeft,
             bottomPadding = resumeButtonBottomPadding,
             onClick = {
@@ -872,7 +873,8 @@ private fun BoxScope.ReaderPageIndicator(
  * Pulsante flottante "riprendi lettura", in basso a destra: compare quando l'utente
  * risale/torna indietro di almeno [ReaderResumeMinPagesBehind] pagine rispetto al punto
  * più avanzato raggiunto nel capitolo (per esempio per ricontrollare un nome) e con un
- * tap lo riporta a quella pagina. Segue lo stato del fullscreen come le altre barre.
+ * tap lo riporta a quella pagina. Solo icona (la doppia freccia già usata dalla lista
+ * capitoli nel dettaglio); segue lo stato del fullscreen come le altre barre.
  */
 @Composable
 private fun ReaderResumeButton(
@@ -890,18 +892,16 @@ private fun ReaderResumeButton(
         exit = fadeOut() + slideOutVertically { it / 2 },
         modifier = modifier,
     ) {
-        ExtendedFloatingActionButton(
+        FloatingActionButton(
             onClick = onClick,
-            icon = {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.graphicsLayer { scaleX = if (mirrorIcon) -1f else 1f },
-                )
-            },
-            text = { Text("Pag. $targetPageNumber") },
             modifier = Modifier.padding(end = 16.dp, bottom = bottomPadding),
-        )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = "Torna a pagina $targetPageNumber",
+                modifier = Modifier.graphicsLayer { scaleX = if (mirrorIcon) -1f else 1f },
+            )
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import java.io.IOException
+import java.io.OutputStream
 import java.net.URI
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -68,6 +69,37 @@ class MangaNetworkClient(
                 throw IOException("HTTP ${response.code} scaricando $url")
             }
             return response.body.bytes()
+        }
+    }
+
+    /**
+     * Scarica [url] scrivendo il corpo della risposta direttamente su [sink] a blocchi, senza
+     * mai materializzare l'intera immagine in memoria (a differenza di [fetchBytes]). Usato
+     * dalla cache dello streaming reader, dove tenere in RAM un capitolo intero causava picchi
+     * di heap. Sincrono: chiamato da thread IO. Non chiude [sink] (lo gestisce il chiamante).
+     */
+    fun fetchToStream(
+        url: String,
+        sink: OutputStream,
+        referer: String? = null,
+        headers: Map<String, String> = emptyMap(),
+    ) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .apply {
+                referer?.trim()
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { header("Referer", it) }
+                headers.forEach { (name, value) -> header(name, value) }
+            }
+            .build()
+
+        executeWithConnectionRetry(request).use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code} scaricando $url")
+            }
+            response.body.byteStream().use { it.copyTo(sink) }
         }
     }
 

@@ -7,6 +7,7 @@ import androidx.biometric.BiometricManager
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import coil.imageLoader
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -295,6 +296,10 @@ class MangaViewModel internal constructor(
     private val streamingCacheRepository = StreamingReaderCacheRepository(
         context = application,
         networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
+        // Le pagine dello streaming reader vengono già scaricate da Coil per mostrarle: se
+        // sono nella sua disk-cache le copiamo invece di riscaricarle, così una pagina letta
+        // non viaggia sulla rete due volte solo per finire in cache offline.
+        reusablePageCopier = { url, target -> copyCoilCachedPage(application, url, target) },
     )
     private val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
     private val settingsStore = SettingsStore(prefs)
@@ -3121,5 +3126,33 @@ class MangaViewModel internal constructor(
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
         private const val READ_NOW_CHAPTER_COUNT = 3
+    }
+}
+
+/**
+ * Copia su [target] i byte dell'immagine [url] dalla disk-cache di Coil, se presente (Coil
+ * l'ha scaricata per mostrarla nel reader in streaming). Ritorna true se ha copiato. La
+ * chiave della cache di Coil, con `ImageRequest.data(url)` senza diskCacheKey custom, è
+ * l'URL grezzo. La copia avviene mentre lo snapshot è aperto, perché Coil può poi
+ * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
+ */
+@OptIn(coil.annotation.ExperimentalCoilApi::class)
+private fun copyCoilCachedPage(context: Context, url: String, target: File): Boolean {
+    return try {
+        val diskCache = context.imageLoader.diskCache ?: return false
+        diskCache.openSnapshot(url)?.use { snapshot ->
+            val source = snapshot.data.toFile()
+            if (source.isFile && source.length() > 0L) {
+                target.outputStream().buffered().use { output ->
+                    source.inputStream().buffered().use { it.copyTo(output) }
+                }
+                true
+            } else {
+                false
+            }
+        } ?: false
+    } catch (_: Exception) {
+        target.delete()
+        false
     }
 }

@@ -10,6 +10,7 @@ import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,6 +66,38 @@ class ReaderPageExtractionTest {
         assertFalse(cacheDir.exists())
     }
 
+    @Test
+    fun extraction_evictsLeastRecentlyUsedChaptersBeyondLimit() {
+        val repo = LibraryRepository(application)
+        val cacheRoot = File(application.cacheDir, "reader-pages")
+        // Deve combaciare con MAX_EXTRACTED_READER_CHAPTERS di LibraryRepository.
+        val limit = 10
+
+        // Riempie la cache fino al limite, con timestamp crescenti espliciti: lastModified
+        // può avere granularità di 1 secondo e senza l'ordine LRU sarebbe ambiguo.
+        val chapters = (1..limit).map { index ->
+            chapterWithCbz(zipBytes("p.jpg" to byteArrayOf(1)), index = index)
+        }
+        chapters.forEachIndexed { position, chapter ->
+            runBlocking { repo.extractReaderPages(chapter) }
+            cacheDirFor(chapter).setLastModified(1_000L * (position + 1))
+        }
+
+        // Il capitolo oltre il limite fa cadere il meno usato di recente (il primo).
+        val newest = chapterWithCbz(zipBytes("p.jpg" to byteArrayOf(1)), index = limit + 1)
+        runBlocking { repo.extractReaderPages(newest) }
+
+        assertFalse(cacheDirFor(chapters.first()).exists())
+        assertTrue(cacheDirFor(chapters.last()).exists())
+        assertTrue(cacheDirFor(newest).exists())
+        assertEquals(limit, cacheRoot.listFiles()?.count { it.isDirectory })
+    }
+
+    private fun cacheDirFor(chapter: DownloadedChapter): File = File(
+        File(application.cacheDir, "reader-pages"),
+        DownloadStorage.readerCacheDirectoryName(chapter.relativePath),
+    )
+
     private fun randomBytes(size: Int): ByteArray = ByteArray(size).also { kotlin.random.Random(1).nextBytes(it) }
 
     private fun zipBytes(vararg entries: Pair<String, ByteArray>): ByteArray {
@@ -79,20 +112,20 @@ class ReaderPageExtractionTest {
         return output.toByteArray()
     }
 
-    private fun chapterWithCbz(cbzBytes: ByteArray): DownloadedChapter {
+    private fun chapterWithCbz(cbzBytes: ByteArray, index: Int = 1): DownloadedChapter {
         val root = DownloadStorage.libraryRoot(application)
         val seriesDir = File(root, "TestSeries").apply { mkdirs() }
-        val cbz = File(seriesDir, "chapter_001.cbz")
+        val cbz = File(seriesDir, "chapter_${index.toString().padStart(3, '0')}.cbz")
         cbz.writeBytes(cbzBytes)
         return DownloadedChapter(
-            title = "Capitolo 1",
-            numberText = "1",
+            title = "Capitolo $index",
+            numberText = "$index",
             numberValue = null,
             volumeText = null,
             labelPrefix = "Capitolo",
             file = cbz,
             relativePath = DownloadStorage.relativePath(root, cbz),
-            chapterId = "number:1",
+            chapterId = "number:$index",
             isRead = false,
             readerPageIndex = null,
             readerPageCount = null,

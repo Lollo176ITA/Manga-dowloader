@@ -623,6 +623,8 @@ class LibraryRepository(
             ?.sortedBy { it.name }
             .orEmpty()
         if (existing.isNotEmpty()) {
+            // Rinfresca il timestamp: per l'eviction LRU questo capitolo è appena stato usato.
+            cacheDir.setLastModified(System.currentTimeMillis())
             return@withContext existing
         }
 
@@ -664,7 +666,25 @@ class LibraryRepository(
             cacheDir.deleteRecursively()
             throw IOException("Nessuna pagina trovata nel capitolo scaricato")
         }
+        cacheDir.setLastModified(System.currentTimeMillis())
+        evictOldReaderPageCaches(cacheRoot, justExtracted = cacheDir)
         extracted.sortedBy { it.name }
+    }
+
+    /**
+     * Tiene la cache delle pagine estratte entro [MAX_EXTRACTED_READER_CHAPTERS] capitoli,
+     * cancellando i meno usati di recente (LRU su lastModified, rinfrescato a ogni apertura).
+     * Le pagine estratte servono solo alla lettura corrente e alle riletture ravvicinate:
+     * il .cbz in libreria resta la copia primaria e riaprire un capitolo evitto costa solo
+     * una nuova estrazione. Senza tetto la cache duplicava per sempre ogni capitolo letto.
+     */
+    private fun evictOldReaderPageCaches(cacheRoot: File, justExtracted: File) {
+        cacheRoot.listFiles()
+            ?.filter { it.isDirectory && it != justExtracted }
+            .orEmpty()
+            .sortedByDescending { it.lastModified() }
+            .drop((MAX_EXTRACTED_READER_CHAPTERS - 1).coerceAtLeast(0))
+            .forEach { it.deleteRecursively() }
     }
 
     private fun backfillMetadata(series: DownloadedSeries) {
@@ -796,5 +816,9 @@ class LibraryRepository(
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"
         private const val CACHE_TTL_MS = 5_000L
+
+        // Massimo di capitoli con le pagine estratte tenuti in cache (LRU): copre il
+        // capitolo in lettura e le riletture recenti senza duplicare l'intera libreria.
+        private const val MAX_EXTRACTED_READER_CHAPTERS = 10
     }
 }

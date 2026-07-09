@@ -49,7 +49,6 @@ data class FavoriteBackupEntry(
 data class SettingsBackup(
     val searchScope: String = SearchScope.ITA.name,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
-    val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -73,6 +72,8 @@ data class SettingsBackup(
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
     val favoriteSort: String = FavoriteSort.DATE_ADDED.name,
     val librarySort: String = LibrarySort.TITLE_ASC.name,
+    val homeBlockOrder: List<String> = emptyList(),
+    val hiddenHomeBlocks: List<String> = emptyList(),
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -98,7 +99,6 @@ fun decodeBackup(raw: String): MangaBackup? {
 fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     searchScope = searchScope.name,
     searchSourceId = searchSourceId,
-    discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters,
     autoDownloadBatchSize = autoDownloadBatchSize,
@@ -122,6 +122,8 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = favoriteSort.name,
     librarySort = librarySort.name,
+    homeBlockOrder = homeBlockOrder.map { it.name },
+    hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
 )
 
 /**
@@ -145,7 +147,6 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
             }
         },
     searchSourceId = MangaSourceCatalog.resolveSourceId(searchSourceId),
-    discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters.coerceAtLeast(1),
     autoDownloadBatchSize = autoDownloadBatchSize.coerceAtLeast(1),
@@ -169,6 +170,10 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = runCatching { FavoriteSort.valueOf(favoriteSort) }.getOrDefault(current.favoriteSort),
     librarySort = runCatching { LibrarySort.valueOf(librarySort) }.getOrDefault(current.librarySort),
+    homeBlockOrder = reconcileHomeBlocks(
+        homeBlockOrder.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() },
+    ),
+    hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =

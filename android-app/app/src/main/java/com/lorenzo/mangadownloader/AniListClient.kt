@@ -57,30 +57,6 @@ enum class AniListSort(val apiValue: String) {
     NEWEST("START_DATE_DESC"),
 }
 
-/**
- * Generi AniList offerti come filtro nella schermata Scopri. Sottoinsieme curato dei generi
- * reali dell'API (in inglese, come li vuole il filtro `genre`).
- */
-val ANILIST_GENRES: List<String> = listOf(
-    "Action",
-    "Adventure",
-    "Comedy",
-    "Drama",
-    "Fantasy",
-    "Horror",
-    "Mystery",
-    "Psychological",
-    "Romance",
-    "Sci-Fi",
-    "Slice of Life",
-    "Sports",
-    "Supernatural",
-    "Thriller",
-    "Ecchi",
-    "Mecha",
-    "Music",
-)
-
 /** Il token AniList non è (più) valido: chi chiama deve disconnettere l'account. */
 class AniListAuthException(message: String) : IOException(message)
 

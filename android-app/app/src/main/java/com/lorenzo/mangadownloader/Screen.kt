@@ -46,13 +46,8 @@ fun MangaUiState.currentScreen(): Screen = when {
 /** C'è una schermata da chiudere col tasto "indietro"? (cioè non siamo già sulle tab). */
 fun MangaUiState.canHandleBack(): Boolean = currentScreen() != Screen.Tabs
 
-/**
- * Tab effettivamente mostrate nella bottom bar / pager, nell'ordine. La tab [AppTab.DISCOVERY]
- * (vetrina AniList) compare solo se attivata dal flag nelle impostazioni — di default è nascosta.
- * Il resto delle tab è sempre presente.
- */
-fun MangaUiState.visibleTabs(): List<AppTab> =
-    AppTab.entries.filter { it != AppTab.DISCOVERY || settings.discoveryEnabled }
+/** Tab mostrate nella bottom bar / pager, nell'ordine: Home · Cerca · Preferiti · Libreria. */
+fun MangaUiState.visibleTabs(): List<AppTab> = AppTab.entries
 
 /** Indice della tab tra quelle visibili (per il pager), o 0 se non visibile. */
 fun MangaUiState.tabPageIndex(tab: AppTab): Int =

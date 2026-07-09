@@ -74,7 +74,7 @@ fun UpdatesScreen(
                     day.events,
                     key = { "${it.identityKey}|${it.chapterNumber}|${it.timestampMillis}" },
                 ) { event ->
-                    UpdateEventRow(event = event, onClick = { onSelect(event) })
+                    FavoriteUpdateRow(event = event, onClick = { onSelect(event) })
                 }
             }
         }
@@ -92,13 +92,18 @@ private fun DayHeader(label: String) {
     )
 }
 
+/**
+ * Riga di un evento del feed "Novità dai preferiti": copertina + titolo + "Nuovo: capitolo" e
+ * pallino se non letto. Riusata sia dalla schermata piena [UpdatesScreen] sia dal blocco Home.
+ */
 @Composable
-private fun UpdateEventRow(
+internal fun FavoriteUpdateRow(
     event: FavoriteUpdateEvent,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {

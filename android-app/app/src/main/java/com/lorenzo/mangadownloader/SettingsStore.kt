@@ -2,6 +2,9 @@ package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 
 /**
  * Persistenza di [AppSettings] su [SharedPreferences]. Estratta da `MangaViewModel` per
@@ -10,6 +13,8 @@ import androidx.core.content.edit
  * aggiornamenti) restano nel ViewModel perché appartengono ad altri ambiti.
  */
 class SettingsStore(private val prefs: SharedPreferences) {
+
+    private val homeJson = Json { ignoreUnknownKeys = true }
 
     fun read(): AppSettings {
         val searchSourceId = MangaSourceCatalog.resolveSourceId(
@@ -29,7 +34,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
                 storedSearchScope
             },
             searchSourceId = searchSourceId,
-            discoveryEnabled = prefs.getBoolean(KEY_DISCOVERY_ENABLED, false),
             autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
             autoDownloadTriggerChapters = prefs
                 .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
@@ -84,6 +88,8 @@ class SettingsStore(private val prefs: SharedPreferences) {
                 )
             }.getOrDefault(LibrarySort.TITLE_ASC),
             aniListSyncEnabled = prefs.getBoolean(KEY_ANILIST_SYNC_ENABLED, true),
+            homeBlockOrder = reconcileHomeBlocks(decodeHomeBlocks(prefs.getString(KEY_HOME_BLOCK_ORDER, null))),
+            hiddenHomeBlocks = decodeHomeBlocks(prefs.getString(KEY_HOME_HIDDEN_BLOCKS, null)).toSet(),
         )
     }
 
@@ -91,7 +97,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         prefs.edit {
             putString(KEY_SEARCH_SCOPE, settings.searchScope.name)
             putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
-            putBoolean(KEY_DISCOVERY_ENABLED, settings.discoveryEnabled)
             putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
             putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
             putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
@@ -120,14 +125,27 @@ class SettingsStore(private val prefs: SharedPreferences) {
             putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
             putString(KEY_LIBRARY_SORT, settings.librarySort.name)
             putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
+            putString(KEY_HOME_BLOCK_ORDER, encodeHomeBlocks(settings.homeBlockOrder))
+            putString(KEY_HOME_HIDDEN_BLOCKS, encodeHomeBlocks(settings.hiddenHomeBlocks.toList()))
         }
+    }
+
+    private fun encodeHomeBlocks(blocks: List<HomeBlock>): String =
+        homeJson.encodeToString(ListSerializer(String.serializer()), blocks.map { it.name })
+
+    /** Decodifica tollerante: JSON invalido → lista vuota; nomi ignoti scartati. */
+    private fun decodeHomeBlocks(raw: String?): List<HomeBlock> {
+        if (raw.isNullOrBlank()) return emptyList()
+        val names = runCatching {
+            homeJson.decodeFromString(ListSerializer(String.serializer()), raw)
+        }.getOrDefault(emptyList())
+        return names.mapNotNull { name -> runCatching { HomeBlock.valueOf(name) }.getOrNull() }
     }
 
     companion object {
         const val PREFS_NAME = "manga_downloader_prefs"
         const val KEY_SEARCH_SCOPE = "search_scope"
         const val KEY_SEARCH_SOURCE_ID = "search_source_id"
-        const val KEY_DISCOVERY_ENABLED = "discovery_enabled"
         const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
         const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
@@ -156,5 +174,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_FAVORITE_SORT = "favorite_sort"
         const val KEY_LIBRARY_SORT = "library_sort"
         const val KEY_ANILIST_SYNC_ENABLED = "anilist_sync_enabled"
+        const val KEY_HOME_BLOCK_ORDER = "home_block_order"
+        const val KEY_HOME_HIDDEN_BLOCKS = "home_hidden_blocks"
     }
 }

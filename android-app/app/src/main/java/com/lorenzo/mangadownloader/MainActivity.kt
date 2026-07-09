@@ -39,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -497,12 +496,10 @@ private fun MangaDownloaderAppContent(
     }
 
     val visibleTabs = state.visibleTabs()
-    // pageCount letto live dal pager (la lambda persiste): rememberUpdatedState evita di
-    // catturare un conteggio stantio quando la tab Scopri viene attivata/disattivata.
-    val visibleTabCount by rememberUpdatedState(visibleTabs.size)
     val pagerState = rememberPagerState(
         initialPage = state.tabPageIndex(state.currentTab),
-        pageCount = { visibleTabCount },
+        // Il set di tab è fisso (Home·Cerca·Preferiti·Libreria): il conteggio è costante.
+        pageCount = { visibleTabs.size },
     )
     val showPager = state.currentScreen() == Screen.Tabs
     val visiblePagerTab = when {
@@ -515,8 +512,15 @@ private fun MangaDownloaderAppContent(
     // Quando si arriva sulla tab Preferiti (dove è visibile il badge "Aggiornamenti"), rilegge
     // il feed così il conteggio riflette gli eventi scritti dal worker mentre l'app era aperta.
     LaunchedEffect(visiblePagerTab) {
-        if (visiblePagerTab == AppTab.FAVORITES) {
-            viewModel.refreshUpdatesFeed()
+        when (visiblePagerTab) {
+            AppTab.FAVORITES -> viewModel.refreshUpdatesFeed()
+            AppTab.HOME -> {
+                // La Home mostra ripresa lettura e novità: entrambe vanno rinfrescate quando
+                // diventa visibile (la libreria si ri-scansiona solo entrando in Libreria).
+                viewModel.refreshLibrary()
+                viewModel.refreshUpdatesFeed()
+            }
+            else -> {}
         }
     }
 
@@ -608,9 +612,6 @@ private fun MangaDownloaderAppContent(
 
     TutorialOverlay(
         state = state,
-        onWelcomeStart = viewModel::onTutorialWelcomeStart,
-        onWelcomeSkip = viewModel::onTutorialWelcomeSkip,
-        onWelcomeDismiss = viewModel::dismissTutorialWelcome,
         onFallbackCompleted = {
             viewModel.onTutorialFallbackCompleted()
             // A tour appena concluso il valore delle notifiche è chiaro: è il momento
@@ -684,7 +685,6 @@ private fun MangaDownloaderAppContent(
             if (showPager) {
                 AppBottomBar(
                     currentTab = visiblePagerTab,
-                    showDiscovery = state.settings.discoveryEnabled,
                     favoritesBadgeCount = unseenCount(state.favoriteUpdates),
                     onSelect = { tab ->
                         viewModel.selectTab(tab)
@@ -789,7 +789,7 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onToggleDiscovery = viewModel::setDiscoveryEnabled,
+                    onRestartTutorial = viewModel::restartTutorial,
                     onConnectAniList = {
                         scope.launch {
                             if (!AniListAuth.isConfigured()) {
@@ -897,14 +897,40 @@ private fun MangaDownloaderAppContent(
                     userScrollEnabled = showPager,
                 ) { page ->
                     when (visibleTabs.getOrElse(page) { AppTab.SEARCH }) {
-                        AppTab.DISCOVERY -> DiscoveryScreen(
+                        AppTab.HOME -> HomeScreen(
                             state = state,
                             padding = innerPadding,
-                            onLoad = viewModel::loadDiscovery,
-                            onSelectGenre = viewModel::selectDiscoveryGenre,
-                            onPick = viewModel::onPickAniListManga,
-                            onShowInfo = viewModel::showDiscoveryInfo,
-                            onDismissInfo = viewModel::dismissDiscoveryInfo,
+                            onResume = viewModel::openReader,
+                            onOpenUpdate = viewModel::openMangaFromUpdate,
+                            onOpenAllUpdates = viewModel::openUpdates,
+                            onOpenFavorite = { favorite ->
+                                viewModel.selectManga(
+                                    MangaSearchResult(
+                                        sourceId = favorite.sourceId,
+                                        title = favorite.title,
+                                        mangaUrl = favorite.mangaUrl,
+                                        coverUrl = favorite.coverUrl,
+                                    ),
+                                )
+                            },
+                            onOpenAllFavorites = {
+                                viewModel.selectTab(AppTab.FAVORITES)
+                                scope.launch { pagerState.animateScrollToPage(state.tabPageIndex(AppTab.FAVORITES)) }
+                            },
+                            onPickDiscover = viewModel::onPickAniListManga,
+                            onShowDiscoverInfo = viewModel::showDiscoveryInfo,
+                            onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
+                            onLoadDiscover = viewModel::loadDiscovery,
+                            onSearchFirst = goToSearchTab,
+                            onStartTutorial = {
+                                viewModel.onTutorialWelcomeStart()
+                                // Il tour interattivo parte dalla tab Cerca (primo spotlight sulla
+                                // barra di ricerca): portaci l'utente, rispettando il lock parentale.
+                                goToSearchTab()
+                            },
+                            onDismissTutorial = viewModel::onTutorialWelcomeSkip,
+                            onMoveBlock = viewModel::moveHomeBlock,
+                            onSetBlockHidden = viewModel::setHomeBlockHidden,
                         )
                         AppTab.SEARCH -> SearchScreen(
                             state = state,

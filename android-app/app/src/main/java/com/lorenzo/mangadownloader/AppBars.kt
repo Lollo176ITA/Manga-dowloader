@@ -12,7 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
@@ -81,7 +81,7 @@ fun AppTopBar(
         Screen.Detail -> selectedManga?.title ?: "Manga Downloader"
         Screen.DownloadedSeries -> selectedSeries?.title ?: "Manga Downloader"
         Screen.Tabs -> when (visibleTab) {
-            AppTab.DISCOVERY -> "Scopri"
+            AppTab.HOME -> ""
             AppTab.SEARCH -> "Cerca"
             AppTab.FAVORITES -> "Preferiti"
             AppTab.LIBRARY -> "Libreria"
@@ -338,7 +338,6 @@ private fun FavoriteUpdatesAction(
 @Composable
 fun AppBottomBar(
     currentTab: AppTab,
-    showDiscovery: Boolean,
     onSelect: (AppTab) -> Unit,
     favoritesBadgeCount: Int = 0,
 ) {
@@ -346,15 +345,13 @@ fun AppBottomBar(
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        if (showDiscovery) {
-            AppTabEntry(
-                tab = AppTab.DISCOVERY,
-                selected = currentTab == AppTab.DISCOVERY,
-                icon = Icons.Default.Explore,
-                label = "Scopri",
-                onSelect = onSelect,
-            )
-        }
+        AppTabEntry(
+            tab = AppTab.HOME,
+            selected = currentTab == AppTab.HOME,
+            icon = Icons.Default.Home,
+            label = "Home",
+            onSelect = onSelect,
+        )
         AppTabEntry(
             tab = AppTab.SEARCH,
             selected = currentTab == AppTab.SEARCH,

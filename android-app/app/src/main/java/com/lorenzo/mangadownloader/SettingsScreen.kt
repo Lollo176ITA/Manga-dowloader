@@ -29,7 +29,7 @@ fun SettingsScreen(
     padding: PaddingValues,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
-    onToggleDiscovery: (Boolean) -> Unit,
+    onRestartTutorial: () -> Unit,
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
     onToggleAniListSync: (Boolean) -> Unit,
@@ -122,10 +122,7 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
         }
 
         SettingsSection(title = "App", icon = Icons.Default.Settings) {
-            DiscoveryContent(
-                enabled = settings.discoveryEnabled,
-                onToggle = onToggleDiscovery,
-            )
+            RestartTutorialContent(onRestart = onRestartTutorial)
             SettingsDivider()
             AniListAccountContent(
                 viewerName = aniListViewerName,

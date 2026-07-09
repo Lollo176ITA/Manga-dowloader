@@ -78,14 +78,14 @@ class BackupManagerTest {
         val backup = MangaBackup(
             favorites = listOf(FavoriteBackupEntry("mangapill", "B", "https://mangapill.com/manga/2", null)),
             recentSearches = listOf("nuovo"),
-            settings = AppSettings(highResImages = false, discoveryEnabled = true).toBackup(),
+            settings = AppSettings(themeMode = ThemeMode.DARK).toBackup(),
         )
         val result = manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
 
         assertEquals(BackupRestoreMode.REPLACE, result?.mode)
         assertEquals(listOf("B"), FavoritesStore(prefs()).read().map { it.title })
         assertEquals(listOf("nuovo"), RecentSearchesStore(prefs()).read())
-        assertTrue(SettingsStore(prefs()).read().discoveryEnabled)
+        assertEquals(ThemeMode.DARK, SettingsStore(prefs()).read().themeMode)
     }
 
     @Test
@@ -109,5 +109,31 @@ class BackupManagerTest {
         val result = manager().restore("garbage".byteInputStream(), BackupRestoreMode.MERGE)
         assertNull(result)
         assertEquals(listOf("A"), FavoritesStore(prefs()).read().map { it.title })
+    }
+
+    @Test
+    fun backup_roundTripsHomeBlockConfig() {
+        SettingsStore(prefs()).persist(
+            AppSettings(
+                homeBlockOrder = listOf(
+                    HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
+                ),
+                hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
+            ),
+        )
+        val backup = manager().buildBackup(nowMs = 1L)
+        assertEquals(
+            listOf("DISCOVER", "RESUME", "FAVORITE_UPDATES", "RECENT_FAVORITES"),
+            backup.settings.homeBlockOrder,
+        )
+
+        prefs().edit().clear().commit()
+        manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
+        val restored = SettingsStore(prefs()).read()
+        assertEquals(
+            listOf(HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES),
+            restored.homeBlockOrder,
+        )
+        assertEquals(setOf(HomeBlock.DISCOVER), restored.hiddenHomeBlocks)
     }
 }

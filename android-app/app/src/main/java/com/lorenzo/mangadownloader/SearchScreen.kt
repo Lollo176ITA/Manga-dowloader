@@ -239,7 +239,6 @@ private fun SearchScope.emptyResultsPlace(selectedSourceId: String): String = wh
 /**
  * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per lingua
  * (Italiano/English), che attivano la ricerca aggregata sulle fonti corrispondenti.
- * Stesso pattern dei GenreChips della tab Scopri.
  */
 @Composable
 private fun SearchScopeChips(

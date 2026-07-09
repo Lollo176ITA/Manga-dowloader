@@ -465,17 +465,29 @@ fun ReportProblemContent(
     }
 }
 
+/** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
 @Composable
-fun DiscoveryContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Scopri (AniList)",
-        description = "Mostra la scheda Scopri per esplorare tendenze e generi da AniList",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
+fun RestartTutorialContent(onRestart: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onRestart),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Rivedi il tutorial",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "Riavvia il tour guidato che mostra le funzioni principali dell'app",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 /**

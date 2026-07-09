@@ -26,16 +26,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class AppTab {
-    DISCOVERY,
+    HOME,
     SEARCH,
     FAVORITES,
     LIBRARY,
 }
 
 /**
- * Stato della tab "Scopri" (AniList). AniList fornisce solo metadati: le tre sezioni a caroselli
- * ([trending]/[topRated]/[newest]) e la ricerca per [selectedGenre] mostrano [AniListManga], che
- * NON sono scaricabili direttamente — il tap fa il "ponte" verso le fonti reali (vedi
+ * Stato del blocco "Scopri" nella Home (AniList). AniList fornisce solo metadati: le tre sezioni
+ * a caroselli ([trending]/[topRated]/[newest]) mostrano [AniListManga], che NON sono scaricabili
+ * direttamente — il tap fa il "ponte" verso le fonti reali (vedi
  * [MangaViewModel.onPickAniListManga]). [info] è il manga di cui mostrare la trama nel dialog.
  */
 data class DiscoveryUiState(
@@ -45,10 +45,6 @@ data class DiscoveryUiState(
     val isLoadingSections: Boolean = false,
     val sectionsError: String? = null,
     val loaded: Boolean = false,
-    val selectedGenre: String? = null,
-    val genreResults: List<AniListManga> = emptyList(),
-    val isLoadingGenre: Boolean = false,
-    val genreError: String? = null,
     val info: AniListManga? = null,
 )
 
@@ -105,7 +101,6 @@ data class AppSettings(
     // persistito da versioni precedenti viene riportato alla lingua della fonte in lettura.
     val searchScope: SearchScope = SearchScope.ITA,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
-    val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -136,6 +131,9 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
+    // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
+    val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
+    val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
 )
 
 enum class ParentalAction {
@@ -205,7 +203,7 @@ data class TutorialUiState(
 )
 
 data class MangaUiState(
-    val currentTab: AppTab = AppTab.SEARCH,
+    val currentTab: AppTab = AppTab.HOME,
     val pendingSearchAccessReturnTab: AppTab? = null,
     val query: String = "",
     val favoritesQuery: String = "",
@@ -332,13 +330,11 @@ class MangaViewModel internal constructor(
 
     private val _state = MutableStateFlow(
         MangaUiState(
-            // Parental → Libreria (Cerca bloccato). Se la vetrina Scopri è attiva e non c'è il
-            // tutorial in partenza, atterra lì. Altrimenti → Cerca.
+            // Home è il centro dell'app e la tab d'avvio; il controllo parentale continua a
+            // forzare l'atterraggio su Libreria (Cerca resta dietro il PIN).
             currentTab = when {
                 initialSettings.parentalControlEnabled -> AppTab.LIBRARY
-                initialSettings.discoveryEnabled &&
-                    !initialSettings.shouldStartTutorial(initialFavorites) -> AppTab.DISCOVERY
-                else -> AppTab.SEARCH
+                else -> AppTab.HOME
             },
             recentSearches = recentSearchesStore.read(),
             favorites = initialFavorites,
@@ -367,7 +363,6 @@ class MangaViewModel internal constructor(
 
     private var searchJob: Job? = null
     private var discoveryJob: Job? = null
-    private var discoveryGenreJob: Job? = null
     private var detailJob: Job? = null
     private var infoJob: Job? = null
     private var libraryJob: Job? = null
@@ -960,8 +955,10 @@ class MangaViewModel internal constructor(
                     copy(
                         currentTab = if (
                             setupState.completionAction == null &&
-                            currentTab == AppTab.SEARCH
+                            (currentTab == AppTab.SEARCH || currentTab == AppTab.HOME)
                         ) {
+                            // Attivando il parental si atterra su Libreria: Home e Cerca
+                            // mostrano/portano a contenuti online che il parental limita.
                             AppTab.LIBRARY
                         } else {
                             currentTab
@@ -1087,14 +1084,6 @@ class MangaViewModel internal constructor(
         }
     }
 
-    fun setDiscoveryEnabled(enabled: Boolean) {
-        updateSettings { it.copy(discoveryEnabled = enabled) }
-        // Se disattivata mentre era la tab corrente, evita di restare su una pagina che sparisce.
-        if (!enabled && _state.value.currentTab == AppTab.DISCOVERY) {
-            updateState { copy(currentTab = AppTab.SEARCH) }
-        }
-    }
-
     fun setAutoDownloadEnabled(enabled: Boolean) {
         updateSettings { it.copy(autoDownloadEnabled = enabled) }
     }
@@ -1204,16 +1193,7 @@ class MangaViewModel internal constructor(
         markTutorialCompleted()
     }
 
-    /**
-     * Tap fuori dal dialogo di benvenuto (o back): chiude il tour SENZA segnarlo completato,
-     * così un mis-tap non brucia l'onboarding — si ripresenta al prossimo avvio. Lo skip
-     * definitivo resta solo sul bottone "Salta".
-     */
-    fun dismissTutorialWelcome() {
-        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
-        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
-    }
-
+    /** Chiude il percorso di fallback del tutorial, segnandolo come completato (permanente). */
     fun onTutorialFallbackCompleted() {
         markTutorialCompleted()
     }
@@ -2390,58 +2370,6 @@ class MangaViewModel internal constructor(
         }
     }
 
-    /** Filtra per genere (o azzera il filtro con `null`), caricando i più popolari del genere. */
-    fun selectDiscoveryGenre(genre: String?) {
-        discoveryGenreJob?.cancel()
-        if (genre == null) {
-            updateState {
-                copy(
-                    discovery = discovery.copy(
-                        selectedGenre = null,
-                        genreResults = emptyList(),
-                        isLoadingGenre = false,
-                        genreError = null,
-                    ),
-                )
-            }
-            return
-        }
-        updateState {
-            copy(
-                discovery = discovery.copy(
-                    selectedGenre = genre,
-                    genreResults = emptyList(),
-                    isLoadingGenre = true,
-                    genreError = null,
-                ),
-            )
-        }
-        discoveryGenreJob = viewModelScope.launch {
-            try {
-                val results = withContext(Dispatchers.IO) {
-                    aniListClient.fetchMedia(AniListSort.POPULAR, genre = genre)
-                }
-                updateState {
-                    // Scarta i risultati se nel frattempo il genere selezionato è cambiato.
-                    if (discovery.selectedGenre != genre) this
-                    else copy(discovery = discovery.copy(genreResults = results, isLoadingGenre = false))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                updateState {
-                    if (discovery.selectedGenre != genre) this
-                    else copy(
-                        discovery = discovery.copy(
-                            isLoadingGenre = false,
-                            genreError = exc.message ?: "Errore caricamento genere",
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
     /**
      * Ponte AniList→fonti: prende il titolo del manga scoperto (English→romaji) e lo cerca su
      * tutte le fonti reali, portando l'utente nella tab Cerca. Rispetta il parental control
@@ -3087,6 +3015,42 @@ class MangaViewModel internal constructor(
                     isSavingEntry = false,
                 ),
                 errorMessage = "Sessione AniList scaduta: ricollega l'account dalle impostazioni",
+            )
+        }
+    }
+
+    /**
+     * Sposta un blocco Home su/giù rispetto ai soli blocchi VISIBILI e persiste. Sotto controllo
+     * parentale il blocco Scopri è nascosto dalla vista: lo scambio salta quel blocco così le
+     * frecce agiscono sull'ordine che l'utente vede davvero (niente tap "morti").
+     */
+    fun moveHomeBlock(block: HomeBlock, up: Boolean) = updateSettings { settings ->
+        val order = reconcileHomeBlocks(settings.homeBlockOrder)
+        settings.copy(
+            homeBlockOrder = moveHomeBlockInOrder(order, block, up) { candidate ->
+                candidate == HomeBlock.DISCOVER && settings.parentalControlEnabled
+            },
+        )
+    }
+
+    /** Nasconde/mostra un blocco Home e persiste. */
+    fun setHomeBlockHidden(block: HomeBlock, hidden: Boolean) = updateSettings {
+        val hiddenSet = if (hidden) it.hiddenHomeBlocks + block else it.hiddenHomeBlocks - block
+        it.copy(hiddenHomeBlocks = hiddenSet)
+    }
+
+    /**
+     * Rilancia il tutorial dall'inizio (usato da "Rivedi il tutorial" in Impostazioni). Riporta
+     * anche su HOME: la card di benvenuto vive nella Home, quindi senza cambiare tab l'azione
+     * sarebbe un no-op dalle altre schermate.
+     */
+    fun restartTutorial() {
+        updateSettings { it.copy(tutorialCompleted = false) }
+        updateState {
+            copy(
+                showSettings = false,
+                currentTab = AppTab.HOME,
+                tutorialState = TutorialUiState(phase = TutorialPhase.Welcome),
             )
         }
     }

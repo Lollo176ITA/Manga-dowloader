@@ -4,6 +4,16 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-07-10
+
+### Migliorato
+
+- Restyling della Home in stile Material 3 Expressive: header con saluto e titolo grande "La tua lettura"; la card "Riprendi" diventa il pezzo forte della pagina, con colore d'accento, barra di progresso a onda e indicazione "pagina X di Y".
+- Le novità dai preferiti ora scorrono in orizzontale come chip compatte (mini-copertina + capitolo + pallino "non letto") invece di una lista verticale che spingeva in basso il resto della Home.
+- Preferiti recenti e Scopri mostrano le copertine come protagoniste: poster arrotondati senza cornice-card, col titolo sotto.
+- La modalità modifica della Home è una vista dedicata: titolo "Modifica Home", istruzioni in testa e un elenco di card (icona + nome + descrizione del blocco) con frecce e occhio; i blocchi nascosti restano in lista, attenuati, per riattivarli al volo.
+- Card di benvenuto "Per iniziare" e stato iniziale ridisegnati: icona in un cerchio d'accento e spiegazione di cosa apparirà nella Home mentre leggi.
+
 ## 2026-07-04
 
 ### Migliorato

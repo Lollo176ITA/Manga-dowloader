@@ -72,7 +72,9 @@ internal fun tallReaderPageSampleSize(
  * Prova a decodificare a blocchi la pagina fallita. Torna `null` se la pagina non è
  * una striscia alta (il fallimento ha un'altra causa: la card di retry resta la
  * risposta giusta) o se non abbiamo i byte dell'immagine da nessuna parte.
- * - [ReaderPage.Local]: legge direttamente il file.
+ * - [ReaderPage.Local]: legge direttamente il file; se il file è rotto ma l'origine
+ *   remota è nota, ripiega sulla copia in disk cache di Coil (il retry remoto di
+ *   readerImageRequest l'ha appena scaricata lì).
  * - [ReaderPage.Remote]: legge la copia nella disk cache di Coil, che scrive i byte
  *   scaricati su disco prima della decodifica — quindi dopo un fallimento da "troppo
  *   alta" l'immagine è già lì, senza un secondo giro di rete.
@@ -82,7 +84,11 @@ internal suspend fun decodeTallReaderPageChunks(
     page: ReaderPage,
 ): List<ImageBitmap>? {
     return when (page) {
-        is ReaderPage.Local -> decodeTallPageChunks(page.file)
+        is ReaderPage.Local -> when {
+            !page.isFileBroken -> decodeTallPageChunks(page.file)
+            page.remote != null -> decodeTallPageChunksFromCoilCache(context, page.remote.url)
+            else -> null
+        }
         is ReaderPage.Remote -> decodeTallPageChunksFromCoilCache(context, page.url)
     }
 }

@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -1021,6 +1022,10 @@ private fun ZoomablePage(
  * come parametro: la chiave nuova forza un vero nuovo tentativo di rete. Per le pagine
  * locali con origine remota nota, il retry riscarica la pagina invece di rileggere il
  * file rotto (vedi [readerImageRequest]).
+ *
+ * Prima di mostrare la card, un fallimento passa dal recupero "striscia webtoon"
+ * ([decodeTallReaderPageChunks]): le pagine più alte del limite texture della GPU
+ * non sono decodificabili intere, ma spezzate a blocchi si mostrano senza problemi.
  */
 @Composable
 private fun ReaderPageImage(
@@ -1030,7 +1035,19 @@ private fun ReaderPageImage(
     modifier: Modifier = Modifier,
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
+    var tallPageChunks by remember(page.stableKey) { mutableStateOf<List<ImageBitmap>?>(null) }
     val context = LocalContext.current
+
+    val chunks = tallPageChunks
+    if (chunks != null) {
+        TallReaderPageStrip(
+            chunks = chunks,
+            contentDescription = contentDescription,
+            modifier = modifier,
+        )
+        return
+    }
+
     val model = remember(page.stableKey, retryAttempt) {
         readerImageRequest(context, page, retryAttempt)
     }
@@ -1050,35 +1067,49 @@ private fun ReaderPageImage(
             }
         },
         error = {
+            // Tentativo di recupero a blocchi (una volta per caricamento fallito):
+            // finché è in corso mostra lo spinner, la card compare solo se anche
+            // questo non produce nulla.
+            var tallAttemptDone by remember(page.stableKey, retryAttempt) { mutableStateOf(false) }
+            LaunchedEffect(page.stableKey, retryAttempt) {
+                if (!tallAttemptDone) {
+                    tallPageChunks = decodeTallReaderPageChunks(context, page)
+                    tallAttemptDone = true
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = ReaderPagePlaceholderMinHeight),
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    onClick = { retryAttempt++ },
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                if (!tallAttemptDone) {
+                    AppLoadingIndicator()
+                } else {
+                    Surface(
+                        onClick = { retryAttempt++ },
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = MaterialTheme.shapes.large,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.BrokenImage,
-                            contentDescription = null,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Pagina non caricata",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            text = "Tocca per riprovare",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BrokenImage,
+                                contentDescription = null,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Pagina non caricata",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = "Tocca per riprovare",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }

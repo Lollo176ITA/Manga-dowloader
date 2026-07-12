@@ -8,6 +8,7 @@
 
 ### Corretto
 
+- I capitoli webtoon con pagine "a striscia" molto alte (es. Solo Max-Level Newbie su MangaWorld, pagine da 18.000 pixel) ora si leggono normalmente: prima ogni striscia superava i limiti grafici di Android e restava per sempre "Pagina non caricata", anche riprovando. Ora la pagina viene spezzata in blocchi e mostrata intera.
 - Le pagine "Pagina non caricata" ora si possono davvero recuperare: se una pagina di un capitolo streaming in cache è rotta o sparita dal disco, "Tocca per riprovare" la riscarica dal sito invece di rileggere all'infinito lo stesso file rotto.
 - La cache dei capitoli streaming e delle pagine estratte dai capitoli scaricati ora scarta i file vuoti o troncati: alla riapertura il capitolo si riscarica (streaming) o si ri-estrae dal file in libreria (download), invece di mostrare per sempre pagine irrecuperabili.
 - Un'estrazione interrotta a metà (per esempio app chiusa di colpo) non lascia più una cache parziale che alla riapertura passava per un capitolo completo, con pagine mancanti in silenzio.
@@ -21,7 +22,6 @@
 - Preferiti recenti e Scopri mostrano le copertine come protagoniste: poster arrotondati senza cornice-card, col titolo sotto.
 - La modalità modifica della Home è una vista dedicata: titolo "Modifica Home", istruzioni in testa e un elenco di card (icona + nome + descrizione del blocco) con frecce e occhio; i blocchi nascosti restano in lista, attenuati, per riattivarli al volo.
 - Card di benvenuto "Per iniziare" e stato iniziale ridisegnati: icona in un cerchio d'accento e spiegazione di cosa apparirà nella Home mentre leggi.
-
 ## 2026-07-04
 
 ### Migliorato

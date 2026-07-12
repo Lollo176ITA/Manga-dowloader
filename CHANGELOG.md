@@ -4,6 +4,14 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-07-12
+
+### Corretto
+
+- Le pagine "Pagina non caricata" ora si possono davvero recuperare: se una pagina di un capitolo streaming in cache è rotta o sparita dal disco, "Tocca per riprovare" la riscarica dal sito invece di rileggere all'infinito lo stesso file rotto.
+- La cache dei capitoli streaming e delle pagine estratte dai capitoli scaricati ora scarta i file vuoti o troncati: alla riapertura il capitolo si riscarica (streaming) o si ri-estrae dal file in libreria (download), invece di mostrare per sempre pagine irrecuperabili.
+- Un'estrazione interrotta a metà (per esempio app chiusa di colpo) non lascia più una cache parziale che alla riapertura passava per un capitolo completo, con pagine mancanti in silenzio.
+
 ## 2026-07-10
 
 ### Migliorato

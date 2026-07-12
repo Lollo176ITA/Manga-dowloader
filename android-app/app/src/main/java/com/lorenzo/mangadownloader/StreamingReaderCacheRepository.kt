@@ -146,9 +146,11 @@ class StreamingReaderCacheRepository(
         val directory = directoryFor(key)
         val metadata = StreamingReaderCacheMetadata.read(directory) ?: return null
         val pages = metadata.pages.map { File(directory, it) }
+        // Un file vuoto (scrittura troncata, spazio esaurito) è una pagina persa quanto un
+        // file mancante: la cache si butta e il capitolo si riscarica da capo.
         val complete = metadata.pageUrls.isNotEmpty() &&
             metadata.pageUrls.size == pages.size &&
-            pages.all { it.isFile }
+            pages.all { it.isFile && it.length() > 0L }
 
         if (!complete) {
             directory.deleteRecursively()

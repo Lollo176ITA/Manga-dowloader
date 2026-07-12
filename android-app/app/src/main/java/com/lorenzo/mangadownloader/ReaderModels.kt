@@ -43,8 +43,17 @@ sealed class ReaderPage {
 
     data class Local(
         val file: File,
+        /**
+         * Origine remota della pagina, quando nota (capitoli streaming in cache): permette
+         * di riscaricarla se il file locale è sparito o corrotto, invece di rileggere
+         * all'infinito lo stesso file rotto.
+         */
+        val remote: Remote? = null,
     ) : ReaderPage() {
         override val stableKey: String = file.absolutePath
+
+        /** Vero se il file locale non è utilizzabile (sparito o vuoto). */
+        val isFileBroken: Boolean get() = !file.isFile || file.length() == 0L
     }
 
     data class Remote(
@@ -52,6 +61,22 @@ sealed class ReaderPage {
         val referer: String,
     ) : ReaderPage() {
         override val stableKey: String = url
+    }
+}
+
+/**
+ * Pagine del reader per un capitolo streaming servito dalla cache su disco: locali, ma con
+ * l'URL d'origine (allineato per indice, garantito da [StreamingReaderCacheRepository]) come
+ * ripiego per recuperare dalla rete una pagina il cui file non si carica più.
+ */
+fun StreamingReaderCachedChapter.toReaderPages(): List<ReaderPage> {
+    return pages.mapIndexed { index, file ->
+        ReaderPage.Local(
+            file = file,
+            remote = pageUrls.getOrNull(index)?.let { url ->
+                ReaderPage.Remote(url = url, referer = referer)
+            },
+        )
     }
 }
 

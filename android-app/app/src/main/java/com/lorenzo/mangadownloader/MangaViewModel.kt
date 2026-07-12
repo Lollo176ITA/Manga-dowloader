@@ -1628,7 +1628,7 @@ class MangaViewModel internal constructor(
                 libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
                 updateState {
                     copy(
-                        readerPages = pages.map(ReaderPage::Local),
+                        readerPages = pages.map { ReaderPage.Local(it) },
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
@@ -1713,7 +1713,7 @@ class MangaViewModel internal constructor(
                                     readerPageIndex = restored,
                                     readerPageCount = cached.pages.size,
                                 ),
-                                readerPages = cached.pages.map(ReaderPage::Local),
+                                readerPages = cached.toReaderPages(),
                                 readerInitialPageIndex = restored,
                                 isLoadingReader = false,
                             ).withStreamingReaderAdjacency(streamingChapter)
@@ -1772,7 +1772,7 @@ class MangaViewModel internal constructor(
                                 val currentReaderChapter = this.readerChapter
                                 copy(
                                     readerChapter = currentReaderChapter.copy(readerPageCount = completed.pages.size),
-                                    readerPages = completed.pages.map(ReaderPage::Local),
+                                    readerPages = completed.toReaderPages(),
                                     isLoadingReader = false,
                                 ).withStreamingReaderAdjacency(streamingChapter)
                             }

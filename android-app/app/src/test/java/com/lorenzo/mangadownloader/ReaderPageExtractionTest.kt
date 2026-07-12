@@ -67,6 +67,21 @@ class ReaderPageExtractionTest {
     }
 
     @Test
+    fun emptyCachedPage_isReextractedFromCbz() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(zipBytes("a.jpg" to byteArrayOf(1, 2, 3), "b.jpg" to byteArrayOf(4, 5)))
+        val firstPages = runBlocking { repo.extractReaderPages(chapter) }
+        // Simula una pagina persa (scrittura troncata, cache ripulita a metà).
+        firstPages[0].writeBytes(ByteArray(0))
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.all { it.length() > 0L })
+        assertEquals(3L, pages[0].length())
+    }
+
+    @Test
     fun extraction_evictsLeastRecentlyUsedChaptersBeyondLimit() {
         val repo = LibraryRepository(application)
         val cacheRoot = File(application.cacheDir, "reader-pages")

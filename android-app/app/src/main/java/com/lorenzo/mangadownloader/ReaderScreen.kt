@@ -1018,7 +1018,9 @@ private fun ZoomablePage(
  * di fallimento, una card "Tocca per riprovare" — così una pagina remota fallita non
  * collassa ad altezza zero sparendo dal flusso verticale, né resta schermata nera muta
  * in modalità a pagine. Il retry incrementa un contatore che entra nella richiesta Coil
- * come parametro: la chiave nuova forza un vero nuovo tentativo di rete.
+ * come parametro: la chiave nuova forza un vero nuovo tentativo di rete. Per le pagine
+ * locali con origine remota nota, il retry riscarica la pagina invece di rileggere il
+ * file rotto (vedi [readerImageRequest]).
  */
 @Composable
 private fun ReaderPageImage(
@@ -1089,6 +1091,10 @@ private fun ReaderPageImage(
  * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
  * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
  * [retryAttempt] > 0 entra nella cache key per distinguere il retry dalla richiesta fallita.
+ *
+ * Recupero pagine locali: una pagina locale col file sparito/vuoto, o che ha già fallito
+ * un caricamento (retry richiesto), viene richiesta dal suo URL d'origine quando lo
+ * conosciamo — rileggere lo stesso file rotto non la farebbe mai ricomparire.
  */
 private fun readerImageRequest(
     context: Context,
@@ -1097,7 +1103,14 @@ private fun readerImageRequest(
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
     when (page) {
-        is ReaderPage.Local -> builder.data(page.file)
+        is ReaderPage.Local -> {
+            val remote = page.remote
+            if (remote != null && (retryAttempt > 0 || page.isFileBroken)) {
+                builder.data(remote.url).setHeader("Referer", remote.referer)
+            } else {
+                builder.data(page.file)
+            }
+        }
         is ReaderPage.Remote -> builder.data(page.url).setHeader("Referer", page.referer)
     }
     if (retryAttempt > 0) {

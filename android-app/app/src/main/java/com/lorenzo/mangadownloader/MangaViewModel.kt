@@ -1526,7 +1526,7 @@ class MangaViewModel internal constructor(
                 libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
                 updateState {
                     copy(
-                        readerPages = pages.map(ReaderPage::Local),
+                        readerPages = pages.map { ReaderPage.Local(it) },
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
@@ -1605,7 +1605,7 @@ class MangaViewModel internal constructor(
                         withStreamingReaderPayload(
                             expectedRelativePath = readerChapter.relativePath,
                             streamingChapter = streamingChapter,
-                            pages = cached.pages.map(ReaderPage::Local),
+                            pages = cached.toReaderPages(),
                             restoredPageIndex = restored,
                         )
                     }
@@ -1651,7 +1651,7 @@ class MangaViewModel internal constructor(
                             withStreamingReaderPayload(
                                 expectedRelativePath = readerChapter.relativePath,
                                 streamingChapter = streamingChapter,
-                                pages = completed.pages.map(ReaderPage::Local),
+                                pages = completed.toReaderPages(),
                             )
                         }
                     } catch (e: CancellationException) {

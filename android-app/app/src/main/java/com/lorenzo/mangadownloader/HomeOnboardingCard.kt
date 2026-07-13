@@ -1,14 +1,19 @@
 package com.lorenzo.mangadownloader
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -23,9 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * Card di benvenuto discreta (non modale) mostrata al primo avvio nella Home: sostituisce il
- * vecchio popup Welcome. "Inizia" avvia il tour interattivo; "X"/"Non ora" lo salta in modo
- * permanente.
+ * Card "Per iniziare" discreta (non modale) mostrata al primo avvio nella Home (stile mockup):
+ * icona in un cerchio d'accento + titolo + X per chiudere. "Inizia" avvia il tour interattivo;
+ * "X"/"Non ora" lo salta in modo permanente.
  */
 @Composable
 fun HomeOnboardingCard(
@@ -35,7 +40,7 @@ fun HomeOnboardingCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = MaterialTheme.shapes.extraLarge,
         colors = appCardColors(),
     ) {
         Column(
@@ -43,9 +48,25 @@ fun HomeOnboardingCard(
                 .fillMaxWidth()
                 .padding(16.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.School,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
                 Text(
-                    text = "Benvenuto in Manga Downloader",
+                    text = "Per iniziare",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -54,6 +75,7 @@ fun HomeOnboardingCard(
                     Icon(Icons.Filled.Close, contentDescription = "Chiudi il tutorial")
                 }
             }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "Ti mostriamo in un minuto come cercare, salvare e leggere i tuoi manga.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -61,7 +83,9 @@ fun HomeOnboardingCard(
             )
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onStart) { Text("Inizia il tutorial") }
+                Button(onClick = onStart, shape = MaterialTheme.shapes.large) {
+                    Text("Inizia il tutorial")
+                }
                 TextButton(onClick = onDismiss) { Text("Non ora") }
             }
         }

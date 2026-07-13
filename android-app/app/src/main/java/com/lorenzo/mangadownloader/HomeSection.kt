@@ -9,24 +9,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-/** Intestazione di sezione della Home: titolo (heading per lo screen reader) + azione trailing opzionale. */
+/**
+ * Intestazione di sezione della Home: (opzionale) icona d'accento + titolo (heading per lo
+ * screen reader) + azione trailing opzionale.
+ */
 @Composable
 fun HomeSectionTitle(
     title: String,
     modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
     trailingActionLabel: String? = null,
     onTrailingAction: (() -> Unit)? = null,
 ) {
@@ -36,6 +44,15 @@ fun HomeSectionTitle(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leadingIcon != null) {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,

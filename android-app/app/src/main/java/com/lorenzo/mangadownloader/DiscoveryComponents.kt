@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,8 +56,9 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
         Text(
             text = title,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
     item(key = "row-$title") {
@@ -86,45 +86,41 @@ internal fun DiscoveryCard(
     onClick: () -> Unit,
     onShowInfo: () -> Unit,
 ) {
-    Card(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = appCardColors(),
-    ) {
-        Column {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                CoverImage(
-                    model = manga.coverUrl,
-                    title = manga.displayTitle(),
+    // Tile "cover-forward" (stile mockup): poster arrotondato con badge sovrapposti e titolo
+    // sotto, senza card contenitore — le copertine sono le protagoniste.
+    Column(modifier = modifier.clickable(onClick = onClick, onClickLabel = "Apri")) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            CoverImage(
+                model = manga.coverUrl,
+                title = manga.displayTitle(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(MaterialTheme.shapes.large),
+            )
+            InfoBadge(
+                onClick = onShowInfo,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp),
+            )
+            manga.averageScore?.let { score ->
+                ScoreBadge(
+                    score = score,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(2f / 3f)
-                        .clip(MaterialTheme.shapes.extraLarge),
-                )
-                InfoBadge(
-                    onClick = onShowInfo,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
+                        .align(Alignment.TopEnd)
                         .padding(6.dp),
                 )
-                manga.averageScore?.let { score ->
-                    ScoreBadge(
-                        score = score,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp),
-                    )
-                }
             }
-            Text(
-                text = manga.displayTitle(),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
+        Text(
+            text = manga.displayTitle(),
+            modifier = Modifier.padding(top = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            minLines = 2,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

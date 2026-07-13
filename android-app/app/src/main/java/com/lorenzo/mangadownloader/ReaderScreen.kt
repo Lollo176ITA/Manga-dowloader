@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -1020,7 +1021,13 @@ private fun ZoomablePage(
  * di fallimento, una card "Tocca per riprovare" — così una pagina remota fallita non
  * collassa ad altezza zero sparendo dal flusso verticale, né resta schermata nera muta
  * in modalità a pagine. Il retry incrementa un contatore che entra nella richiesta Coil
- * come parametro: la chiave nuova forza un vero nuovo tentativo di rete.
+ * come parametro: la chiave nuova forza un vero nuovo tentativo di rete. Per le pagine
+ * locali con origine remota nota, il retry riscarica la pagina invece di rileggere il
+ * file rotto (vedi [readerImageRequest]).
+ *
+ * Prima di mostrare la card, un fallimento passa dal recupero "striscia webtoon"
+ * ([decodeTallReaderPageChunks]): le pagine più alte del limite texture della GPU
+ * non sono decodificabili intere, ma spezzate a blocchi si mostrano senza problemi.
  */
 @Composable
 private fun ReaderPageImage(
@@ -1030,7 +1037,19 @@ private fun ReaderPageImage(
     modifier: Modifier = Modifier,
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
+    var tallPageChunks by remember(page.stableKey) { mutableStateOf<List<ImageBitmap>?>(null) }
     val context = LocalContext.current
+
+    val chunks = tallPageChunks
+    if (chunks != null) {
+        TallReaderPageStrip(
+            chunks = chunks,
+            contentDescription = contentDescription,
+            modifier = modifier,
+        )
+        return
+    }
+
     val model = remember(page.stableKey, retryAttempt) {
         readerImageRequest(context, page, retryAttempt)
     }
@@ -1050,35 +1069,49 @@ private fun ReaderPageImage(
             }
         },
         error = {
+            // Tentativo di recupero a blocchi (una volta per caricamento fallito):
+            // finché è in corso mostra lo spinner, la card compare solo se anche
+            // questo non produce nulla.
+            var tallAttemptDone by remember(page.stableKey, retryAttempt) { mutableStateOf(false) }
+            LaunchedEffect(page.stableKey, retryAttempt) {
+                if (!tallAttemptDone) {
+                    tallPageChunks = decodeTallReaderPageChunks(context, page)
+                    tallAttemptDone = true
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = ReaderPagePlaceholderMinHeight),
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    onClick = { retryAttempt++ },
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                if (!tallAttemptDone) {
+                    AppLoadingIndicator()
+                } else {
+                    Surface(
+                        onClick = { retryAttempt++ },
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = MaterialTheme.shapes.large,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.BrokenImage,
-                            contentDescription = null,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Pagina non caricata",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            text = "Tocca per riprovare",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BrokenImage,
+                                contentDescription = null,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Pagina non caricata",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = "Tocca per riprovare",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
@@ -1091,6 +1124,10 @@ private fun ReaderPageImage(
  * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
  * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
  * [retryAttempt] > 0 entra nella cache key per distinguere il retry dalla richiesta fallita.
+ *
+ * Recupero pagine locali: una pagina locale col file sparito/vuoto, o che ha già fallito
+ * un caricamento (retry richiesto), viene richiesta dal suo URL d'origine quando lo
+ * conosciamo — rileggere lo stesso file rotto non la farebbe mai ricomparire.
  */
 private fun readerImageRequest(
     context: Context,
@@ -1099,7 +1136,16 @@ private fun readerImageRequest(
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
     when (page) {
-        is ReaderPage.Local -> builder.data(page.file)
+        is ReaderPage.Local -> {
+            val remote = page.remote
+            if (remote != null && (retryAttempt > 0 || page.isFileBroken)) {
+                builder
+                    .data(remote.url)
+                    .httpHeaders(NetworkHeaders.Builder().set("Referer", remote.referer).build())
+            } else {
+                builder.data(page.file)
+            }
+        }
         is ReaderPage.Remote -> builder
             .data(page.url)
             .httpHeaders(NetworkHeaders.Builder().set("Referer", page.referer).build())

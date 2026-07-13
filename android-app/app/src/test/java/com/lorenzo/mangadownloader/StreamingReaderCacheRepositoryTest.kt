@@ -64,6 +64,33 @@ class StreamingReaderCacheRepositoryTest {
     }
 
     @Test
+    fun getCachedChapter_deletesCacheWithEmptyPageFile() {
+        val root = createTempDirectory()
+        val repository = StreamingReaderCacheRepository(
+            cacheRoot = root,
+            fetchPageToFile = { _, _, _ -> },
+        )
+        val key = chapterKey("empty-page")
+        val directory = File(root, key.directoryName()).apply { mkdirs() }
+        File(directory, "001.jpg").writeBytes(ByteArray(0))
+        StreamingReaderCacheMetadata.write(
+            directory = directory,
+            metadata = StreamingReaderCacheMetadata(
+                title = "Pagina vuota",
+                pageUrls = listOf("https://example.test/1.jpg"),
+                pages = listOf("001.jpg"),
+                referer = "https://example.test/chapter",
+                lastAccessAtMs = 1L,
+            ),
+        )
+
+        val cached = repository.getCachedChapter(key)
+
+        assertEquals(null, cached)
+        assertFalse(directory.exists())
+    }
+
+    @Test
     fun cacheCompleteChapter_keepsOnlySixMostRecentlyAccessedChapters() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(

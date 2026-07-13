@@ -568,7 +568,10 @@ class LibraryRepository(
             ?.filter { it.isFile }
             ?.sortedBy { it.name }
             .orEmpty()
-        if (existing.isNotEmpty()) {
+        // La cache si riusa solo se integra: un file vuoto (scrittura interrotta, spazio
+        // esaurito) sarebbe una pagina irrecuperabile a ogni rilettura — il .cbz in
+        // libreria è ancora lì, meglio ributtare giù tutto da quello.
+        if (existing.isNotEmpty() && existing.all { it.length() > 0L }) {
             // Rinfresca il timestamp: per l'eviction LRU questo capitolo è appena stato usato.
             cacheDir.setLastModified(System.currentTimeMillis())
             return@withContext existing
@@ -577,7 +580,14 @@ class LibraryRepository(
         if (cacheDir.exists()) {
             cacheDir.deleteRecursively()
         }
-        cacheDir.mkdirs()
+        // Estrazione in una cartella temporanea rinominata solo a lavoro finito: se il
+        // processo muore a metà non resta una cache parziale che alla riapertura verrebbe
+        // scambiata per estrazione completa (pagine mancanti in silenzio).
+        val tempDir = File(cacheRoot, "${cacheDir.name}.tmp")
+        if (tempDir.exists()) {
+            tempDir.deleteRecursively()
+        }
+        tempDir.mkdirs()
 
         val extracted = mutableListOf<File>()
         try {
@@ -590,7 +600,7 @@ class LibraryRepository(
                             .substringAfterLast('.', "jpg")
                             .lowercase(Locale.US)
                             .ifBlank { "jpg" }
-                        val outFile = File(cacheDir, "${index.toString().padStart(3, '0')}.$extension")
+                        val outFile = File(tempDir, "${index.toString().padStart(3, '0')}.$extension")
                         outFile.outputStream().buffered().use { output ->
                             zip.copyTo(output)
                         }
@@ -602,19 +612,25 @@ class LibraryRepository(
                 }
             }
         } catch (e: IOException) {
-            // Un .cbz corrotto/troncato non deve lasciare una cache parziale: altrimenti
-            // alla riapertura verrebbe scambiata per estrazione completa (vedi sopra).
-            cacheDir.deleteRecursively()
+            // Un .cbz corrotto/troncato non deve lasciare residui su disco.
+            tempDir.deleteRecursively()
             throw IOException("Capitolo scaricato corrotto o illeggibile", e)
         }
 
         if (extracted.isEmpty()) {
-            cacheDir.deleteRecursively()
+            tempDir.deleteRecursively()
             throw IOException("Nessuna pagina trovata nel capitolo scaricato")
         }
+        if (!tempDir.renameTo(cacheDir)) {
+            tempDir.deleteRecursively()
+            throw IOException("Impossibile finalizzare le pagine estratte")
+        }
+
         cacheDir.setLastModified(System.currentTimeMillis())
         evictOldReaderPageCaches(cacheRoot, justExtracted = cacheDir)
-        extracted.sortedBy { it.name }
+        extracted
+            .map { File(cacheDir, it.name) }
+            .sortedBy { it.name }
     }
 
     /**

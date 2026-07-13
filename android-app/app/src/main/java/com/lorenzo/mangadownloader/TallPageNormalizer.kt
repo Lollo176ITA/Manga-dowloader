@@ -15,6 +15,13 @@ import java.util.UUID
 
 internal const val TallPageNormalizationMinHeightPx = 4096
 internal const val TallPageNormalizationChunkHeightPx = 2048
+
+/**
+ * Tetto di sanità (64 fasce da 2048 px): i formati reali restano molto sotto
+ * (il JPEG si ferma a 65.535 px), solo un PNG assurdo o malevolo lo supera, e
+ * ricodificarlo in lossless moltiplicherebbe i file e lo spazio su disco.
+ */
+internal const val TallPageNormalizationMaxHeightPx = 131_072
 private const val TallPageWebpCompressionEffort = 20
 
 internal data class TallPageNormalizationResult(
@@ -28,7 +35,8 @@ internal data class TallPageNormalizationResult(
  * Converte una pagina troppo alta in file lossless ordinati senza mai decodificare
  * l'intera immagine in memoria. Il chiamante deve eseguire [normalize] su un dispatcher I/O.
  *
- * Le pagine sotto [TallPageNormalizationMinHeightPx] non vengono copiate o ricodificate:
+ * Le pagine sotto [TallPageNormalizationMinHeightPx] — e quelle oltre
+ * [TallPageNormalizationMaxHeightPx] — non vengono copiate o ricodificate:
  * [TallPageNormalizationResult.files] contiene direttamente [source]. Per le pagine alte,
  * invece, ogni fascia viene prima completata in una directory di staging e poi promossa
  * nel target; se qualcosa fallisce, i nuovi file vengono rimossi e quelli preesistenti
@@ -54,7 +62,7 @@ internal object TallPageNormalizer {
         if (!source.isFile) throw IOException("Image does not exist: ${source.absolutePath}")
 
         val bounds = readBounds(source)
-        if (bounds.height < minHeightPx) {
+        if (bounds.height < minHeightPx || bounds.height > TallPageNormalizationMaxHeightPx) {
             return TallPageNormalizationResult(
                 files = listOf(source),
                 originalWidth = bounds.width,
@@ -138,9 +146,13 @@ internal fun tallPageNormalizationRanges(
     chunkHeight: Int = TallPageNormalizationChunkHeightPx,
 ): List<IntRange> {
     if (imageHeight <= 0 || chunkHeight <= 0) return emptyList()
-    return (0 until imageHeight step chunkHeight).map { top ->
+    val ranges = (0 until imageHeight step chunkHeight).map { top ->
         top until minOf(top + chunkHeight, imageHeight)
     }
+    // Una coda sotto 1/8 del blocco sarebbe un file-scheggia da pochi px: la fondiamo
+    // nell'ultima fascia piena, che resta comunque ben sotto i limiti texture.
+    if (ranges.size < 2 || ranges.last().count() >= chunkHeight / 8) return ranges
+    return ranges.dropLast(2) + listOf(ranges[ranges.size - 2].first..ranges.last().last)
 }
 
 internal fun tallPageNormalizationPartFileName(

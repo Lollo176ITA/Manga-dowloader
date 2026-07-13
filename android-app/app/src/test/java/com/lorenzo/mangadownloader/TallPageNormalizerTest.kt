@@ -39,6 +39,22 @@ class TallPageNormalizerTest {
     }
 
     @Test
+    fun ranges_mergeTinyTrailingSliverIntoPreviousChunk() {
+        // 4097 = 2×2048 + 1: lo sliver da 1 px non diventa una fascia autonoma.
+        val ranges = tallPageNormalizationRanges(imageHeight = 4_097, chunkHeight = 2_048)
+
+        assertEquals(listOf(0..2_047, 2_048..4_096), ranges)
+    }
+
+    @Test
+    fun ranges_keepTrailingChunkAtMergeThreshold() {
+        // Resto pari a chunkHeight / 8 (256): abbastanza alto da restare una fascia propria.
+        val ranges = tallPageNormalizationRanges(imageHeight = 4_352, chunkHeight = 2_048)
+
+        assertEquals(listOf(0..2_047, 2_048..4_095, 4_096..4_351), ranges)
+    }
+
+    @Test
     fun partNames_areDeterministicAndLexicallyOrdered() {
         val names = (0 until 12).map { index ->
             tallPageNormalizationPartFileName("007", index, partCount = 12, extension = "png")
@@ -97,6 +113,47 @@ class TallPageNormalizerTest {
         assertEquals(listOf(4, 4, 2), result.files.map(::decodeHeight))
         assertTrue(result.files.all { decodeWidth(it) == 8 })
         assertTrue(output.listFiles().orEmpty().none { it.name.startsWith(".003-") })
+    }
+
+    @Test
+    fun tallImageWithTinySliver_mergesSliverIntoLastPart() {
+        // 33 = 2×16 + 1: lo sliver (sotto 16/8 = 2 px) finisce nell'ultima fascia.
+        val input = createStripImage("sliver.png", width = 4, height = 33)
+        val output = temporaryFolder.newFolder("sliver-parts")
+
+        val result = TallPageNormalizer.normalize(
+            source = input,
+            outputDirectory = output,
+            outputBaseName = "004",
+            minHeightPx = 5,
+            chunkHeightPx = 16,
+        )
+
+        assertTrue(result.wasSplit)
+        assertEquals(listOf(16, 17), result.files.map(::decodeHeight))
+    }
+
+    @Test
+    fun imageAboveMaxNormalizationHeight_isReturnedUntouched() {
+        // Un pixel oltre il tetto di sicurezza (64 fasce da 2048): niente split,
+        // il file resta l'originale come per le pagine sotto soglia.
+        val input = createStripImage(
+            name = "bomb.png",
+            width = 2,
+            height = TallPageNormalizationMaxHeightPx + 1,
+        )
+        val output = File(temporaryFolder.root, "bomb-parts")
+
+        val result = TallPageNormalizer.normalize(
+            source = input,
+            outputDirectory = output,
+            outputBaseName = "008",
+        )
+
+        assertFalse(result.wasSplit)
+        assertSame(input, result.files.single())
+        assertEquals(TallPageNormalizationMaxHeightPx + 1, result.originalHeight)
+        assertFalse(output.exists())
     }
 
     @Test

@@ -1,10 +1,6 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
-import androidx.core.content.edit
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Persistenza delle ricerche recenti su [SharedPreferences] e regola pura di inserimento
@@ -13,26 +9,15 @@ import kotlinx.serialization.json.Json
  */
 class RecentSearchesStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     fun read(): List<String> {
-        val raw = prefs.getString(KEY_RECENT_SEARCHES, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyList()
-        }
-        return try {
-            json.decodeFromString<List<String>>(raw).mapNotNull {
+        return prefs.readJson<List<String>>(KEY_RECENT_SEARCHES, emptyList())
+            .mapNotNull {
                 it.trim().takeIf(String::isNotBlank)
             }
-        } catch (_: Exception) {
-            emptyList()
-        }
     }
 
     fun persist(searches: List<String>) {
-        prefs.edit {
-            putString(KEY_RECENT_SEARCHES, json.encodeToString(searches))
-        }
+        prefs.writeJson(KEY_RECENT_SEARCHES, searches)
     }
 
     companion object {

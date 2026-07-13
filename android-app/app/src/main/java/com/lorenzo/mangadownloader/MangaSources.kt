@@ -45,7 +45,7 @@ enum class SearchScope(val language: MangaSourceLanguage?) {
     /** Aggregata sulle sole fonti inglesi. */
     ENG(MangaSourceLanguage.ENG),
 
-    /** Una singola fonte, quella di `AppSettings.searchSourceId`. */
+    /** Valore legacy, mantenuto soltanto per deserializzare preferenze e backup precedenti. */
     SOURCE(null),
     ;
 
@@ -56,11 +56,6 @@ enum class SearchScope(val language: MangaSourceLanguage?) {
         }
     }
 }
-
-data class MangaSearchConfig(
-    val minQueryLength: Int,
-    val showAllOnEmptyQuery: Boolean = false,
-)
 
 /**
  * Spazio su disco insufficiente per completare un download. Volutamente **non** è una
@@ -87,6 +82,7 @@ object MangaSourceCatalog {
 
     /** Fonti interrogate dalla ricerca aggregata per [scope]: tutte, o solo quelle della lingua. */
     fun descriptorsForScope(scope: SearchScope): List<MangaSourceDescriptor> {
+        require(scope != SearchScope.SOURCE) { "SOURCE deve essere convertito durante la migrazione" }
         val language = scope.language ?: return descriptors
         return descriptors.filter { it.language == language }
     }
@@ -157,16 +153,6 @@ object MangaSourceCatalog {
         return descriptors.firstOrNull { it.id == resolved }?.shortName ?: descriptors.first().shortName
     }
 
-    fun searchConfig(sourceId: String): MangaSearchConfig {
-        return when (resolveSourceId(sourceId)) {
-            MangaSourceIds.HASTA_TEAM -> MangaSearchConfig(
-                minQueryLength = 1,
-                showAllOnEmptyQuery = true,
-            )
-            else -> MangaSearchConfig(minQueryLength = DEFAULT_MIN_QUERY_LENGTH)
-        }
-    }
-
     fun identityKey(
         sourceId: String,
         mangaUrl: String,
@@ -207,7 +193,6 @@ object MangaSourceCatalog {
         } ?: normalizedUrl
     }
 
-    private const val DEFAULT_MIN_QUERY_LENGTH = 3
 }
 
 interface MangaSource {

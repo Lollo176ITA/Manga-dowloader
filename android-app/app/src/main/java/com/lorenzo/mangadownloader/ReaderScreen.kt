@@ -87,9 +87,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
-import coil.imageLoader
-import coil.request.ImageRequest
+import coil3.compose.SubcomposeAsyncImage
+import coil3.imageLoader
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.ImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
@@ -366,8 +368,8 @@ private fun VerticalReader(
     val listState = rememberLazyListState()
     // Pagina attualmente in vista e pagina più avanzata raggiunta nel capitolo: la
     // differenza tra le due pilota il pulsante "riprendi" (torna dove ero arrivato).
-    var currentPageIndex by remember(chapterKey) { mutableStateOf(0) }
-    var furthestPageIndex by remember(chapterKey) { mutableStateOf(0) }
+    var currentPageIndex by remember(chapterKey) { mutableIntStateOf(0) }
+    var furthestPageIndex by remember(chapterKey) { mutableIntStateOf(0) }
     val zoomFlingDecay = remember { exponentialDecay<Float>() }
     val readerScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
@@ -744,7 +746,7 @@ private fun PagedReader(
     // Pagina più avanzata raggiunta nel capitolo: pilota il pulsante "riprendi"
     // quando si torna indietro di qualche pagina.
     var furthestPageIndex by remember(chapterKey) {
-        mutableStateOf(initialPageIndex.coerceIn(0, pages.lastIndex))
+        mutableIntStateOf(initialPageIndex.coerceIn(0, pages.lastIndex))
     }
     val resumeScope = rememberCoroutineScope()
 
@@ -1098,10 +1100,12 @@ private fun readerImageRequest(
     val builder = ImageRequest.Builder(context)
     when (page) {
         is ReaderPage.Local -> builder.data(page.file)
-        is ReaderPage.Remote -> builder.data(page.url).setHeader("Referer", page.referer)
+        is ReaderPage.Remote -> builder
+            .data(page.url)
+            .httpHeaders(NetworkHeaders.Builder().set("Referer", page.referer).build())
     }
     if (retryAttempt > 0) {
-        builder.setParameter("retry", retryAttempt)
+        builder.memoryCacheKeyExtra("retry", retryAttempt.toString())
     }
     return builder.build()
 }

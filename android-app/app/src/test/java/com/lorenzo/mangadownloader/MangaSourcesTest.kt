@@ -3,6 +3,7 @@ package com.lorenzo.mangadownloader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -465,16 +466,14 @@ class MangaSourcesTest {
     }
 
     @Test
-    fun sourceCatalog_scopeAllAndSourceUseFullCatalog() {
+    fun sourceCatalog_scopeAllUsesFullCatalogAndRejectsLegacySource() {
         assertEquals(
             MangaSourceCatalog.descriptors,
             MangaSourceCatalog.descriptorsForScope(SearchScope.ALL),
         )
-        // SOURCE non ha una lingua propria: la ricerca usa searchSourceId, non questo elenco.
-        assertEquals(
-            MangaSourceCatalog.descriptors,
-            MangaSourceCatalog.descriptorsForScope(SearchScope.SOURCE),
-        )
+        assertThrows(IllegalArgumentException::class.java) {
+            MangaSourceCatalog.descriptorsForScope(SearchScope.SOURCE)
+        }
     }
 
     @Test
@@ -528,17 +527,6 @@ class MangaSourcesTest {
         assertEquals(1, results.size)
         assertEquals("Kimetsu no Yaiba", results.first().title)
         assertEquals("https://www.mangaworld.mx/manga/716", results.first().mangaUrl)
-    }
-
-    @Test
-    fun searchConfig_allowsBrowseAllForHastaTeam() {
-        val hastaConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.HASTA_TEAM)
-        val mangapillConfig = MangaSourceCatalog.searchConfig(MangaSourceIds.MANGAPILL)
-
-        assertEquals(1, hastaConfig.minQueryLength)
-        assertEquals(true, hastaConfig.showAllOnEmptyQuery)
-        assertEquals(3, mangapillConfig.minQueryLength)
-        assertEquals(false, mangapillConfig.showAllOnEmptyQuery)
     }
 
     @Test

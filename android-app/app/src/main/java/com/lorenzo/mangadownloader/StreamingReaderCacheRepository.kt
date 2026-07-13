@@ -10,16 +10,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 data class StreamingReaderCacheKey(
     val sourceId: String,
@@ -41,42 +35,31 @@ data class StreamingReaderCachedChapter(
     val referer: String,
 )
 
+@Serializable
 data class StreamingReaderCacheMetadata(
     val sourceId: String? = null,
     val mangaUrl: String? = null,
     val chapterUrl: String? = null,
-    val title: String,
-    val pageUrls: List<String>,
-    val pages: List<String>,
-    val referer: String,
-    val lastAccessAtMs: Long,
+    val title: String = "",
+    val pageUrls: List<String> = emptyList(),
+    val pages: List<String> = emptyList(),
+    val referer: String = "",
+    val lastAccessAtMs: Long = 0L,
 ) {
     companion object {
         private const val FILE_NAME = "metadata.json"
         private val json = Json {
             prettyPrint = true
             ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
         }
 
         fun read(directory: File): StreamingReaderCacheMetadata? {
             val file = File(directory, FILE_NAME)
             if (!file.isFile) return null
             return try {
-                val root = json.parseToJsonElement(file.readText()).jsonObject
-                StreamingReaderCacheMetadata(
-                    sourceId = root["sourceId"]?.jsonPrimitive?.contentOrNull,
-                    mangaUrl = root["mangaUrl"]?.jsonPrimitive?.contentOrNull,
-                    chapterUrl = root["chapterUrl"]?.jsonPrimitive?.contentOrNull,
-                    title = root["title"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    pageUrls = root["pageUrls"]?.jsonArray?.mapNotNull {
-                        it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
-                    }.orEmpty(),
-                    pages = root["pages"]?.jsonArray?.mapNotNull {
-                        it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank)
-                    }.orEmpty(),
-                    referer = root["referer"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-                    lastAccessAtMs = root["lastAccessAtMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L,
-                )
+                json.decodeFromString<StreamingReaderCacheMetadata>(file.readText()).normalized()
             } catch (_: Exception) {
                 null
             }
@@ -87,27 +70,14 @@ data class StreamingReaderCacheMetadata(
             metadata: StreamingReaderCacheMetadata,
         ) {
             directory.mkdirs()
-            val payload = buildJsonObject {
-                put("title", JsonPrimitive(metadata.title))
-                metadata.sourceId?.let { put("sourceId", JsonPrimitive(it)) }
-                metadata.mangaUrl?.let { put("mangaUrl", JsonPrimitive(it)) }
-                metadata.chapterUrl?.let { put("chapterUrl", JsonPrimitive(it)) }
-                put("referer", JsonPrimitive(metadata.referer))
-                put("lastAccessAtMs", JsonPrimitive(metadata.lastAccessAtMs))
-                put(
-                    "pageUrls",
-                    buildJsonArray {
-                        metadata.pageUrls.forEach { add(JsonPrimitive(it)) }
-                    },
-                )
-                put(
-                    "pages",
-                    buildJsonArray {
-                        metadata.pages.forEach { add(JsonPrimitive(it)) }
-                    },
-                )
-            }
-            File(directory, FILE_NAME).writeText(json.encodeToString(JsonObject.serializer(), payload))
+            File(directory, FILE_NAME).writeText(json.encodeToString(metadata))
+        }
+
+        private fun StreamingReaderCacheMetadata.normalized(): StreamingReaderCacheMetadata {
+            return copy(
+                pageUrls = pageUrls.mapNotNull { it.trim().takeIf(String::isNotBlank) },
+                pages = pages.mapNotNull { it.trim().takeIf(String::isNotBlank) },
+            )
         }
     }
 }

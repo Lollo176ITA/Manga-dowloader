@@ -86,7 +86,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 
 /**
  * Colori standard delle card "contenitore" dell'app (sfondo `surfaceContainerHigh`).
@@ -434,7 +434,7 @@ fun SourceBadge(
 }
 
 @Composable
-private fun InfoBadge(
+internal fun InfoBadge(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {

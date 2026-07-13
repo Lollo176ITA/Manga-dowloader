@@ -19,18 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +101,7 @@ internal fun DiscoveryCard(
                         .aspectRatio(2f / 3f)
                         .clip(MaterialTheme.shapes.extraLarge),
                 )
-                DiscoveryInfoBadge(
+                InfoBadge(
                     onClick = onShowInfo,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -129,30 +125,6 @@ internal fun DiscoveryCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun DiscoveryInfoBadge(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FilledTonalIconButton(
-        onClick = onClick,
-        modifier = modifier
-            .minimumInteractiveComponentSize()
-            .size(36.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = IconButtonDefaults.filledTonalIconButtonColors(
-            containerColor = Color.Black.copy(alpha = 0.45f),
-            contentColor = Color.White,
-        ),
-    ) {
-        Icon(
-            imageVector = Icons.Default.Info,
-            contentDescription = "Informazioni manga",
-            modifier = Modifier.size(20.dp),
-        )
     }
 }
 

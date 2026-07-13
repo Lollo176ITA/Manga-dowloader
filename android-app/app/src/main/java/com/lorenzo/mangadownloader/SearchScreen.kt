@@ -48,7 +48,6 @@ fun SearchScreen(
 ) {
     val trimmed = state.query.trim()
     val scope = state.settings.searchScope
-    val searchConfig = MangaSourceCatalog.searchConfig(state.settings.searchSourceId)
     val pullState = rememberPullToRefreshState()
 
     val tutorialAnchorFor = LocalTutorialAnchor.current
@@ -104,14 +103,12 @@ fun SearchScreen(
                             state.results.first().mangaUrl,
                         )
                         Column(modifier = Modifier.fillMaxSize()) {
-                            if (state.aggregatedSearchActive) {
-                                Text(
-                                    text = "${state.results.size} risultati ${scope.resultsCaption()}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 16.dp, top = 4.dp),
-                                )
-                            }
+                            Text(
+                                text = "${state.results.size} risultati ${scope.resultsCaption()}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+                            )
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
                                 modifier = Modifier.fillMaxSize(),
@@ -139,14 +136,10 @@ fun SearchScreen(
                                             onClick = { onSelect(result) },
                                             onToggleFavorite = { onToggleFavorite(result) },
                                             onShowInfo = { onShowInfo(result) },
-                                            // In aggregata lo stesso titolo arriva da più fonti:
+                                            // Lo stesso titolo può arrivare da più fonti:
                                             // il badge le rende distinguibili senza aprire il
                                             // dettaglio (due edizioni diverse, non un doppione).
-                                            sourceLabel = if (state.aggregatedSearchActive) {
-                                                MangaSourceCatalog.shortDisplayName(result.sourceId)
-                                            } else {
-                                                null
-                                            },
+                                            sourceLabel = MangaSourceCatalog.shortDisplayName(result.sourceId),
                                         )
                                     }
                                 }
@@ -154,34 +147,19 @@ fun SearchScreen(
                         }
                     }
                     trimmed.isEmpty() -> {
-                        when {
-                            !state.aggregatedSearchActive && searchConfig.showAllOnEmptyQuery -> EmptyState(
-                                icon = Icons.Default.SearchOff,
-                                title = "Nessun risultato",
-                            )
-                            state.recentSearches.isNotEmpty() -> RecentSearches(
+                        if (state.recentSearches.isNotEmpty()) {
+                            RecentSearches(
                                 queries = state.recentSearches,
                                 onPick = onQueryChange,
                                 onClear = onClearRecentSearches,
                             )
-                            else -> EmptyState(
+                        } else {
+                            EmptyState(
                                 icon = Icons.Default.Search,
                                 title = "Cerca un manga",
                                 description = "Digita il titolo nella barra qui sopra per trovare manga da leggere o scaricare.",
                             )
                         }
-                    }
-                    // Il minimo di caratteri vale per la fonte singola: l'aggregata parte
-                    // con qualunque query non vuota.
-                    !state.aggregatedSearchActive && trimmed.length < searchConfig.minQueryLength -> {
-                        EmptyState(
-                            icon = Icons.Default.Search,
-                            title = if (searchConfig.minQueryLength == 1) {
-                                "Digita almeno 1 carattere"
-                            } else {
-                                "Digita almeno ${searchConfig.minQueryLength} caratteri"
-                            },
-                        )
                     }
                     scope == SearchScope.ALL -> {
                         EmptyState(
@@ -201,7 +179,7 @@ fun SearchScreen(
                             icon = Icons.Default.SearchOff,
                             title = "Nessun risultato",
                             description = "Nessun manga trovato per \"$trimmed\" " +
-                                "${scope.emptyResultsPlace(state.settings.searchSourceId)}.",
+                                "${scope.emptyResultsPlace()}.",
                             actionLabel = "Cerca su tutte le fonti",
                             onAction = onSelectAllSources,
                             secondaryActionLabel = "Cancella ricerca",
@@ -222,18 +200,17 @@ fun SearchScreen(
 }
 
 /** Complemento per la caption "N risultati …" della ricerca aggregata. */
-private fun SearchScope.resultsCaption(): String = when (this) {
-    SearchScope.ALL -> "da tutte le fonti"
-    SearchScope.ITA -> "dalle fonti in italiano"
-    SearchScope.ENG -> "dalle fonti in inglese"
-    SearchScope.SOURCE -> ""
+private fun SearchScope.resultsCaption(): String = when (language) {
+    MangaSourceLanguage.ITA -> "dalle fonti in italiano"
+    MangaSourceLanguage.ENG -> "dalle fonti in inglese"
+    null -> "da tutte le fonti"
 }
 
 /** Complemento di luogo per lo stato vuoto "Nessun manga trovato per \"q\" …". */
-private fun SearchScope.emptyResultsPlace(selectedSourceId: String): String = when (this) {
-    SearchScope.ITA -> "sulle fonti in italiano"
-    SearchScope.ENG -> "sulle fonti in inglese"
-    else -> "su ${MangaSourceCatalog.shortDisplayName(selectedSourceId)}"
+private fun SearchScope.emptyResultsPlace(): String = when (language) {
+    MangaSourceLanguage.ITA -> "sulle fonti in italiano"
+    MangaSourceLanguage.ENG -> "sulle fonti in inglese"
+    null -> "su tutte le fonti"
 }
 
 /**

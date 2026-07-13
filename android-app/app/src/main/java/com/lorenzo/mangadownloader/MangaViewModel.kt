@@ -7,7 +7,7 @@ import androidx.biometric.BiometricManager
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import coil.imageLoader
+import coil3.imageLoader
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -257,11 +257,7 @@ data class MangaUiState(
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
     val tutorialState: TutorialUiState = TutorialUiState(),
     val errorMessage: String? = null,
-) {
-    /** Ricerca aggregata su più fonti (Tutte o per lingua), invece della fonte singola. */
-    val aggregatedSearchActive: Boolean
-        get() = settings.searchScope != SearchScope.SOURCE
-}
+)
 
 private fun AppSettings.shouldStartTutorial(favorites: List<FavoriteManga>): Boolean {
     return !tutorialCompleted && favorites.isEmpty()
@@ -399,46 +395,21 @@ class MangaViewModel internal constructor(
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { Triple(it.query.trim(), it.settings.searchSourceId, it.settings.searchScope) }
+                .map { it.query.trim() to it.settings.searchScope }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (q, sourceId, scope) ->
-                    if (scope != SearchScope.SOURCE) {
-                        // Ambito aggregato (Tutte o per lingua): parte con qualunque query non vuota.
-                        if (q.isNotEmpty()) {
-                            runAggregatedSearch(q)
-                        } else {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(results = emptyList(), isSearching = false, searchError = null)
-                            }
-                        }
-                        return@collect
-                    }
-                    val searchConfig = MangaSourceCatalog.searchConfig(sourceId)
-                    when {
-                        q.isEmpty() && searchConfig.showAllOnEmptyQuery -> runSearch("")
-                        q.isEmpty() -> {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(
-                                    results = emptyList(),
-                                    isSearching = false,
-                                    searchError = null,
-                                    errorMessage = null,
-                                )
-                            }
-                        }
-                        q.length >= searchConfig.minQueryLength -> runSearch(q)
-                        else -> {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(
-                                    results = emptyList(),
-                                    isSearching = false,
-                                    searchError = null,
-                                )
-                            }
+                .collect { (query, _) ->
+                    if (query.isNotEmpty()) {
+                        runAggregatedSearch(query)
+                    } else {
+                        searchJob?.cancel()
+                        updateState {
+                            copy(
+                                results = emptyList(),
+                                isSearching = false,
+                                searchError = null,
+                                errorMessage = null,
+                            )
                         }
                     }
                 }
@@ -450,17 +421,7 @@ class MangaViewModel internal constructor(
     }
 
     fun submitSearch() {
-        val q = _state.value.query.trim()
-        if (_state.value.aggregatedSearchActive) {
-            if (q.isNotEmpty()) runAggregatedSearch(q)
-            return
-        }
-        val searchConfig = MangaSourceCatalog.searchConfig(_state.value.settings.searchSourceId)
-        if (q.isEmpty() && searchConfig.showAllOnEmptyQuery) {
-            runSearch("")
-        } else if (q.length >= searchConfig.minQueryLength) {
-            runSearch(q)
-        }
+        _state.value.query.trim().takeIf(String::isNotEmpty)?.let(::runAggregatedSearch)
     }
 
     fun selectTab(tab: AppTab) {
@@ -558,60 +519,22 @@ class MangaViewModel internal constructor(
         updateState { copy(showSettings = true) }
     }
 
-    fun selectSearchSource(sourceId: String) {
-        val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
-        val query = _state.value.query.trim()
-        val searchConfig = MangaSourceCatalog.searchConfig(resolvedSourceId)
-        // Scegliere una fonte singola esce dall'ambito aggregato (Tutte/lingua).
-        updateSettings {
-            it.copy(searchScope = SearchScope.SOURCE, searchSourceId = resolvedSourceId)
-        }
-        updateState { copy(errorMessage = null) }
-        when {
-            query.isEmpty() && searchConfig.showAllOnEmptyQuery -> {
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = true,
-                    )
-                }
-            }
-            query.length >= searchConfig.minQueryLength -> {
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = true,
-                    )
-                }
-            }
-            else -> {
-                searchJob?.cancel()
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = false,
-                    )
-                }
-            }
-        }
-    }
-
     /**
      * Chip "Tutte" (o CTA "Cerca su tutte le fonti" a zero risultati): attiva la ricerca
      * aggregata su ogni fonte. Il rilancio della query corrente lo fa [observeQueryChanges],
      * che osserva anche `settings.searchScope`.
      */
     fun selectAllSourcesSearch() {
-        setAggregatedSearchScope(SearchScope.ALL)
+        setSearchScope(SearchScope.ALL)
     }
 
     /** Chip lingua ("Italiano"/"English"): ricerca aggregata sulle fonti di quella lingua. */
     fun selectLanguageSearch(language: MangaSourceLanguage) {
-        setAggregatedSearchScope(SearchScope.forLanguage(language))
+        setSearchScope(SearchScope.forLanguage(language))
     }
 
-    private fun setAggregatedSearchScope(scope: SearchScope) {
-        require(scope != SearchScope.SOURCE) { "Per la fonte singola usare selectSearchSource" }
+    private fun setSearchScope(scope: SearchScope) {
+        require(scope != SearchScope.SOURCE) { "SOURCE è riservato alla migrazione dei dati legacy" }
         if (_state.value.settings.searchScope == scope) return
         val query = _state.value.query.trim()
         updateSettings { it.copy(searchScope = scope) }
@@ -830,14 +753,7 @@ class MangaViewModel internal constructor(
      */
     fun openMangaFromUpdate(event: FavoriteUpdateEvent) {
         markUpdateSeen(event)
-        selectManga(
-            MangaSearchResult(
-                sourceId = event.sourceId,
-                title = event.title,
-                mangaUrl = event.mangaUrl,
-                coverUrl = event.coverUrl,
-            ),
-        )
+        selectManga(event.toSearchResult())
     }
 
     fun setParentalControlEnabled(enabled: Boolean) {
@@ -1217,7 +1133,9 @@ class MangaViewModel internal constructor(
     private fun runTutorialPreload() {
         viewModelScope.launch {
             try {
-                val sourceId = _state.value.settings.searchSourceId
+                // Fonte deterministica: `searchSourceId` sopravvive soltanto per migrare i dati
+                // delle versioni che permettevano la ricerca su una singola fonte.
+                val sourceId = MangaSourceIds.DEFAULT
                 val source = sourceRegistry.requireById(sourceId)
                 val results = withContext(Dispatchers.IO) { source.searchManga("One Piece") }
                 val match = results.firstOrNull { it.title.contains("One Piece", ignoreCase = true) }
@@ -1306,14 +1224,7 @@ class MangaViewModel internal constructor(
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
-        toggleFavorite(
-            FavoriteManga(
-                sourceId = result.sourceId,
-                title = result.title,
-                mangaUrl = result.mangaUrl,
-                coverUrl = result.coverUrl,
-            ),
-        )
+        toggleFavorite(result.toFavoriteManga())
     }
 
     fun selectManga(result: MangaSearchResult) {
@@ -1327,13 +1238,7 @@ class MangaViewModel internal constructor(
                 isLoadingDetails = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = readChapterIds,
-                selected = MangaDetails(
-                    sourceId = result.sourceId,
-                    title = result.title,
-                    coverUrl = result.coverUrl,
-                    mangaUrl = result.mangaUrl,
-                    chapters = emptyList(),
-                ),
+                selected = result.toDetailsStub(),
             )
         }
         detailJob = viewModelScope.launch {
@@ -1502,14 +1407,7 @@ class MangaViewModel internal constructor(
 
     fun toggleFavoriteSelectedManga() {
         val selected = _state.value.selected ?: return
-        toggleFavorite(
-            FavoriteManga(
-                sourceId = selected.sourceId,
-                title = selected.title,
-                mangaUrl = selected.mangaUrl,
-                coverUrl = selected.coverUrl,
-            ),
-        )
+        toggleFavorite(selected.toFavoriteManga())
     }
 
     fun refreshLibrary(forceRefresh: Boolean = false) {
@@ -1704,20 +1602,12 @@ class MangaViewModel internal constructor(
                     val restored = savedPageIndex.coerceIn(0, cached.pages.lastIndex.coerceAtLeast(0))
                     libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, cached.pages.size)
                     updateState {
-                        if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                            this
-                        } else {
-                            val currentReaderChapter = this.readerChapter
-                            copy(
-                                readerChapter = currentReaderChapter.copy(
-                                    readerPageIndex = restored,
-                                    readerPageCount = cached.pages.size,
-                                ),
-                                readerPages = cached.pages.map(ReaderPage::Local),
-                                readerInitialPageIndex = restored,
-                                isLoadingReader = false,
-                            ).withStreamingReaderAdjacency(streamingChapter)
-                        }
+                        withStreamingReaderPayload(
+                            expectedRelativePath = readerChapter.relativePath,
+                            streamingChapter = streamingChapter,
+                            pages = cached.pages.map(ReaderPage::Local),
+                            restoredPageIndex = restored,
+                        )
                     }
                     return@launch
                 }
@@ -1734,25 +1624,17 @@ class MangaViewModel internal constructor(
                 val restored = savedPageIndex.coerceIn(0, pageUrls.lastIndex.coerceAtLeast(0))
                 libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, pageUrls.size)
                 updateState {
-                    if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                        this
-                    } else {
-                        val currentReaderChapter = this.readerChapter
-                        copy(
-                            readerChapter = currentReaderChapter.copy(
-                                readerPageIndex = restored,
-                                readerPageCount = pageUrls.size,
-                            ),
-                            readerPages = pageUrls.map { url ->
+                    withStreamingReaderPayload(
+                        expectedRelativePath = readerChapter.relativePath,
+                        streamingChapter = streamingChapter,
+                        pages = pageUrls.map { url ->
                                 ReaderPage.Remote(
                                     url = url,
                                     referer = streamingChapter.chapter.url,
                                 )
-                            },
-                            readerInitialPageIndex = restored,
-                            isLoadingReader = false,
-                        ).withStreamingReaderAdjacency(streamingChapter)
-                    }
+                        },
+                        restoredPageIndex = restored,
+                    )
                 }
 
                 streamingCacheJob = viewModelScope.launch {
@@ -1766,16 +1648,11 @@ class MangaViewModel internal constructor(
                             )
                         }
                         updateState {
-                            if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                                this
-                            } else {
-                                val currentReaderChapter = this.readerChapter
-                                copy(
-                                    readerChapter = currentReaderChapter.copy(readerPageCount = completed.pages.size),
-                                    readerPages = completed.pages.map(ReaderPage::Local),
-                                    isLoadingReader = false,
-                                ).withStreamingReaderAdjacency(streamingChapter)
-                            }
+                            withStreamingReaderPayload(
+                                expectedRelativePath = readerChapter.relativePath,
+                                streamingChapter = streamingChapter,
+                                pages = completed.pages.map(ReaderPage::Local),
+                            )
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -2025,31 +1902,8 @@ class MangaViewModel internal constructor(
 
     fun deleteDownloadedChapter(chapter: DownloadedChapter) {
         val series = _state.value.selectedDownloadedSeries ?: return
-
-        libraryJob?.cancel()
-        streamingCacheJob?.cancel()
-        smartCleanupJob?.cancel()
-        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
-        libraryJob = viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteChapters(series, listOf(chapter))
-                }
-                val snapshot = scanLibrarySnapshot()
-                updateState {
-                    withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                updateState {
-                    copy(
-                        isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione capitolo",
-                    )
-                }
-            }
+        mutateLibrary(fallbackErrorMessage = "Errore eliminazione capitolo") {
+            libraryRepository.deleteChapters(series, listOf(chapter))
         }
     }
 
@@ -2065,51 +1919,39 @@ class MangaViewModel internal constructor(
         val readChapters = series.chapters.filter { it.isRead }
         if (readChapters.isEmpty()) return
 
-        libraryJob?.cancel()
-        streamingCacheJob?.cancel()
-        smartCleanupJob?.cancel()
-        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
-        libraryJob = viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteChapters(series, readChapters)
-                }
-                val snapshot = scanLibrarySnapshot()
-                updateState {
-                    withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                updateState {
-                    copy(
-                        isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione capitoli letti",
-                    )
-                }
-            }
+        mutateLibrary(fallbackErrorMessage = "Errore eliminazione capitoli letti") {
+            libraryRepository.deleteChapters(series, readChapters)
         }
     }
 
     fun deleteDownloadedSeries(series: DownloadedSeries? = _state.value.selectedDownloadedSeries) {
         val targetSeries = series ?: return
 
+        mutateLibrary(
+            fallbackErrorMessage = "Errore eliminazione manga",
+            clearReader = true,
+        ) {
+            libraryRepository.deleteSeries(targetSeries)
+        }
+    }
+
+    private fun mutateLibrary(
+        fallbackErrorMessage: String,
+        clearReader: Boolean = false,
+        mutation: suspend () -> Unit,
+    ) {
         libraryJob?.cancel()
-        readerJob?.cancel()
+        if (clearReader) readerJob?.cancel()
         streamingCacheJob?.cancel()
         smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteSeries(targetSeries)
-                }
+                withContext(Dispatchers.IO) { mutation() }
                 val snapshot = scanLibrarySnapshot()
                 updateState {
-                    clearedReaderState()
-                        .withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
+                    val baseState = if (clearReader) clearedReaderState() else this
+                    baseState.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2117,7 +1959,7 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione manga",
+                        errorMessage = exc.message ?: fallbackErrorMessage,
                     )
                 }
             }
@@ -2242,33 +2084,6 @@ class MangaViewModel internal constructor(
                     copy(
                         isInstallingUpdate = false,
                         errorMessage = exc.message ?: "Errore installazione aggiornamento",
-                    )
-                }
-            }
-        }
-    }
-
-    private fun runSearch(q: String) {
-        searchJob?.cancel()
-        updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
-        searchJob = viewModelScope.launch {
-            try {
-                val results = withContext(Dispatchers.IO) {
-                    sourceRegistry.requireById(_state.value.settings.searchSourceId).searchManga(q)
-                }
-                updateState { copy(results = results, isSearching = false) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                // L'errore vive nello stato della schermata: con risultati vuoti la tab Cerca
-                // mostra "Ricerca non riuscita" + Riprova. Se invece a schermo ci sono ancora
-                // i risultati precedenti (refresh fallito), il segnale passa dalla snackbar.
-                val friendly = userFacingErrorMessage(exc, "Errore di ricerca")
-                updateState {
-                    copy(
-                        isSearching = false,
-                        searchError = friendly,
-                        errorMessage = if (results.isNotEmpty()) friendly else errorMessage,
                     )
                 }
             }
@@ -2648,6 +2463,27 @@ class MangaViewModel internal constructor(
                 .getOrNull(currentIndex + 1)
                 ?.toStreamingReaderChapter(),
         )
+    }
+
+    /** Applica pagine cache/remoto solo se il reader richiesto è ancora quello visibile. */
+    private fun MangaUiState.withStreamingReaderPayload(
+        expectedRelativePath: String,
+        streamingChapter: StreamingReaderChapter,
+        pages: List<ReaderPage>,
+        restoredPageIndex: Int? = null,
+    ): MangaUiState {
+        val currentChapter = readerChapter
+            ?.takeIf { it.relativePath == expectedRelativePath }
+            ?: return this
+        return copy(
+            readerChapter = currentChapter.copy(
+                readerPageIndex = restoredPageIndex ?: currentChapter.readerPageIndex,
+                readerPageCount = pages.size,
+            ),
+            readerPages = pages,
+            readerInitialPageIndex = restoredPageIndex ?: readerInitialPageIndex,
+            isLoadingReader = false,
+        ).withStreamingReaderAdjacency(streamingChapter)
     }
 
     fun clearRecentSearches() {
@@ -3100,7 +2936,7 @@ class MangaViewModel internal constructor(
  * l'URL grezzo. La copia avviene mentre lo snapshot è aperto, perché Coil può poi
  * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
  */
-@OptIn(coil.annotation.ExperimentalCoilApi::class)
+@OptIn(coil3.annotation.ExperimentalCoilApi::class)
 private fun copyCoilCachedPage(context: Context, url: String, target: File): Boolean {
     return try {
         val diskCache = context.imageLoader.diskCache ?: return false

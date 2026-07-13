@@ -1,0 +1,29 @@
+{
+  "title": "  Yotsuba  ",
+  "mangaUrl": "https://reader.hastateam.com/comics/yotsuba",
+  "coverFileName": "cover.jpg",
+  "totalChapters": 2,
+  "readChapterIds": [" chapter:2 ", "", "chapter:1"],
+  "chapters": [
+    {
+      "numberText": " 1 ",
+      "url": "https://reader.hastateam.com/read/yotsuba/1",
+      "fileName": " chapter_001.cbz ",
+      "id": "chapter:1",
+      "futureField": "ignored"
+    },
+    {
+      "numberText": "2",
+      "slug": "yotsuba-2",
+      "volumeText": "Volume 1",
+      "labelPrefix": "  Episodio  ",
+      "fileName": "chapter_002.cbz",
+      "id": "chapter:2"
+    },
+    {
+      "numberText": "",
+      "fileName": "invalid.cbz"
+    }
+  ],
+  "futureRootField": true
+}

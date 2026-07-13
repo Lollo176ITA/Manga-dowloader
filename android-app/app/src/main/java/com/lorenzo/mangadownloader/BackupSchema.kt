@@ -86,6 +86,19 @@ private val backupJson = Json {
 
 fun encodeBackup(backup: MangaBackup): String = backupJson.encodeToString(backup)
 
+/**
+ * Codifica il solo payload portabile delle impostazioni. Lo stesso DTO è usato sia nel
+ * backup v1 sia nella persistenza ordinaria, così mapping e valori di default non divergono.
+ */
+fun encodeSettingsBackup(settings: SettingsBackup): String = backupJson.encodeToString(settings)
+
+/** Decodifica tollerante del payload impostazioni locale; JSON malformato → null. */
+fun decodeSettingsBackup(raw: String): SettingsBackup? = try {
+    backupJson.decodeFromString<SettingsBackup>(raw)
+} catch (_: Exception) {
+    null
+}
+
 /** Decodifica tollerante: JSON malformato o schema più recente del corrente → null. */
 fun decodeBackup(raw: String): MangaBackup? {
     return try {

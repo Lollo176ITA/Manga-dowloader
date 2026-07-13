@@ -1,12 +1,8 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import java.math.BigDecimal
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Stato "ultimo visto" di un manga preferito, per decidere se è uscito un nuovo capitolo.
@@ -71,24 +67,11 @@ fun shouldPollFavorite(seen: FavoriteSeenState?): Boolean {
  */
 class FavoriteUpdatesStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
-    fun read(): Map<String, FavoriteSeenState> {
-        val raw = prefs.getString(KEY_FAVORITE_UPDATES_JSON, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyMap()
-        }
-        return try {
-            json.decodeFromString<Map<String, FavoriteSeenState>>(raw)
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
+    fun read(): Map<String, FavoriteSeenState> =
+        prefs.readJson(KEY_FAVORITE_UPDATES_JSON, emptyMap())
 
     fun write(state: Map<String, FavoriteSeenState>) {
-        prefs.edit {
-            putString(KEY_FAVORITE_UPDATES_JSON, json.encodeToString(state))
-        }
+        prefs.writeJson(KEY_FAVORITE_UPDATES_JSON, state)
     }
 
     private companion object {

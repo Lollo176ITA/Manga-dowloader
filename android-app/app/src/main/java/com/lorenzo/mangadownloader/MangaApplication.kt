@@ -2,11 +2,12 @@ package com.lorenzo.mangadownloader
 
 import android.app.Application
 import android.content.Context
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import okhttp3.OkHttpClient
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.crossfade
 
-class MangaApplication : Application(), ImageLoaderFactory {
+class MangaApplication : Application(), SingletonImageLoader.Factory {
 
     /**
      * Istanze applicative uniche: condivise tra ViewModel e DownloadWorker così che
@@ -21,7 +22,7 @@ class MangaApplication : Application(), ImageLoaderFactory {
         CrashReporter.install(this)
     }
 
-    override fun newImageLoader(): ImageLoader {
+    override fun newImageLoader(context: Context): ImageLoader {
         // newBuilder() preserves the parent connection pool and HTTP cache,
         // so image requests reuse the same pool as the rest of the app.
         val okHttpClient = SharedHttpClient.get(this).newBuilder()
@@ -40,10 +41,11 @@ class MangaApplication : Application(), ImageLoaderFactory {
             }
             .build()
 
-        return ImageLoader.Builder(this)
-            .okHttpClient(okHttpClient)
+        return ImageLoader.Builder(context)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
+            }
             .crossfade(true)
-            .respectCacheHeaders(false)
             .build()
     }
 

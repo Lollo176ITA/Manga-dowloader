@@ -48,6 +48,19 @@ class BackupSchemaTest {
     }
 
     @Test
+    fun settingsCodec_roundTripsWithoutChangingBackupSchema() {
+        val settings = SettingsBackup(
+            autoDownloadEnabled = true,
+            readerBrightness = 0.25f,
+            themeMode = ThemeMode.DARK.name,
+            hiddenHomeBlocks = listOf(HomeBlock.DISCOVER.name),
+        )
+        assertEquals(settings, decodeSettingsBackup(encodeSettingsBackup(settings)))
+        assertNull(decodeSettingsBackup("{broken"))
+        assertEquals(BACKUP_SCHEMA_VERSION, decodeBackup(encodeBackup(sampleBackup()))?.schemaVersion)
+    }
+
+    @Test
     fun settings_toBackupThenApplyTo_isIdentityForDefaults() {
         assertEquals(AppSettings(), AppSettings().toBackup().applyTo(AppSettings()))
     }

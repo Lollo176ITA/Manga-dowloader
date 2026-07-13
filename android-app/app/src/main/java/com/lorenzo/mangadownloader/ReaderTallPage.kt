@@ -16,7 +16,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import coil3.annotation.ExperimentalCoilApi
 import coil3.imageLoader
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.ImageRequest
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -30,44 +34,11 @@ import kotlinx.coroutines.withContext
  * è un problema di rete. Il rimedio è quello dei reader manga classici: decodificare
  * la striscia a blocchi orizzontali con [BitmapRegionDecoder] e impilarli in colonna.
  *
- * I blocchi sono alti al massimo [TallReaderPageChunkHeightPx] (ben sotto ogni limite
- * texture) e decodificati in RGB_565: per una striscia 800×18000 sono ~29 MB invece
- * dei ~58 MB di ARGB_8888 — le scan non hanno alpha e la differenza non si vede.
+ * I blocchi sono alti al massimo [TallPageNormalizationChunkHeightPx] (ben sotto ogni limite
+ * texture) e restano a piena risoluzione e profondità colore. Questo percorso è solo
+ * il fallback per capitoli vecchi e streaming non ancora normalizzato: i nuovi download
+ * salvano già blocchi persistenti e non arrivano qui.
  */
-internal const val TallReaderPageMinHeightPx = 4096
-internal const val TallReaderPageChunkHeightPx = 2048
-internal const val TallReaderPageMaxWidthPx = 2048
-
-/**
- * Fasce orizzontali (range di righe, estremi inclusi) in cui spezzare un'immagine alta
- * [imageHeight] px: tutte alte [chunkHeight] tranne l'ultima, che copre il resto.
- */
-internal fun tallReaderPageChunkRanges(
-    imageHeight: Int,
-    chunkHeight: Int = TallReaderPageChunkHeightPx,
-): List<IntRange> {
-    if (imageHeight <= 0 || chunkHeight <= 0) return emptyList()
-    return (0 until imageHeight step chunkHeight).map { top ->
-        top until minOf(top + chunkHeight, imageHeight)
-    }
-}
-
-/**
- * Fattore di sottocampionamento (potenza di 2) perché la larghezza decodificata non
- * superi [maxWidth]: le strisce webtoon tipiche (≤1200 px) restano a piena risoluzione.
- */
-internal fun tallReaderPageSampleSize(
-    imageWidth: Int,
-    maxWidth: Int = TallReaderPageMaxWidthPx,
-): Int {
-    var sampleSize = 1
-    if (imageWidth <= 0 || maxWidth <= 0) return sampleSize
-    while (imageWidth / sampleSize > maxWidth) {
-        sampleSize *= 2
-    }
-    return sampleSize
-}
-
 /**
  * Prova a decodificare a blocchi la pagina fallita. Torna `null` se la pagina non è
  * una striscia alta (il fallimento ha un'altra causa: la card di retry resta la
@@ -84,12 +55,70 @@ internal suspend fun decodeTallReaderPageChunks(
     page: ReaderPage,
 ): List<ImageBitmap>? {
     return when (page) {
-        is ReaderPage.Local -> when {
-            !page.isFileBroken -> decodeTallPageChunks(page.file)
-            page.remote != null -> decodeTallPageChunksFromCoilCache(context, page.remote.url)
-            else -> null
+        is ReaderPage.Local -> {
+            val localChunks = if (!page.isFileBroken) {
+                decodeTallPageChunks(
+                    file = page.file,
+                    useLegacyVyMangaQuality = page.sourceId == MangaSourceIds.VYMANGA,
+                )
+            } else {
+                null
+            }
+            localChunks ?: page.remote?.let { remote ->
+                decodeRemoteFallbackChunks(
+                    context = context,
+                    remote = remote,
+                    segmentIndex = page.remoteSegmentIndex,
+                )
+            }
         }
-        is ReaderPage.Remote -> decodeTallPageChunksFromCoilCache(context, page.url)
+        is ReaderPage.Remote -> decodeTallPageChunksFromCoilCache(
+            context = context,
+            url = page.url,
+            useLegacyVyMangaQuality = page.sourceId == MangaSourceIds.VYMANGA,
+        )
+    }
+}
+
+private suspend fun decodeRemoteFallbackChunks(
+    context: Context,
+    remote: ReaderPage.Remote,
+    segmentIndex: Int?,
+): List<ImageBitmap>? {
+    val legacyQuality = remote.sourceId == MangaSourceIds.VYMANGA
+    return decodeTallPageChunksFromCoilCache(
+        context = context,
+        url = remote.url,
+        useLegacyVyMangaQuality = legacyQuality,
+        segmentIndex = segmentIndex,
+    ) ?: run {
+        refreshRemotePageDiskCache(context, remote)
+        decodeTallPageChunksFromCoilCache(
+            context = context,
+            url = remote.url,
+            useLegacyVyMangaQuality = legacyQuality,
+            segmentIndex = segmentIndex,
+        )
+    }
+}
+
+@OptIn(ExperimentalCoilApi::class)
+private suspend fun refreshRemotePageDiskCache(
+    context: Context,
+    remote: ReaderPage.Remote,
+) {
+    try {
+        context.imageLoader.diskCache?.remove(remote.url)
+        context.imageLoader.execute(
+            ImageRequest.Builder(context)
+                .data(remote.url)
+                .httpHeaders(NetworkHeaders.Builder().set("Referer", remote.referer).build())
+                // Basta una miniatura: la disk cache conserva comunque i byte originali.
+                .size(1, 1)
+                .build(),
+        )
+    } catch (_: Exception) {
+        // Best effort: il chiamante mostrerà la normale card di retry.
     }
 }
 
@@ -97,6 +126,8 @@ internal suspend fun decodeTallReaderPageChunks(
 private suspend fun decodeTallPageChunksFromCoilCache(
     context: Context,
     url: String,
+    useLegacyVyMangaQuality: Boolean,
+    segmentIndex: Int? = null,
 ): List<ImageBitmap>? = withContext(Dispatchers.IO) {
     val diskCache = context.imageLoader.diskCache ?: return@withContext null
     val snapshot = try {
@@ -104,42 +135,123 @@ private suspend fun decodeTallPageChunksFromCoilCache(
     } catch (_: Exception) {
         null
     } ?: return@withContext null
-    snapshot.use { decodeTallPageChunks(it.data.toFile()) }
+    snapshot.use {
+        decodeTallPageChunks(
+            file = it.data.toFile(),
+            useLegacyVyMangaQuality = useLegacyVyMangaQuality,
+            segmentIndex = segmentIndex,
+        )
+    }
 }
 
-private suspend fun decodeTallPageChunks(file: File): List<ImageBitmap>? =
+private suspend fun decodeTallPageChunks(
+    file: File,
+    useLegacyVyMangaQuality: Boolean,
+    segmentIndex: Int? = null,
+): List<ImageBitmap>? =
     withContext(Dispatchers.IO) {
+        val decoded = mutableListOf<Bitmap>()
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(file.absolutePath, bounds)
             val width = bounds.outWidth
             val height = bounds.outHeight
             // Sotto la soglia non è una striscia: il fallimento ha un'altra causa.
-            if (width <= 0 || height < TallReaderPageMinHeightPx) {
+            if (width <= 0 || height < TallPageNormalizationMinHeightPx) {
                 return@withContext null
+            }
+
+            val ranges = tallPageNormalizationRanges(height)
+            val selectedRanges = if (segmentIndex == null) {
+                ranges
+            } else {
+                listOf(ranges.getOrNull(segmentIndex) ?: return@withContext null)
+            }
+            val selectedHeight = selectedRanges.sumOf { it.count() }
+            val memoryBudget = runtimeTallPageMemoryBudgetBytes()
+            val useReducedMemoryFallback = !useLegacyVyMangaQuality &&
+                !tallReaderPageFitsMemoryBudget(width, selectedHeight, memoryBudget)
+            val sampleSize = when {
+                useLegacyVyMangaQuality -> legacyVyMangaTallPageSampleSize(width)
+                useReducedMemoryFallback -> memoryConstrainedTallPageSampleSize(
+                    width = width,
+                    height = selectedHeight,
+                    maxBytes = memoryBudget,
+                )
+                else -> 1
             }
 
             @Suppress("DEPRECATION")
             val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false)
             try {
                 val options = BitmapFactory.Options().apply {
-                    inSampleSize = tallReaderPageSampleSize(width)
-                    inPreferredConfig = Bitmap.Config.RGB_565
+                    inSampleSize = sampleSize
+                    inPreferredConfig = if (useLegacyVyMangaQuality || useReducedMemoryFallback) {
+                        Bitmap.Config.RGB_565
+                    } else {
+                        Bitmap.Config.ARGB_8888
+                    }
                 }
-                tallReaderPageChunkRanges(height).map { rows ->
+                selectedRanges.forEach { rows ->
                     val region = Rect(0, rows.first, width, rows.last + 1)
-                    decoder.decodeRegion(region, options)?.asImageBitmap()
-                        ?: return@withContext null
+                    decoded += decoder.decodeRegion(region, options)
+                        ?: throw IOException("Impossibile decodificare un blocco della pagina")
                 }
             } finally {
                 decoder.recycle()
             }
+            decoded.map(Bitmap::asImageBitmap)
         } catch (_: Exception) {
+            decoded.forEach(Bitmap::recycle)
             null
         } catch (_: OutOfMemoryError) {
+            decoded.forEach(Bitmap::recycle)
             null
         }
     }
+
+internal fun legacyVyMangaTallPageSampleSize(imageWidth: Int): Int {
+    var sampleSize = 1
+    while (imageWidth / sampleSize > LegacyVyMangaTallPageMaxWidthPx) sampleSize *= 2
+    return sampleSize
+}
+
+internal fun tallReaderPageFitsMemoryBudget(
+    width: Int,
+    height: Int,
+    maxBytes: Long,
+    bytesPerPixel: Long = ArgbBytesPerPixel,
+): Boolean {
+    if (width <= 0 || height <= 0 || maxBytes <= 0L || bytesPerPixel <= 0L) return false
+    return width.toLong() * height.toLong() <= maxBytes / bytesPerPixel
+}
+
+internal fun memoryConstrainedTallPageSampleSize(
+    width: Int,
+    height: Int,
+    maxBytes: Long,
+): Int {
+    if (width <= 0 || height <= 0 || maxBytes <= 0L) return 1
+    var sampleSize = 1
+    while (sampleSize <= Int.MAX_VALUE / 2) {
+        val sampledWidth = (width.toLong() + sampleSize - 1L) / sampleSize
+        val sampledHeight = (height.toLong() + sampleSize - 1L) / sampleSize
+        val fitsWidth = sampledWidth <= MemoryFallbackMaxWidthPx
+        val fitsMemory = sampledWidth * sampledHeight <= maxBytes / Rgb565BytesPerPixel
+        if (fitsWidth && fitsMemory) return sampleSize
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
+private fun runtimeTallPageMemoryBudgetBytes(): Long =
+    minOf(Runtime.getRuntime().maxMemory() / 5L, MaxRuntimeTallPageMemoryBytes)
+
+private const val LegacyVyMangaTallPageMaxWidthPx = 2048
+private const val MemoryFallbackMaxWidthPx = 2048L
+private const val ArgbBytesPerPixel = 4L
+private const val Rgb565BytesPerPixel = 2L
+private const val MaxRuntimeTallPageMemoryBytes = 64L * 1024L * 1024L
 
 /**
  * Striscia webtoon renderizzata come colonna di blocchi: ognuno riempie la larghezza

@@ -1502,6 +1502,13 @@ class MangaViewModel internal constructor(
             ?: 0
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
         val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
+        val readerSourceId = sequenceOf(_state.value.selectedDownloadedSeries)
+            .plus(_state.value.library.asSequence())
+            .filterNotNull()
+            .firstOrNull { series ->
+                series.chapters.any { it.relativePath == chapter.relativePath }
+            }
+            ?.sourceId
 
         updateState {
             copy(
@@ -1526,7 +1533,7 @@ class MangaViewModel internal constructor(
                 libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
                 updateState {
                     copy(
-                        readerPages = pages.map { ReaderPage.Local(it) },
+                        readerPages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
@@ -1576,7 +1583,8 @@ class MangaViewModel internal constructor(
             mangaUrl = streamingChapter.mangaUrl,
             chapterUrl = streamingChapter.chapter.url,
         )
-        val savedPageIndex = libraryRepository.readerPagePosition(readerChapter.relativePath)?.pageIndex ?: 0
+        val savedPagePosition = libraryRepository.readerPagePosition(readerChapter.relativePath)
+        val savedPageIndex = savedPagePosition?.pageIndex ?: 0
         val seriesKey = seriesKeyForStreaming(streamingChapter.sourceId, streamingChapter.mangaUrl)
         updateState {
             copy(
@@ -1599,7 +1607,7 @@ class MangaViewModel internal constructor(
                     streamingCacheRepository.getCachedChapter(cacheKey)
                 }
                 if (cached != null) {
-                    val restored = savedPageIndex.coerceIn(0, cached.pages.lastIndex.coerceAtLeast(0))
+                    val restored = cached.restoreReaderPageIndex(savedPagePosition)
                     libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, cached.pages.size)
                     updateState {
                         withStreamingReaderPayload(
@@ -1631,6 +1639,7 @@ class MangaViewModel internal constructor(
                                 ReaderPage.Remote(
                                     url = url,
                                     referer = streamingChapter.chapter.url,
+                                    sourceId = streamingChapter.sourceId,
                                 )
                         },
                         restoredPageIndex = restored,
@@ -1647,12 +1656,30 @@ class MangaViewModel internal constructor(
                                 referer = streamingChapter.chapter.url,
                             )
                         }
-                        updateState {
-                            withStreamingReaderPayload(
-                                expectedRelativePath = readerChapter.relativePath,
-                                streamingChapter = streamingChapter,
-                                pages = completed.toReaderPages(),
+                        val currentOriginalPage = _state.value.readerChapter
+                            ?.takeIf { it.relativePath == readerChapter.relativePath }
+                            ?.readerPageIndex
+                        if (currentOriginalPage != null) {
+                            val mappedPageIndex = completed
+                                .readerPageIndexForOriginalPage(currentOriginalPage)
+                                ?.coerceIn(0, completed.pages.lastIndex.coerceAtLeast(0))
+                                ?: currentOriginalPage.coerceIn(
+                                    0,
+                                    completed.pages.lastIndex.coerceAtLeast(0),
+                                )
+                            libraryRepository.saveReaderPagePosition(
+                                readerChapter.relativePath,
+                                mappedPageIndex,
+                                completed.pages.size,
                             )
+                            updateState {
+                                withStreamingReaderPayload(
+                                    expectedRelativePath = readerChapter.relativePath,
+                                    streamingChapter = streamingChapter,
+                                    pages = completed.toReaderPages(),
+                                    restoredPageIndex = mappedPageIndex,
+                                )
+                            }
                         }
                     } catch (e: CancellationException) {
                         throw e

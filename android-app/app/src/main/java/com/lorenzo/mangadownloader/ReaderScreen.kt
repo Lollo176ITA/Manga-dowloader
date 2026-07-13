@@ -37,7 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -71,6 +71,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -672,31 +673,40 @@ private fun VerticalReader(
                     translationY = readerOffsetY
                 },
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(pageSpacing),
+            verticalArrangement = Arrangement.Top,
         ) {
             item("reader-nav-top") {
-                ReaderChapterNavigationRow(
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
+                Box(modifier = Modifier.padding(bottom = pageSpacing)) {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
             }
-            items(pages, key = { it.stableKey }) { page ->
+            itemsIndexed(pages, key = { _, page -> page.stableKey }) { index, page ->
+                val previousGroup = pages.getOrNull(index - 1)?.persistedTallPageGroupKey()
+                val currentGroup = page.persistedTallPageGroupKey()
+                val continuesTallPage = currentGroup != null && currentGroup == previousGroup
                 ReaderPageImage(
                     page = page,
                     contentDescription = chapter.title,
                     contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (index > 0 && !continuesTallPage) pageSpacing else 0.dp),
                 )
             }
             item("reader-nav-bottom") {
-                ReaderChapterNavigationRow(
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
+                Box(modifier = Modifier.padding(top = pageSpacing)) {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
             }
         }
 
@@ -1042,6 +1052,14 @@ private fun ReaderPageImage(
 
     val chunks = tallPageChunks
     if (chunks != null) {
+        DisposableEffect(chunks) {
+            onDispose {
+                chunks.forEach { chunk ->
+                    val bitmap = chunk.asAndroidBitmap()
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+            }
+        }
         TallReaderPageStrip(
             chunks = chunks,
             contentDescription = contentDescription,
@@ -1138,7 +1156,11 @@ private fun readerImageRequest(
     when (page) {
         is ReaderPage.Local -> {
             val remote = page.remote
-            if (remote != null && (retryAttempt > 0 || page.isFileBroken)) {
+            if (
+                remote != null &&
+                page.remoteSegmentIndex == null &&
+                (retryAttempt > 0 || page.isFileBroken)
+            ) {
                 builder
                     .data(remote.url)
                     .httpHeaders(NetworkHeaders.Builder().set("Referer", remote.referer).build())

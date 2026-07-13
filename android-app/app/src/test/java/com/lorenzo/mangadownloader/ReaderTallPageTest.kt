@@ -1,61 +1,34 @@
 package com.lorenzo.mangadownloader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Spezzettamento delle pagine webtoon a striscia: le fasce devono coprire l'intera
- * immagine senza buchi né sovrapposizioni e senza mai superare l'altezza massima,
- * altrimenti il render a blocchi perderebbe o duplicherebbe righe della pagina.
- */
 class ReaderTallPageTest {
 
     @Test
-    fun chunkRanges_coverWholeImageWithoutGapsOrOverlaps() {
-        val height = 18000
-        val ranges = tallReaderPageChunkRanges(height)
+    fun memoryBudget_acceptsOnlyArgbPagesThatFit() {
+        val exactBudget = 800L * 16_000L * 4L
 
-        assertEquals(0, ranges.first().first)
-        assertEquals(height - 1, ranges.last().last)
-        ranges.zipWithNext { current, next ->
-            assertEquals(current.last + 1, next.first)
-        }
-        assertTrue(ranges.all { it.last - it.first + 1 <= TallReaderPageChunkHeightPx })
+        assertTrue(tallReaderPageFitsMemoryBudget(800, 16_000, exactBudget))
+        assertFalse(tallReaderPageFitsMemoryBudget(801, 16_000, exactBudget))
+        assertFalse(tallReaderPageFitsMemoryBudget(0, 16_000, exactBudget))
     }
 
     @Test
-    fun chunkRanges_exactMultipleOfChunkHeight() {
-        val ranges = tallReaderPageChunkRanges(4096, chunkHeight = 2048)
-
-        assertEquals(2, ranges.size)
-        assertEquals(0..2047, ranges[0])
-        assertEquals(2048..4095, ranges[1])
+    fun vyMangaLegacySampling_preservesPreviousWidthPolicy() {
+        assertEquals(1, legacyVyMangaTallPageSampleSize(2_048))
+        assertEquals(2, legacyVyMangaTallPageSampleSize(3_000))
+        assertEquals(4, legacyVyMangaTallPageSampleSize(8_192))
     }
 
     @Test
-    fun chunkRanges_shorterThanOneChunk_returnsSingleRange() {
-        assertEquals(listOf(0..999), tallReaderPageChunkRanges(1000, chunkHeight = 2048))
-    }
+    fun memoryFallback_reducesOnlyAsMuchAsNeeded() {
+        val fortyMegabytes = 40L * 1024L * 1024L
+        val twentyMegabytes = 20L * 1024L * 1024L
 
-    @Test
-    fun chunkRanges_invalidInput_returnsEmpty() {
-        assertEquals(emptyList<IntRange>(), tallReaderPageChunkRanges(0))
-        assertEquals(emptyList<IntRange>(), tallReaderPageChunkRanges(-5))
-        assertEquals(emptyList<IntRange>(), tallReaderPageChunkRanges(100, chunkHeight = 0))
-    }
-
-    @Test
-    fun sampleSize_typicalWebtoonWidth_staysFullResolution() {
-        assertEquals(1, tallReaderPageSampleSize(800))
-        assertEquals(1, tallReaderPageSampleSize(1200))
-        assertEquals(1, tallReaderPageSampleSize(2048))
-    }
-
-    @Test
-    fun sampleSize_wideImages_halveUntilWithinLimit() {
-        assertEquals(2, tallReaderPageSampleSize(3000))
-        assertEquals(4, tallReaderPageSampleSize(8192))
-        assertEquals(1, tallReaderPageSampleSize(0))
+        assertEquals(1, memoryConstrainedTallPageSampleSize(1_200, 16_000, fortyMegabytes))
+        assertEquals(2, memoryConstrainedTallPageSampleSize(1_200, 16_000, twentyMegabytes))
     }
 }

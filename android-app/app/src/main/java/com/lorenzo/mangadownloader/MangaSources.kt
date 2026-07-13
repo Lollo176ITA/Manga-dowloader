@@ -380,11 +380,13 @@ abstract class BaseMangaSource(
 
             ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
                 for (page in pageFiles.sortedBy { it.index }) {
-                    zip.putNextEntry(ZipEntry(page.file.name))
-                    page.file.inputStream().buffered().use { input ->
-                        input.copyTo(zip)
+                    for (file in page.files) {
+                        zip.putNextEntry(ZipEntry(file.name))
+                        file.inputStream().buffered().use { input ->
+                            input.copyTo(zip)
+                        }
+                        zip.closeEntry()
                     }
-                    zip.closeEntry()
                 }
             }
 
@@ -394,7 +396,7 @@ abstract class BaseMangaSource(
             return DownloadResult.DOWNLOADED
         } finally {
             tempPageDir.deleteRecursively()
-            if (tempFile.exists() && !outputFile.exists()) {
+            if (tempFile.exists()) {
                 tempFile.delete()
             }
         }
@@ -461,12 +463,27 @@ abstract class BaseMangaSource(
                         throw IOException("Impossibile finalizzare la pagina $finalName")
                     }
 
+                    val normalizedFiles = if (descriptor.id == MangaSourceIds.VYMANGA) {
+                        // VyManga mantiene intenzionalmente invariata la propria pipeline.
+                        listOf(finalFile)
+                    } else {
+                        val normalization = TallPageNormalizer.normalize(
+                            source = finalFile,
+                            outputDirectory = outputDir,
+                            outputBaseName = finalFile.nameWithoutExtension,
+                        )
+                        if (normalization.wasSplit && finalFile.exists() && !finalFile.delete()) {
+                            throw IOException("Impossibile rimuovere la pagina originale $finalName")
+                        }
+                        normalization.files
+                    }
+
                     val progressValue = synchronized(progressLock) {
                         completedPages += 1
                         completedPages
                     }
                     onPageProgress(progressValue, pageUrls.size)
-                    DownloadedPageTempFile(index = index, file = finalFile)
+                    DownloadedPageTempFile(index = index, files = normalizedFiles)
                 }
             }
         }.awaitAll()
@@ -515,7 +532,7 @@ abstract class BaseMangaSource(
 
 private data class DownloadedPageTempFile(
     val index: Int,
-    val file: File,
+    val files: List<File>,
 )
 
 /**

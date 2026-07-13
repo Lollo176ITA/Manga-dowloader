@@ -152,6 +152,149 @@ class StreamingReaderCacheRepositoryTest {
     }
 
     @Test
+    fun cacheCompleteChapter_persistsSplitPagesInOrderWithTheirRemoteOrigin() {
+        val root = createTempDirectory()
+        val repository = StreamingReaderCacheRepository(
+            cacheRoot = root,
+            fetchPageToFile = { url, _, target -> target.writeBytes(url.toByteArray()) },
+            normalizePage = { source, outputDirectory, outputBaseName ->
+                if (outputBaseName != "002") {
+                    listOf(source)
+                } else {
+                    listOf(
+                        File(outputDirectory, "${outputBaseName}__part_0001.png")
+                            .apply { writeText("segment-1") },
+                        File(outputDirectory, "${outputBaseName}__part_0002.png")
+                            .apply { writeText("segment-2") },
+                    )
+                }
+            },
+        )
+        val key = chapterKey("split")
+        val pageUrls = (1..3).map { "https://example.test/p$it.jpg" }
+
+        val cached = runBlocking {
+            repository.cacheCompleteChapter(
+                key = key,
+                title = "Capitolo split",
+                pageUrls = pageUrls,
+                referer = "https://example.test/chapter",
+            )
+        }
+
+        assertEquals(
+            listOf("001.jpg", "002__part_0001.png", "002__part_0002.png", "003.jpg"),
+            cached.pages.map { it.name },
+        )
+        assertEquals(listOf(pageUrls[0], pageUrls[1], pageUrls[1], pageUrls[2]), cached.pageUrls)
+        assertEquals(listOf(0, 1, 1, 2), cached.originalPageIndexes)
+        assertEquals(listOf(0, 0, 1, 0), cached.segmentIndexes)
+        assertEquals(listOf(1, 2, 2, 1), cached.segmentCounts)
+        assertEquals(MangaSourceIds.MANGAPILL, cached.sourceId)
+        assertEquals(1, cached.readerPageIndexForOriginalPage(1))
+
+        val metadata = StreamingReaderCacheMetadata.read(File(root, key.directoryName()))
+        assertEquals(pageUrls, metadata?.pageUrls)
+        assertEquals(cached.pages.map { it.name }, metadata?.pages)
+        assertEquals(listOf(1, 2, 2, 1), metadata?.cachedPages?.map { it.segmentCount })
+        assertEquals(listOf(0, 0, 1, 0), metadata?.cachedPages?.map { it.segmentIndex })
+    }
+
+    @Test
+    fun cacheCompleteChapter_doesNotNormalizeVyMangaPages() {
+        val root = createTempDirectory()
+        val repository = StreamingReaderCacheRepository(
+            cacheRoot = root,
+            fetchPageToFile = { _, _, target -> target.writeText("original") },
+            normalizePage = { _, _, _ -> error("VyManga non deve essere normalizzato") },
+        )
+        val key = StreamingReaderCacheKey(
+            sourceId = MangaSourceIds.VYMANGA,
+            mangaUrl = "https://vymanga.test/manga",
+            chapterUrl = "https://vymanga.test/chapter",
+        )
+
+        val cached = runBlocking {
+            repository.cacheCompleteChapter(
+                key = key,
+                title = "VyManga",
+                pageUrls = listOf("https://vymanga.test/001.jpg"),
+                referer = key.chapterUrl,
+            )
+        }
+
+        assertEquals(listOf("001.jpg"), cached.pages.map(File::getName))
+        assertEquals("original", cached.pages.single().readText())
+        assertEquals(MangaSourceIds.VYMANGA, cached.sourceId)
+    }
+
+    @Test
+    fun getCachedChapter_deletesCurrentCacheWhenOneSegmentIsMissing() {
+        val root = createTempDirectory()
+        val repository = StreamingReaderCacheRepository(
+            cacheRoot = root,
+            fetchPageToFile = { _, _, _ -> },
+        )
+        val key = chapterKey("missing-segment")
+        val directory = File(root, key.directoryName()).apply { mkdirs() }
+        File(directory, "001__part_0001.png").writeText("segment-1")
+        StreamingReaderCacheMetadata.write(
+            directory = directory,
+            metadata = StreamingReaderCacheMetadata(
+                title = "Incomplete split",
+                pageUrls = listOf("https://example.test/1.jpg"),
+                pages = listOf("001__part_0001.png", "001__part_0002.png"),
+                cachedPages = listOf(
+                    StreamingReaderCachedPageMetadata(
+                        fileName = "001__part_0001.png",
+                        sourceUrl = "https://example.test/1.jpg",
+                        originalPageIndex = 0,
+                        segmentIndex = 0,
+                        segmentCount = 2,
+                    ),
+                    StreamingReaderCachedPageMetadata(
+                        fileName = "001__part_0002.png",
+                        sourceUrl = "https://example.test/1.jpg",
+                        originalPageIndex = 0,
+                        segmentIndex = 1,
+                        segmentCount = 2,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(null, repository.getCachedChapter(key))
+        assertFalse(directory.exists())
+    }
+
+    @Test
+    fun getCachedChapter_readsLegacyOneToOneMetadata() {
+        val root = createTempDirectory()
+        val repository = StreamingReaderCacheRepository(
+            cacheRoot = root,
+            fetchPageToFile = { _, _, _ -> },
+        )
+        val key = chapterKey("legacy")
+        val directory = File(root, key.directoryName()).apply { mkdirs() }
+        File(directory, "001.jpg").writeText("legacy-page")
+        StreamingReaderCacheMetadata.write(
+            directory = directory,
+            metadata = StreamingReaderCacheMetadata(
+                title = "Legacy",
+                pageUrls = listOf("https://example.test/legacy.jpg"),
+                pages = listOf("001.jpg"),
+                referer = "https://example.test/chapter",
+            ),
+        )
+
+        val cached = repository.getCachedChapter(key)
+
+        assertEquals(listOf("001.jpg"), cached?.pages?.map { it.name })
+        assertEquals(listOf("https://example.test/legacy.jpg"), cached?.pageUrls)
+        assertEquals(listOf(0), cached?.originalPageIndexes)
+    }
+
+    @Test
     fun cacheCompleteChapter_failsAndRemovesDirectoryWhenAPageFails() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(

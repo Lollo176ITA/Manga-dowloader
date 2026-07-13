@@ -361,6 +361,17 @@ object LibraryScanner {
 class LibraryRepository(
     private val context: Context,
 ) {
+    /**
+     * I CBZ prodotti dall'app usano il numero della pagina originale sia per i file
+     * normali sia per i frammenti persistenti. Conserviamo quei nomi numerici per non
+     * perdere l'ordine nei capitoli misti; ogni altra entry viene rinominata in modo
+     * sequenziale e sicuro.
+     */
+    private val orderedReaderPageName = Regex(
+        pattern = """^\d+(?:__part_\d{4,})?\.[A-Za-z0-9]+$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     @Volatile
@@ -590,17 +601,37 @@ class LibraryRepository(
         tempDir.mkdirs()
 
         val extracted = mutableListOf<File>()
+        val usedOutputNames = mutableSetOf<String>()
         try {
             ZipInputStream(chapter.file.inputStream().buffered()).use { zip ->
                 var entry = zip.nextEntry
                 var index = 1
                 while (entry != null) {
                     if (!entry.isDirectory) {
-                        val extension = entry.name
+                        val entryFileName = entry.name
+                            .substringAfterLast('/')
+                            .substringAfterLast('\\')
+                        val extension = entryFileName
                             .substringAfterLast('.', "jpg")
                             .lowercase(Locale.US)
                             .ifBlank { "jpg" }
-                        val outFile = File(tempDir, "${index.toString().padStart(3, '0')}.$extension")
+                        val preservedName = entryFileName.takeIf(orderedReaderPageName::matches)
+                        val outputName = if (preservedName != null) {
+                            if (!usedOutputNames.add(preservedName.lowercase(Locale.US))) {
+                                throw IOException("Nome pagina duplicato nel CBZ: $preservedName")
+                            }
+                            preservedName
+                        } else {
+                            val prefix = index.toString().padStart(3, '0')
+                            var suffix = 0
+                            var candidate: String
+                            do {
+                                candidate = "$prefix${if (suffix == 0) "" else "_$suffix"}.$extension"
+                                suffix += 1
+                            } while (!usedOutputNames.add(candidate.lowercase(Locale.US)))
+                            candidate
+                        }
+                        val outFile = File(tempDir, outputName)
                         outFile.outputStream().buffered().use { output ->
                             zip.copyTo(output)
                         }

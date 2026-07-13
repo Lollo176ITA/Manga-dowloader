@@ -31,8 +31,70 @@ data class StreamingReaderCacheKey(
 data class StreamingReaderCachedChapter(
     val title: String,
     val pages: List<File>,
+    /** URL remoto d'origine di ogni file in [pages], ripetuto per i segmenti della stessa pagina. */
     val pageUrls: List<String>,
     val referer: String,
+    /** Indice della pagina remota da cui deriva ogni file locale. */
+    val originalPageIndexes: List<Int> = pages.indices.toList(),
+    val segmentIndexes: List<Int> = List(pages.size) { 0 },
+    val segmentCounts: List<Int> = List(pages.size) { 1 },
+    val sourceId: String? = null,
+) {
+    fun readerPageIndexForOriginalPage(originalPageIndex: Int): Int? {
+        return originalPageIndexes.indexOf(originalPageIndex).takeIf { it >= 0 }
+    }
+}
+
+/**
+ * Risolve il formato corrente oppure quello legacy 1:1. Nel formato corrente l'ordine e la
+ * cardinalita' dei segmenti sono validati, cosi' una cache parziale non viene mai esposta.
+ */
+private fun StreamingReaderCacheMetadata.resolvedCachedPages(): List<StreamingReaderCachedPageMetadata>? {
+    if (pageUrls.isEmpty()) return null
+    if (cachedPages.isEmpty()) {
+        if (pages.size != pageUrls.size) return null
+        if (pages.any { File(it).name != it } || pages.distinct().size != pages.size) return null
+        return pages.mapIndexed { index, fileName ->
+            StreamingReaderCachedPageMetadata(
+                fileName = fileName,
+                sourceUrl = pageUrls[index],
+                originalPageIndex = index,
+            )
+        }
+    }
+
+    if (cachedPages.any { File(it.fileName).name != it.fileName } ||
+        cachedPages.map(StreamingReaderCachedPageMetadata::fileName).distinct().size != cachedPages.size
+    ) {
+        return null
+    }
+    val grouped = cachedPages.groupBy(StreamingReaderCachedPageMetadata::originalPageIndex)
+    if (grouped.keys != pageUrls.indices.toSet()) return null
+    pageUrls.indices.forEach { originalPageIndex ->
+        val segments = grouped.getValue(originalPageIndex)
+        if (segments.any { it.sourceUrl != pageUrls[originalPageIndex] } ||
+            segments.map(StreamingReaderCachedPageMetadata::segmentIndex) != segments.indices.toList() ||
+            segments.any { it.segmentCount != segments.size }
+        ) {
+            return null
+        }
+    }
+    val expectedOrder = cachedPages.sortedWith(
+        compareBy(
+            StreamingReaderCachedPageMetadata::originalPageIndex,
+            StreamingReaderCachedPageMetadata::segmentIndex,
+        ),
+    )
+    return cachedPages.takeIf { it == expectedOrder }
+}
+
+@Serializable
+data class StreamingReaderCachedPageMetadata(
+    val fileName: String,
+    val sourceUrl: String,
+    val originalPageIndex: Int,
+    val segmentIndex: Int = 0,
+    val segmentCount: Int = 1,
 )
 
 @Serializable
@@ -42,7 +104,9 @@ data class StreamingReaderCacheMetadata(
     val chapterUrl: String? = null,
     val title: String = "",
     val pageUrls: List<String> = emptyList(),
+    /** Compatibilita' con i metadata storici; [cachedPages] e' autorevole nel nuovo formato. */
     val pages: List<String> = emptyList(),
+    val cachedPages: List<StreamingReaderCachedPageMetadata> = emptyList(),
     val referer: String = "",
     val lastAccessAtMs: Long = 0L,
 ) {
@@ -77,6 +141,15 @@ data class StreamingReaderCacheMetadata(
             return copy(
                 pageUrls = pageUrls.mapNotNull { it.trim().takeIf(String::isNotBlank) },
                 pages = pages.mapNotNull { it.trim().takeIf(String::isNotBlank) },
+                cachedPages = cachedPages.mapNotNull { page ->
+                    val fileName = page.fileName.trim()
+                    val sourceUrl = page.sourceUrl.trim()
+                    if (fileName.isBlank() || sourceUrl.isBlank()) {
+                        null
+                    } else {
+                        page.copy(fileName = fileName, sourceUrl = sourceUrl)
+                    }
+                },
             )
         }
     }
@@ -90,6 +163,9 @@ class StreamingReaderCacheRepository(
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
     private val maxCachedChapters: Int = MAX_CACHED_CHAPTERS,
     private val downloadConcurrency: Int = DOWNLOAD_CONCURRENCY,
+    // Il costruttore primario resta testabile su JVM senza dipendenze Android.
+    private val normalizePage: (source: File, outputDirectory: File, outputBaseName: String) -> List<File> =
+        { source, _, _ -> listOf(source) },
 ) {
     /**
      * @param reusablePageCopier prova a copiare su `target` una pagina già scaricata altrove
@@ -110,16 +186,19 @@ class StreamingReaderCacheRepository(
                 }
             }
         },
+        normalizePage = { source, outputDirectory, outputBaseName ->
+            TallPageNormalizer.normalize(source, outputDirectory, outputBaseName).files
+        },
     )
 
     fun getCachedChapter(key: StreamingReaderCacheKey): StreamingReaderCachedChapter? {
         val directory = directoryFor(key)
         val metadata = StreamingReaderCacheMetadata.read(directory) ?: return null
-        val pages = metadata.pages.map { File(directory, it) }
+        val cachedPages = metadata.resolvedCachedPages()
+        val pages = cachedPages?.map { File(directory, it.fileName) }.orEmpty()
         // Un file vuoto (scrittura troncata, spazio esaurito) è una pagina persa quanto un
         // file mancante: la cache si butta e il capitolo si riscarica da capo.
-        val complete = metadata.pageUrls.isNotEmpty() &&
-            metadata.pageUrls.size == pages.size &&
+        val complete = cachedPages != null &&
             pages.all { it.isFile && it.length() > 0L }
 
         if (!complete) {
@@ -132,8 +211,18 @@ class StreamingReaderCacheRepository(
         return StreamingReaderCachedChapter(
             title = updated.title,
             pages = pages,
-            pageUrls = updated.pageUrls,
+            pageUrls = cachedPages.orEmpty().map(StreamingReaderCachedPageMetadata::sourceUrl),
             referer = updated.referer,
+            originalPageIndexes = cachedPages.orEmpty()
+                .map(StreamingReaderCachedPageMetadata::originalPageIndex),
+            segmentIndexes = cachedPages.orEmpty()
+                .map(StreamingReaderCachedPageMetadata::segmentIndex),
+            segmentCounts = cachedPages.orEmpty()
+                .map(StreamingReaderCachedPageMetadata::segmentCount),
+            sourceId = MangaSourceCatalog.resolveSourceId(
+                updated.sourceId ?: key.sourceId,
+                updated.mangaUrl ?: key.mangaUrl,
+            ),
         )
     }
 
@@ -161,28 +250,45 @@ class StreamingReaderCacheRepository(
 
         return try {
             val semaphore = Semaphore(downloadConcurrency.coerceAtLeast(1))
-            // awaitAll conserva l'ordine della lista, quindi pageNames resta in ordine di pagina.
-            val pageNames = coroutineScope {
+            val shouldNormalize = MangaSourceCatalog.resolveSourceId(key.sourceId, key.mangaUrl) !=
+                MangaSourceIds.VYMANGA
+            // awaitAll conserva l'ordine delle pagine; ogni risultato conserva quello dei segmenti.
+            val cachedPages = coroutineScope {
                 pageUrls.mapIndexed { index, url ->
                     async(Dispatchers.IO) {
                         semaphore.withPermit {
                             val extension = DownloadStorage.imageExtension(url)
                             val finalName = "${(index + 1).toString().padStart(3, '0')}.$extension"
-                            val finalFile = File(directory, finalName)
-                            val tempFile = File(directory, "$finalName.part")
+                            val outputBaseName = (index + 1).toString().padStart(3, '0')
+                            val tempFile = File(directory, ".$finalName.part")
                             fetchPageToFile(url, referer, tempFile)
                             if (!tempFile.isFile || tempFile.length() == 0L) {
                                 tempFile.delete()
                                 throw IOException("Pagina vuota o mancante: $finalName")
                             }
-                            if (!tempFile.renameTo(finalFile)) {
-                                tempFile.delete()
-                                throw IOException("Impossibile finalizzare la pagina $finalName")
+                            val normalizedFiles = if (!shouldNormalize) {
+                                // VyManga mantiene intenzionalmente invariata la propria pipeline.
+                                listOf(tempFile)
+                            } else {
+                                normalizePage(tempFile, directory, outputBaseName)
                             }
-                            finalName
+                            val finalFiles = finalizeNormalizedPage(
+                                source = tempFile,
+                                normalizedFiles = normalizedFiles,
+                                unsplitFinalName = finalName,
+                            )
+                            finalFiles.mapIndexed { segmentIndex, file ->
+                                StreamingReaderCachedPageMetadata(
+                                    fileName = file.name,
+                                    sourceUrl = url,
+                                    originalPageIndex = index,
+                                    segmentIndex = segmentIndex,
+                                    segmentCount = finalFiles.size,
+                                )
+                            }
                         }
                     }
-                }.awaitAll()
+                }.awaitAll().flatten()
             }
 
             StreamingReaderCacheMetadata.write(
@@ -193,7 +299,8 @@ class StreamingReaderCacheRepository(
                     chapterUrl = key.chapterUrl,
                     title = title,
                     pageUrls = pageUrls,
-                    pages = pageNames,
+                    pages = cachedPages.map(StreamingReaderCachedPageMetadata::fileName),
+                    cachedPages = cachedPages,
                     referer = referer,
                     lastAccessAtMs = nowMillis(),
                 ),
@@ -208,6 +315,38 @@ class StreamingReaderCacheRepository(
 
     private fun directoryFor(key: StreamingReaderCacheKey): File {
         return File(cacheRoot.apply { mkdirs() }, key.directoryName())
+    }
+
+    private fun finalizeNormalizedPage(
+        source: File,
+        normalizedFiles: List<File>,
+        unsplitFinalName: String,
+    ): List<File> {
+        if (normalizedFiles.isEmpty()) {
+            throw IOException("La normalizzazione non ha prodotto pagine")
+        }
+        val cacheDirectory = source.parentFile?.canonicalFile
+            ?: throw IOException("La pagina sorgente non ha una directory")
+        val distinctFiles = normalizedFiles.distinctBy { it.canonicalPath }
+        if (distinctFiles.size != normalizedFiles.size || normalizedFiles.any { file ->
+                file.parentFile?.canonicalFile != cacheDirectory || !file.isFile || file.length() == 0L
+            }
+        ) {
+            throw IOException("Risultato della normalizzazione non valido")
+        }
+
+        if (normalizedFiles.size == 1 && normalizedFiles.single().canonicalFile == source.canonicalFile) {
+            val finalFile = File(cacheDirectory, unsplitFinalName)
+            if (!source.renameTo(finalFile)) {
+                throw IOException("Impossibile finalizzare la pagina $unsplitFinalName")
+            }
+            return listOf(finalFile)
+        }
+
+        if (source.exists() && !source.delete()) {
+            throw IOException("Impossibile rimuovere la pagina sorgente normalizzata")
+        }
+        return normalizedFiles
     }
 
     private fun evictOldChapters() {

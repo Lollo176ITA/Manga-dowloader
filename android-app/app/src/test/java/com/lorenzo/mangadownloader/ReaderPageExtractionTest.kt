@@ -42,6 +42,64 @@ class ReaderPageExtractionTest {
     }
 
     @Test
+    fun normalizedTallPageParts_keepNamesAndOrder() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes(
+                "001__part_0001.webp" to byteArrayOf(1),
+                "001__part_0002.webp" to byteArrayOf(2),
+                "002.jpg" to byteArrayOf(3),
+                "003__part_0001.webp" to byteArrayOf(4),
+                "003__part_0002.webp" to byteArrayOf(5),
+            ),
+        )
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(
+            listOf(
+                "001__part_0001.webp",
+                "001__part_0002.webp",
+                "002.jpg",
+                "003__part_0001.webp",
+                "003__part_0002.webp",
+            ),
+            pages.map(File::getName),
+        )
+    }
+
+    @Test
+    fun normalizedPartName_cannotEscapeReaderCache() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes("../001__part_0001.webp" to byteArrayOf(1)),
+        )
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(listOf("001__part_0001.webp"), pages.map(File::getName))
+        assertTrue(pages.single().canonicalPath.startsWith(application.cacheDir.canonicalPath))
+    }
+
+    @Test
+    fun duplicateOrderedPageName_isRejectedWithoutPartialCache() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes("001.jpg" to byteArrayOf(1), "001.JPG" to byteArrayOf(2)),
+        )
+
+        var thrown = false
+        try {
+            runBlocking { repo.extractReaderPages(chapter) }
+        } catch (_: IOException) {
+            thrown = true
+        }
+
+        assertTrue(thrown)
+        assertFalse(cacheDirFor(chapter).exists())
+    }
+
+    @Test
     fun corruptCbz_throwsAndLeavesNoPartialCache() {
         val repo = LibraryRepository(application)
         // Dati casuali (incomprimibili) così lo zip è grande; troncato dentro al primo

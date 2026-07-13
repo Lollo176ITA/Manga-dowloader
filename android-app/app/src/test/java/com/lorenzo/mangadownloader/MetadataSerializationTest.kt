@@ -71,6 +71,7 @@ class MetadataSerializationTest {
         assertEquals(MangaSourceIds.MANGAPILL, metadata?.sourceId)
         assertEquals(listOf("https://cdn.example/1.jpg", "https://cdn.example/2.jpg"), metadata?.pageUrls)
         assertEquals(listOf("001.jpg", "002.jpg"), metadata?.pages)
+        assertEquals(emptyList<StreamingReaderCachedPageMetadata>(), metadata?.cachedPages)
         assertEquals(1_700_000_000_000L, metadata?.lastAccessAtMs)
     }
 
@@ -91,6 +92,32 @@ class MetadataSerializationTest {
         assertFalse(raw.contains("\"sourceId\""))
         assertFalse(raw.contains("\"mangaUrl\""))
         assertFalse(raw.contains("\"chapterUrl\""))
+        assertEquals(expected, StreamingReaderCacheMetadata.read(directory))
+    }
+
+    @Test
+    fun streamingMetadata_roundTripsSplitPageOrigins() {
+        val directory = createTempDirectory("streaming-split-metadata")
+        val sourceUrl = "https://cdn.example/tall.jpg"
+        val cachedPages = (0..1).map { segmentIndex ->
+            StreamingReaderCachedPageMetadata(
+                fileName = "001__part_${(segmentIndex + 1).toString().padStart(4, '0')}.png",
+                sourceUrl = sourceUrl,
+                originalPageIndex = 0,
+                segmentIndex = segmentIndex,
+                segmentCount = 2,
+            )
+        }
+        val expected = StreamingReaderCacheMetadata(
+            title = "Capitolo lungo",
+            pageUrls = listOf(sourceUrl),
+            pages = cachedPages.map(StreamingReaderCachedPageMetadata::fileName),
+            cachedPages = cachedPages,
+            referer = "https://example.test/chapter",
+        )
+
+        StreamingReaderCacheMetadata.write(directory, expected)
+
         assertEquals(expected, StreamingReaderCacheMetadata.read(directory))
     }
 

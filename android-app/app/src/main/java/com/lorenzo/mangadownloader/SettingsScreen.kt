@@ -43,6 +43,7 @@ fun SettingsScreen(
     onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
+    onToggleShowHomeTab: (Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -93,6 +94,11 @@ fun SettingsScreen(
             KeepScreenOnContent(
                 enabled = settings.keepScreenOnEnabled,
                 onToggle = onToggleKeepScreenOn,
+            )
+            SettingsDivider()
+            ShowHomeTabContent(
+                enabled = settings.showHomeTab,
+                onToggle = onToggleShowHomeTab,
             )
         }
 

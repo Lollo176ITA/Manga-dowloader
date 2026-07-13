@@ -166,6 +166,14 @@ class ScreenTest {
     }
 
     @Test
+    fun visibleTabs_withHomeDisabled_excludesHomeAndReindexes() {
+        val state = MangaUiState(settings = AppSettings(showHomeTab = false))
+        assertEquals(listOf(AppTab.SEARCH, AppTab.FAVORITES, AppTab.LIBRARY), state.visibleTabs())
+        assertEquals(0, state.tabPageIndex(AppTab.SEARCH))
+        assertEquals(0, state.tabPageIndex(AppTab.HOME)) // non visibile → coerce a 0
+    }
+
+    @Test
     fun selectedGenre_isDiscoverGenreScreen_withPerGenreSaveableKey() {
         val state = MangaUiState(
             discovery = DiscoveryUiState(selectedGenre = DiscoverGenre.FANTASY),

@@ -363,18 +363,21 @@ fun AppBottomBar(
     currentTab: AppTab,
     onSelect: (AppTab) -> Unit,
     favoritesBadgeCount: Int = 0,
+    showHomeTab: Boolean = true,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        AppTabEntry(
-            tab = AppTab.HOME,
-            selected = currentTab == AppTab.HOME,
-            icon = Icons.Default.Home,
-            label = "Home",
-            onSelect = onSelect,
-        )
+        if (showHomeTab) {
+            AppTabEntry(
+                tab = AppTab.HOME,
+                selected = currentTab == AppTab.HOME,
+                icon = Icons.Default.Home,
+                label = "Home",
+                onSelect = onSelect,
+            )
+        }
         AppTabEntry(
             tab = AppTab.SEARCH,
             selected = currentTab == AppTab.SEARCH,

@@ -74,6 +74,7 @@ data class SettingsBackup(
     val librarySort: String = LibrarySort.TITLE_ASC.name,
     val homeBlockOrder: List<String> = emptyList(),
     val hiddenHomeBlocks: List<String> = emptyList(),
+    val showHomeTab: Boolean = true,
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -137,6 +138,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     librarySort = librarySort.name,
     homeBlockOrder = homeBlockOrder.map { it.name },
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
+    showHomeTab = showHomeTab,
 )
 
 /**
@@ -187,6 +189,7 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
         homeBlockOrder.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() },
     ),
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
+    showHomeTab = showHomeTab,
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =

@@ -50,8 +50,9 @@ fun MangaUiState.currentScreen(): Screen = when {
 /** C'è una schermata da chiudere col tasto "indietro"? (cioè non siamo già sulle tab). */
 fun MangaUiState.canHandleBack(): Boolean = currentScreen() != Screen.Tabs
 
-/** Tab mostrate nella bottom bar / pager, nell'ordine: Home · Cerca · Preferiti · Libreria. */
-fun MangaUiState.visibleTabs(): List<AppTab> = AppTab.entries
+/** Tab mostrate nella bottom bar / pager: Home · Cerca · Preferiti · Libreria (Home opzionale). */
+fun MangaUiState.visibleTabs(): List<AppTab> =
+    if (settings.showHomeTab) AppTab.entries else AppTab.entries.filterNot { it == AppTab.HOME }
 
 /** Indice della tab tra quelle visibili (per il pager), o 0 se non visibile. */
 fun MangaUiState.tabPageIndex(tab: AppTab): Int =

@@ -139,6 +139,8 @@ data class AppSettings(
     // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
     val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
+    // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
+    val showHomeTab: Boolean = true,
 )
 
 enum class ParentalAction {
@@ -336,6 +338,7 @@ class MangaViewModel internal constructor(
             // forzare l'atterraggio su Libreria (Cerca resta dietro il PIN).
             currentTab = when {
                 initialSettings.parentalControlEnabled -> AppTab.LIBRARY
+                !initialSettings.showHomeTab -> AppTab.SEARCH
                 else -> AppTab.HOME
             },
             recentSearches = recentSearchesStore.read(),
@@ -2976,12 +2979,29 @@ class MangaViewModel internal constructor(
     }
 
     /**
+     * Mostra/nasconde la tab Home. Spegnendola mentre si è sulla Home si atterra su Cerca
+     * (o Libreria sotto parental control, dove Cerca è dietro il PIN) senza passare da
+     * [selectTab], che scatenerebbe lo sblocco.
+     */
+    fun setShowHomeTab(enabled: Boolean) {
+        updateSettings { it.copy(showHomeTab = enabled) }
+        if (!enabled && _state.value.currentTab == AppTab.HOME) {
+            val fallback = if (_state.value.settings.parentalControlEnabled) {
+                AppTab.LIBRARY
+            } else {
+                AppTab.SEARCH
+            }
+            updateState { copy(currentTab = fallback) }
+        }
+    }
+
+    /**
      * Rilancia il tutorial dall'inizio (usato da "Rivedi il tutorial" in Impostazioni). Riporta
      * anche su HOME: la card di benvenuto vive nella Home, quindi senza cambiare tab l'azione
      * sarebbe un no-op dalle altre schermate.
      */
     fun restartTutorial() {
-        updateSettings { it.copy(tutorialCompleted = false) }
+        updateSettings { it.copy(tutorialCompleted = false, showHomeTab = true) }
         updateState {
             copy(
                 showSettings = false,

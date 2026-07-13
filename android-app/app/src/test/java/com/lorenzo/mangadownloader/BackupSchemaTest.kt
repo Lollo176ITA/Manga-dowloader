@@ -137,6 +137,16 @@ class BackupSchemaTest {
     }
 
     @Test
+    fun settingsBackup_roundTripsShowHomeTab_andOldPayloadDefaultsTrue() {
+        val disabled = AppSettings(showHomeTab = false).toBackup()
+        assertEquals(false, disabled.showHomeTab)
+        assertEquals(false, disabled.applyTo(AppSettings()).showHomeTab)
+        // Payload senza il campo (backup di versioni vecchie) → default true.
+        val old = decodeSettingsBackup("""{"searchScope":"ITA"}""")
+        assertEquals(true, old?.showHomeTab)
+    }
+
+    @Test
     fun mergeFavorites_dedupesByIdentityKeyAndKeepsOrder() {
         val current = listOf(FavoriteManga("mangapill", "A", "https://mangapill.com/manga/1", null))
         val incoming = listOf(

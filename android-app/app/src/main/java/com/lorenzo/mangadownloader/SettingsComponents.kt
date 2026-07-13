@@ -262,6 +262,19 @@ fun KeepScreenOnContent(
 }
 
 @Composable
+fun ShowHomeTabContent(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    SettingRow(
+        title = "Mostra la tab Home",
+        description = "Se disattivata, l'app si apre sulla Ricerca.",
+        checked = enabled,
+        onCheckedChange = onToggle,
+    )
+}
+
+@Composable
 fun StreamingReaderContent(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,

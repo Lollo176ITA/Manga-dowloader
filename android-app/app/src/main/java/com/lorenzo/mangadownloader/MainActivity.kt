@@ -376,6 +376,11 @@ private fun MangaDownloaderAppContent(
     // Modalità modifica della Home: vive qui (non in HomeScreen) perché la top bar la comanda.
     var homeEditMode by rememberSaveable { mutableStateOf(false) }
 
+    // Nascondere la tab Home chiude la modalità modifica: al ritorno la Home riparte normale.
+    LaunchedEffect(state.settings.showHomeTab) {
+        if (!state.settings.showHomeTab) homeEditMode = false
+    }
+
     // Vero schermo intero: quando il reader è in fullscreen nascondiamo anche le barre
     // di sistema (status + navigation), così la pagina occupa davvero tutto lo schermo.
     // Si esce con un tap (toggle) o con lo swipe dal bordo, che le ripristina da solo.
@@ -517,6 +522,7 @@ private fun MangaDownloaderAppContent(
                 AppBottomBar(
                     currentTab = visiblePagerTab,
                     favoritesBadgeCount = unseenCount(state.favoriteUpdates),
+                    showHomeTab = state.settings.showHomeTab,
                     onSelect = { tab ->
                         viewModel.selectTab(tab)
                         val requiresSearchUnlock = tab == AppTab.SEARCH &&
@@ -669,6 +675,7 @@ private fun MangaDownloaderAppContent(
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
+                    onToggleShowHomeTab = viewModel::setShowHomeTab,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,

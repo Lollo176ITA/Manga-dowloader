@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -658,6 +659,18 @@ private fun HomeHistoryChip(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val idx = chapter.readerPageIndex
+                val count = chapter.readerPageCount
+                Text(
+                    text = when {
+                        chapter.isRead -> "Completato"
+                        idx != null && count != null && count > 0 -> "pagina ${idx + 1} di $count"
+                        else -> "In corso"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -670,12 +683,17 @@ private fun HomeToFinishTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val label = if (item.unreadCount == 1) {
+        "1 capitolo da leggere"
+    } else {
+        "${item.unreadCount} capitoli da leggere"
+    }
     Column(
         modifier = modifier
             .width(104.dp)
             .clickable(onClick = onClick, onClickLabel = "Apri la serie")
             .semantics(mergeDescendants = true) {
-                stateDescription = "${item.unreadCount} capitoli da leggere"
+                stateDescription = label
             },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -697,7 +715,8 @@ private fun HomeToFinishTile(
                     .align(Alignment.TopEnd)
                     .padding(6.dp)
                     .background(MaterialTheme.colorScheme.primary, CircleShape)
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                    .clearAndSetSemantics {},
             )
         }
         Text(

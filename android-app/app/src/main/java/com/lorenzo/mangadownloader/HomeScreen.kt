@@ -16,19 +16,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.QuestionMark
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TheaterComedy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.AutoStories
@@ -79,6 +92,7 @@ fun HomeScreen(
     onShowDiscoverInfo: (AniListManga) -> Unit,
     onDismissDiscoverInfo: () -> Unit,
     onLoadDiscover: () -> Unit,
+    onOpenGenre: (DiscoverGenre) -> Unit,
     onSearchFirst: () -> Unit,
     onStartTutorial: () -> Unit,
     onDismissTutorial: () -> Unit,
@@ -233,6 +247,9 @@ fun HomeScreen(
                                 title = "Scopri",
                                 leadingIcon = Icons.Filled.Explore,
                             )
+                        }
+                        item(key = "b-discover-genres") {
+                            HomeGenreRow(onOpenGenre = onOpenGenre)
                         }
                         val hasSections = discovery.trending.isNotEmpty() ||
                             discovery.topRated.isNotEmpty() ||
@@ -722,4 +739,62 @@ private fun HomeBlock.editIcon(): ImageVector = when (this) {
     HomeBlock.STATS -> Icons.Filled.BarChart
     HomeBlock.HISTORY -> Icons.Filled.History
     HomeBlock.TO_FINISH -> Icons.Filled.Checklist
+}
+
+/** Carosello "Esplora per genere": card compatte, colori container ciclici, icona per genere. */
+@Composable
+private fun HomeGenreRow(onOpenGenre: (DiscoverGenre) -> Unit, modifier: Modifier = Modifier) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        itemsIndexed(DiscoverGenre.entries) { index, genre ->
+            GenreCard(genre = genre, index = index, onClick = { onOpenGenre(genre) })
+        }
+    }
+}
+
+@Composable
+private fun GenreCard(genre: DiscoverGenre, index: Int, onClick: () -> Unit) {
+    val (container, content) = when (index % 3) {
+        0 -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        1 -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    Card(
+        modifier = Modifier.clickable(onClick = onClick, onClickLabel = "Esplora ${genre.label}"),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Icon(
+                imageVector = genre.icon(),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = genre.label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+/** Icona per genere: mapping UI, tenuto fuori dall'enum puro. */
+private fun DiscoverGenre.icon(): ImageVector = when (this) {
+    DiscoverGenre.ACTION -> Icons.Filled.FlashOn
+    DiscoverGenre.ADVENTURE -> Icons.Filled.Explore
+    DiscoverGenre.COMEDY -> Icons.Filled.EmojiEmotions
+    DiscoverGenre.DRAMA -> Icons.Filled.TheaterComedy
+    DiscoverGenre.FANTASY -> Icons.Filled.AutoAwesome
+    DiscoverGenre.HORROR -> Icons.Filled.NightsStay
+    DiscoverGenre.MYSTERY -> Icons.Filled.QuestionMark
+    DiscoverGenre.ROMANCE -> Icons.Filled.Favorite
+    DiscoverGenre.SCI_FI -> Icons.Filled.RocketLaunch
+    DiscoverGenre.SLICE_OF_LIFE -> Icons.Filled.LocalCafe
+    DiscoverGenre.SPORTS -> Icons.Filled.SportsSoccer
+    DiscoverGenre.SUPERNATURAL -> Icons.Filled.AutoFixHigh
 }

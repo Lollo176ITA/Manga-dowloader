@@ -83,6 +83,7 @@ fun AppTopBar(
         Screen.Settings -> "Impostazioni"
         Screen.Updates -> "Aggiornamenti"
         Screen.History -> "Cronologia"
+        Screen.DiscoverGenre -> state.discovery.selectedGenre?.label ?: "Scopri"
         Screen.Reader -> readerChapter?.title ?: "Manga Downloader"
         Screen.Detail -> selectedManga?.title ?: "Manga Downloader"
         Screen.DownloadedSeries -> selectedSeries?.title ?: "Manga Downloader"

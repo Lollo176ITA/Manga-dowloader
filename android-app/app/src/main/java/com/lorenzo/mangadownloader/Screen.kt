@@ -22,6 +22,7 @@ sealed interface Screen {
     data object Updates : Screen
     data object History : Screen
     data object Feedback : Screen
+    data object DiscoverGenre : Screen
 }
 
 /**
@@ -41,6 +42,7 @@ fun MangaUiState.currentScreen(): Screen = when {
     selected != null -> Screen.Detail
     showUpdates -> Screen.Updates
     showHistory -> Screen.History
+    discovery.selectedGenre != null -> Screen.DiscoverGenre
     currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
     else -> Screen.Tabs
 }
@@ -70,5 +72,6 @@ fun MangaUiState.tabPageIndex(tab: AppTab): Int =
 fun MangaUiState.saveableScreenKey(): String = when (currentScreen()) {
     Screen.Detail -> "Detail:${selected?.mangaUrl.orEmpty()}"
     Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.absolutePath.orEmpty()}"
+    Screen.DiscoverGenre -> "DiscoverGenre:${discovery.selectedGenre?.apiGenre.orEmpty()}"
     else -> currentScreen().toString()
 }

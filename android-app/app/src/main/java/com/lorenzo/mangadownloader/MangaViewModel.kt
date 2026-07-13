@@ -46,6 +46,11 @@ data class DiscoveryUiState(
     val sectionsError: String? = null,
     val loaded: Boolean = false,
     val info: AniListManga? = null,
+    // Pagina "esplora per genere": genere aperto, risultati e stato di caricamento.
+    val selectedGenre: DiscoverGenre? = null,
+    val genreResults: List<AniListManga> = emptyList(),
+    val isLoadingGenre: Boolean = false,
+    val genreError: String? = null,
 )
 
 /**
@@ -360,6 +365,7 @@ class MangaViewModel internal constructor(
 
     private var searchJob: Job? = null
     private var discoveryJob: Job? = null
+    private var genreJob: Job? = null
     private var detailJob: Job? = null
     private var infoJob: Job? = null
     private var libraryJob: Job? = null
@@ -1884,6 +1890,7 @@ class MangaViewModel internal constructor(
             Screen.Settings -> closeSettings()
             Screen.Updates -> closeUpdates()
             Screen.History -> closeHistory()
+            Screen.DiscoverGenre -> closeDiscoverGenre()
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
             Screen.Tabs -> Unit
@@ -2223,6 +2230,55 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /** Apre la pagina del genere e ne avvia il caricamento. */
+    fun openDiscoverGenre(genre: DiscoverGenre) {
+        updateState {
+            copy(discovery = discovery.copy(selectedGenre = genre, genreResults = emptyList(), genreError = null))
+        }
+        loadDiscoverGenre(genre)
+    }
+
+    /** Fetch dei popolari del genere; pubblico per il "Riprova" della pagina. */
+    fun loadDiscoverGenre(genre: DiscoverGenre) {
+        genreJob?.cancel()
+        updateState { copy(discovery = discovery.copy(isLoadingGenre = true, genreError = null)) }
+        genreJob = viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    aniListClient.fetchMedia(AniListSort.POPULAR, genre = genre.apiGenre, perPage = 50)
+                }
+                updateState {
+                    copy(discovery = discovery.copy(genreResults = results, isLoadingGenre = false))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        discovery = discovery.copy(
+                            isLoadingGenre = false,
+                            genreError = exc.message ?: "Errore di caricamento",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeDiscoverGenre() {
+        genreJob?.cancel()
+        updateState {
+            copy(
+                discovery = discovery.copy(
+                    selectedGenre = null,
+                    genreResults = emptyList(),
+                    isLoadingGenre = false,
+                    genreError = null,
+                ),
+            )
+        }
+    }
+
     /**
      * Ponte AniList→fonti: prende il titolo del manga scoperto (English→romaji) e lo cerca su
      * tutte le fonti reali, portando l'utente nella tab Cerca. Rispetta il parental control
@@ -2238,7 +2294,13 @@ class MangaViewModel internal constructor(
                 isSearching = true,
                 searchError = null,
                 errorMessage = null,
-                discovery = discovery.copy(info = null),
+                discovery = discovery.copy(
+                    info = null,
+                    selectedGenre = null,
+                    genreResults = emptyList(),
+                    isLoadingGenre = false,
+                    genreError = null,
+                ),
             )
         }
         selectTab(AppTab.SEARCH)

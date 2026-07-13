@@ -165,6 +165,16 @@ class ScreenTest {
         )
     }
 
+    @Test
+    fun selectedGenre_isDiscoverGenreScreen_withPerGenreSaveableKey() {
+        val state = MangaUiState(
+            discovery = DiscoveryUiState(selectedGenre = DiscoverGenre.FANTASY),
+        )
+        assertEquals(Screen.DiscoverGenre, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        assertEquals("DiscoverGenre:Fantasy", state.saveableScreenKey())
+    }
+
     private fun details(mangaUrl: String = "https://mangapill.com/manga/1") = MangaDetails(
         sourceId = MangaSourceIds.MANGAPILL,
         title = "X",

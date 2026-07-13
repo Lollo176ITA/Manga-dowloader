@@ -584,6 +584,18 @@ private fun MangaDownloaderAppContent(
                     onOpenChapter = viewModel::openReader,
                 )
             }
+            Screen.DiscoverGenre -> {
+                DiscoverGenreScreen(
+                    discovery = state.discovery,
+                    padding = innerPadding,
+                    onPick = viewModel::onPickAniListManga,
+                    onShowInfo = viewModel::showDiscoveryInfo,
+                    onDismissInfo = viewModel::dismissDiscoveryInfo,
+                    onRetry = {
+                        state.discovery.selectedGenre?.let(viewModel::loadDiscoverGenre)
+                    },
+                )
+            }
             Screen.Backup -> {
                 BackupScreen(
                     padding = innerPadding,
@@ -755,6 +767,7 @@ private fun MangaDownloaderAppContent(
                             onShowDiscoverInfo = viewModel::showDiscoveryInfo,
                             onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
                             onLoadDiscover = viewModel::loadDiscovery,
+                            onOpenGenre = viewModel::openDiscoverGenre,
                             onSearchFirst = goToSearchTab,
                             onStartTutorial = {
                                 viewModel.onTutorialWelcomeStart()

@@ -13,9 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,10 +27,9 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Hero "Riprendi" della Home (stile mockup): card su `primaryContainer` con copertina, sopratitolo
- * RIPRENDI, serie + capitolo, barra di progresso wavy (M3 Expressive) e "pagina X di Y".
+ * RIPRENDI, serie + capitolo, barra di progresso lineare standard e "pagina X di Y".
  * Tap = riprende il reader all'ultima pagina. Riusa i dati già in [ContinueReadingItem].
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeResumeCard(
     item: ContinueReadingItem,
@@ -88,7 +86,7 @@ fun HomeResumeCard(
                 val count = chapter.readerPageCount
                 if (idx != null && count != null && count > 0) {
                     Spacer(Modifier.height(8.dp))
-                    LinearWavyProgressIndicator(
+                    LinearProgressIndicator(
                         progress = { ((idx + 1).toFloat() / count).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,

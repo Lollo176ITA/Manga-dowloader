@@ -373,6 +373,9 @@ private fun MangaDownloaderAppContent(
     // invariato passando a capitolo successivo/precedente.
     var isReaderFullscreen by remember(state.readerChapter != null) { mutableStateOf(false) }
 
+    // Modalità modifica della Home: vive qui (non in HomeScreen) perché la top bar la comanda.
+    var homeEditMode by rememberSaveable { mutableStateOf(false) }
+
     // Vero schermo intero: quando il reader è in fullscreen nascondiamo anche le barre
     // di sistema (status + navigation), così la pagina occupa davvero tutto lo schermo.
     // Si esce con un tap (toggle) o con lo swipe dal bordo, che le ripristina da solo.
@@ -504,6 +507,8 @@ private fun MangaDownloaderAppContent(
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
+                    homeEditMode = homeEditMode,
+                    onToggleHomeEdit = { homeEditMode = !homeEditMode },
                 )
             }
         },
@@ -732,6 +737,7 @@ private fun MangaDownloaderAppContent(
                     when (visibleTabs.getOrElse(page) { AppTab.SEARCH }) {
                         AppTab.HOME -> HomeScreen(
                             state = state,
+                            editMode = homeEditMode,
                             padding = innerPadding,
                             onResume = viewModel::openReader,
                             onOpenUpdate = viewModel::openMangaFromUpdate,

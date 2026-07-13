@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -47,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +64,8 @@ fun AppTopBar(
     unseenUpdatesCount: Int,
     onOpenUpdates: () -> Unit,
     onMarkAllUpdatesSeen: () -> Unit,
+    homeEditMode: Boolean = false,
+    onToggleHomeEdit: () -> Unit = {},
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val readerChapter = state.readerChapter
@@ -82,7 +87,13 @@ fun AppTopBar(
         Screen.Detail -> selectedManga?.title ?: "Manga Downloader"
         Screen.DownloadedSeries -> selectedSeries?.title ?: "Manga Downloader"
         Screen.Tabs -> when (visibleTab) {
-            AppTab.HOME -> ""
+            // Il saluto è ricalcolato a ogni ricomposizione: non resta stantio oltre i confini
+            // orari mentre l'app è in foreground (stesso criterio del vecchio HomeHeader).
+            AppTab.HOME -> if (homeEditMode) {
+                "Modifica Home"
+            } else {
+                homeGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+            }
             AppTab.SEARCH -> "Cerca"
             AppTab.FAVORITES -> "Preferiti"
             AppTab.LIBRARY -> "Libreria"
@@ -177,6 +188,16 @@ fun AppTopBar(
                     unseenCount = unseenUpdatesCount,
                     onClick = onOpenUpdates,
                 )
+            }
+
+            // Matita della Home: personalizza i blocchi. In modifica diventa la spunta "Fine".
+            if (screen == Screen.Tabs && visibleTab == AppTab.HOME) {
+                IconButton(onClick = onToggleHomeEdit) {
+                    Icon(
+                        imageVector = if (homeEditMode) Icons.Filled.Done else Icons.Outlined.Edit,
+                        contentDescription = if (homeEditMode) "Fine modifica Home" else "Personalizza la Home",
+                    )
+                }
             }
 
             if (showSettingsAction) {

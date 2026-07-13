@@ -27,6 +27,7 @@ class HomeScreenUiTest {
             MangaDownloaderTheme {
                 HomeScreen(
                     state = state,
+                    editMode = false,
                     padding = PaddingValues(),
                     onResume = {},
                     onOpenUpdate = {},

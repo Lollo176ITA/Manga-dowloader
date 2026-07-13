@@ -32,11 +32,9 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,11 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,19 +53,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import java.util.Calendar
 
 /**
- * Tab Home: il centro dell'app. Header espressivo (saluto + "La tua lettura") + card onboarding
- * (solo al primo avvio) + i blocchi contenuto ([HomeBlock]) nell'ordine/visibilità scelti
- * dall'utente. La modalità modifica sostituisce i contenuti con una lista di card riordinabili
- * (frecce su/giù e mostra/nascondi), come una schermata dedicata. Stateless/hoisted: legge
+ * Tab Home: il centro dell'app. Il saluto e l'azione di personalizzazione vivono nella top bar
+ * ([AppTopBar]); qui restano la card onboarding (solo al primo avvio) e i blocchi contenuto
+ * ([HomeBlock]) nell'ordine/visibilità scelti dall'utente. La modalità modifica ([editMode],
+ * comandata dalla top bar) sostituisce i contenuti con una lista di card riordinabili (frecce
+ * su/giù e mostra/nascondi), come una schermata dedicata. Stateless/hoisted: legge
  * [MangaUiState] e delega tutto ai callback. Il blocco Scopri è escluso del tutto sotto
  * controllo parentale.
  */
 @Composable
 fun HomeScreen(
     state: MangaUiState,
+    editMode: Boolean,
     padding: PaddingValues,
     onResume: (DownloadedChapter) -> Unit,
     onOpenUpdate: (FavoriteUpdateEvent) -> Unit,
@@ -90,7 +85,6 @@ fun HomeScreen(
     onMoveBlock: (HomeBlock, Boolean) -> Unit,
     onSetBlockHidden: (HomeBlock, Boolean) -> Unit,
 ) {
-    var editMode by rememberSaveable { mutableStateOf(false) }
     val settings = state.settings
 
     val blocks = remember(settings.homeBlockOrder, settings.parentalControlEnabled) {
@@ -149,13 +143,9 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(if (editMode) 12.dp else 16.dp),
     ) {
-        item(key = "greeting") {
-            HomeHeader(editMode = editMode, onToggleEdit = { editMode = !editMode })
-        }
-
         if (editMode) {
             // Modalità modifica: solo la lista dei blocchi come card, niente contenuti.
             item(key = "edit-hint") {
@@ -296,58 +286,6 @@ fun HomeScreen(
 
     discovery.info?.let { manga ->
         AniListInfoDialog(manga = manga, onDismiss = onDismissDiscoverInfo)
-    }
-}
-
-/**
- * Header espressivo della Home: saluto come sopratitolo + titolo grande "La tua lettura"
- * (in modifica diventa "Modifica Home" con bottone pieno "Fine", come una schermata dedicata).
- */
-@Composable
-private fun HomeHeader(editMode: Boolean, onToggleEdit: () -> Unit) {
-    // Ricalcolato a ogni ricomposizione (niente remember) così il saluto non resta stantio oltre
-    // i confini orari mentre l'app è in foreground.
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            if (editMode) {
-                Text(
-                    text = "Modifica Home",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            } else {
-                Text(
-                    text = homeGreeting(hour),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "La tua lettura",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-        if (editMode) {
-            Button(onClick = onToggleEdit, shape = MaterialTheme.shapes.large) {
-                Icon(Icons.Filled.Done, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Fine")
-            }
-        } else {
-            FilledTonalIconButton(onClick = onToggleEdit) {
-                Icon(
-                    imageVector = Icons.Outlined.Edit,
-                    contentDescription = "Personalizza la Home",
-                )
-            }
-        }
     }
 }
 

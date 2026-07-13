@@ -6,14 +6,18 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import org.jsoup.nodes.Document
 
 /** Lingua dei contenuti di una fonte: è il criterio con cui l'utente sceglie dove cercare. */
@@ -214,6 +218,7 @@ interface MangaSource {
         chapter: ChapterEntry,
         outputDir: File,
         pageConcurrency: Int,
+        onProcessingProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit = { _, _ -> },
         onPageProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
     ): DownloadResult
 }
@@ -350,6 +355,7 @@ abstract class BaseMangaSource(
         chapter: ChapterEntry,
         outputDir: File,
         pageConcurrency: Int,
+        onProcessingProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
         onPageProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
     ): DownloadResult {
         val outputFile = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
@@ -375,10 +381,14 @@ abstract class BaseMangaSource(
                 chapter = chapter,
                 pageConcurrency = pageConcurrency,
                 outputDir = tempPageDir,
+                onProcessingProgress = onProcessingProgress,
                 onPageProgress = onPageProgress,
             )
 
             ZipOutputStream(BufferedOutputStream(FileOutputStream(tempFile))).use { zip ->
+                // JPEG/PNG/WebP sono gia compressi: Deflate a livello zero evita lavoro CPU
+                // inutile e mantiene la compatibilita delle entry ZIP senza un prepass CRC.
+                zip.setLevel(Deflater.NO_COMPRESSION)
                 for (page in pageFiles.sortedBy { it.index }) {
                     for (file in page.files) {
                         zip.putNextEntry(ZipEntry(file.name))
@@ -438,16 +448,17 @@ abstract class BaseMangaSource(
         chapter: ChapterEntry,
         pageConcurrency: Int,
         outputDir: File,
+        onProcessingProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
         onPageProgress: suspend (completedPages: Int, pageTotal: Int) -> Unit,
     ): List<DownloadedPageTempFile> = coroutineScope {
         val pageUrls = fetchPageImageUrls(chapter.url)
         val semaphore = Semaphore(pageConcurrency)
-        val progressLock = Any()
+        val progressMutex = Mutex()
         var completedPages = 0
 
-        pageUrls.mapIndexed { index, pageUrl ->
+        val downloadedPages = pageUrls.mapIndexed { index, pageUrl ->
             async(Dispatchers.IO) {
-                semaphore.withPermit {
+                val downloadedPage = semaphore.withPermit {
                     val extension = DownloadStorage.imageExtension(pageUrl)
                     val finalName = "${(index + 1).toString().padStart(3, '0')}.$extension"
                     val tempName = "$finalName.part"
@@ -455,7 +466,9 @@ abstract class BaseMangaSource(
                     val finalFile = File(outputDir, finalName)
 
                     tempFile.outputStream().buffered().use { output ->
-                        output.write(networkClient.fetchBytes(pageUrl, referer = chapter.url))
+                        // Scrittura a blocchi: evita quattro ByteArray di pagine intere e il
+                        // relativo lavoro del GC mentre i trasferimenti procedono in parallelo.
+                        networkClient.fetchToStream(pageUrl, sink = output, referer = chapter.url)
                     }
 
                     if (!tempFile.renameTo(finalFile)) {
@@ -463,30 +476,43 @@ abstract class BaseMangaSource(
                         throw IOException("Impossibile finalizzare la pagina $finalName")
                     }
 
-                    val normalizedFiles = if (descriptor.id == MangaSourceIds.VYMANGA) {
-                        // VyManga mantiene intenzionalmente invariata la propria pipeline.
-                        listOf(finalFile)
-                    } else {
-                        val normalization = TallPageNormalizer.normalize(
-                            source = finalFile,
-                            outputDirectory = outputDir,
-                            outputBaseName = finalFile.nameWithoutExtension,
-                        )
-                        if (normalization.wasSplit && finalFile.exists() && !finalFile.delete()) {
-                            throw IOException("Impossibile rimuovere la pagina originale $finalName")
-                        }
-                        normalization.files
-                    }
-
-                    val progressValue = synchronized(progressLock) {
-                        completedPages += 1
-                        completedPages
-                    }
-                    onPageProgress(progressValue, pageUrls.size)
-                    DownloadedPageTempFile(index = index, files = normalizedFiles)
+                    DownloadedPageTempFile(index = index, files = listOf(finalFile))
                 }
+
+                // La UI non trattiene un permit di rete e gli eventi restano monotoni anche
+                // quando piu trasferimenti terminano nello stesso istante.
+                progressMutex.withLock {
+                    completedPages += 1
+                    onPageProgress(completedPages, pageUrls.size)
+                }
+                downloadedPage
             }
         }.awaitAll()
+
+        if (descriptor.id == MangaSourceIds.VYMANGA) {
+            // VyManga mantiene intenzionalmente invariata la propria pipeline.
+            return@coroutineScope downloadedPages
+        }
+
+        // La rete ha gia rilasciato tutti i permit: la preparazione delle immagini non puo
+        // piu bloccare gli altri download. Le pagine normali fanno solo un rapido bounds check;
+        // il normalizzatore serializza internamente esclusivamente le pagine davvero alte.
+        onProcessingProgress(0, downloadedPages.size)
+        downloadedPages.mapIndexed { processedIndex, page ->
+            val finalFile = page.files.single()
+            val normalization = withContext(Dispatchers.IO) {
+                TallPageNormalizer.normalize(
+                    source = finalFile,
+                    outputDirectory = outputDir,
+                    outputBaseName = finalFile.nameWithoutExtension,
+                )
+            }
+            if (normalization.wasSplit && finalFile.exists() && !finalFile.delete()) {
+                throw IOException("Impossibile rimuovere la pagina originale ${finalFile.name}")
+            }
+            onProcessingProgress(processedIndex + 1, downloadedPages.size)
+            DownloadedPageTempFile(index = page.index, files = normalization.files)
+        }
     }
 
     private fun ensureCoverFile(

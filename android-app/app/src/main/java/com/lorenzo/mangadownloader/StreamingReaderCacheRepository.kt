@@ -10,6 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -252,8 +253,9 @@ class StreamingReaderCacheRepository(
             val semaphore = Semaphore(downloadConcurrency.coerceAtLeast(1))
             val shouldNormalize = MangaSourceCatalog.resolveSourceId(key.sourceId, key.mangaUrl) !=
                 MangaSourceIds.VYMANGA
-            // awaitAll conserva l'ordine delle pagine; ogni risultato conserva quello dei segmenti.
-            val cachedPages = coroutineScope {
+            // Prima completiamo la rete e rilasciamo tutti i permit. La normalizzazione avviene
+            // dopo, cosi una pagina alta non mette in pausa gli altri trasferimenti.
+            val downloadedPages = coroutineScope {
                 pageUrls.mapIndexed { index, url ->
                     async(Dispatchers.IO) {
                         semaphore.withPermit {
@@ -266,29 +268,42 @@ class StreamingReaderCacheRepository(
                                 tempFile.delete()
                                 throw IOException("Pagina vuota o mancante: $finalName")
                             }
-                            val normalizedFiles = if (!shouldNormalize) {
-                                // VyManga mantiene intenzionalmente invariata la propria pipeline.
-                                listOf(tempFile)
-                            } else {
-                                normalizePage(tempFile, directory, outputBaseName)
-                            }
-                            val finalFiles = finalizeNormalizedPage(
-                                source = tempFile,
-                                normalizedFiles = normalizedFiles,
-                                unsplitFinalName = finalName,
+                            DownloadedStreamingPage(
+                                index = index,
+                                sourceUrl = url,
+                                tempFile = tempFile,
+                                finalName = finalName,
+                                outputBaseName = outputBaseName,
                             )
-                            finalFiles.mapIndexed { segmentIndex, file ->
-                                StreamingReaderCachedPageMetadata(
-                                    fileName = file.name,
-                                    sourceUrl = url,
-                                    originalPageIndex = index,
-                                    segmentIndex = segmentIndex,
-                                    segmentCount = finalFiles.size,
-                                )
-                            }
                         }
                     }
-                }.awaitAll().flatten()
+                }.awaitAll()
+            }
+
+            // awaitAll conserva l'ordine delle pagine; ogni risultato conserva quello dei segmenti.
+            val cachedPages = downloadedPages.flatMap { page ->
+                val normalizedFiles = if (!shouldNormalize) {
+                    // VyManga mantiene intenzionalmente invariata la propria pipeline.
+                    listOf(page.tempFile)
+                } else {
+                    withContext(Dispatchers.IO) {
+                        normalizePage(page.tempFile, directory, page.outputBaseName)
+                    }
+                }
+                val finalFiles = finalizeNormalizedPage(
+                    source = page.tempFile,
+                    normalizedFiles = normalizedFiles,
+                    unsplitFinalName = page.finalName,
+                )
+                finalFiles.mapIndexed { segmentIndex, file ->
+                    StreamingReaderCachedPageMetadata(
+                        fileName = file.name,
+                        sourceUrl = page.sourceUrl,
+                        originalPageIndex = page.index,
+                        segmentIndex = segmentIndex,
+                        segmentCount = finalFiles.size,
+                    )
+                }
             }
 
             StreamingReaderCacheMetadata.write(
@@ -372,3 +387,11 @@ class StreamingReaderCacheRepository(
         private const val DOWNLOAD_CONCURRENCY = 4
     }
 }
+
+private data class DownloadedStreamingPage(
+    val index: Int,
+    val sourceUrl: String,
+    val tempFile: File,
+    val finalName: String,
+    val outputBaseName: String,
+)

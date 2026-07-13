@@ -7,7 +7,6 @@ import android.graphics.Rect
 import android.os.Build
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -16,6 +15,7 @@ import java.util.UUID
 
 internal const val TallPageNormalizationMinHeightPx = 4096
 internal const val TallPageNormalizationChunkHeightPx = 2048
+private const val TallPageWebpCompressionEffort = 20
 
 internal data class TallPageNormalizationResult(
     val files: List<File>,
@@ -35,9 +35,10 @@ internal data class TallPageNormalizationResult(
  * vengono ripristinati.
  */
 internal object TallPageNormalizer {
-    // Download e cache restano paralleli; serializziamo soltanto il tratto che tiene
-    // un bitmap ARGB in memoria, evitando quattro region decoder pesanti simultanei.
-    @Synchronized
+    // Le sole pagine alte condividono questo gate: il controllo delle dimensioni delle pagine
+    // normali resta parallelo, mentre non teniamo piu bitmap ARGB pesanti contemporaneamente.
+    private val tallPageLock = Any()
+
     fun normalize(
         source: File,
         outputDirectory: File,
@@ -62,6 +63,23 @@ internal object TallPageNormalizer {
             )
         }
 
+        return normalizeTallPage(
+            source = source,
+            outputDirectory = outputDirectory,
+            outputBaseName = outputBaseName,
+            bounds = bounds,
+            chunkHeightPx = chunkHeightPx,
+        )
+    }
+
+    private fun normalizeTallPage(
+        source: File,
+        outputDirectory: File,
+        outputBaseName: String,
+        bounds: ImageBounds,
+        chunkHeightPx: Int,
+    ): TallPageNormalizationResult {
+        if (!source.isFile) throw IOException("Image does not exist: ${source.absolutePath}")
         ensureOutputDirectory(outputDirectory)
         val encoding = losslessEncoding()
         val ranges = tallPageNormalizationRanges(bounds.height, chunkHeightPx)
@@ -82,14 +100,17 @@ internal object TallPageNormalizer {
         }
 
         try {
-            decodeParts(
-                input = source,
-                width = bounds.width,
-                ranges = ranges,
-                stagingDirectory = stagingDirectory,
-                names = names,
-                encoding = encoding,
-            )
+            synchronized(tallPageLock) {
+                if (!source.isFile) throw IOException("Image does not exist: ${source.absolutePath}")
+                decodeParts(
+                    input = source,
+                    width = bounds.width,
+                    ranges = ranges,
+                    stagingDirectory = stagingDirectory,
+                    names = names,
+                    encoding = encoding,
+                )
+            }
             val files = promoteParts(
                 outputDirectory = outputDirectory,
                 outputBaseName = outputBaseName,
@@ -139,6 +160,7 @@ private data class ImageBounds(val width: Int, val height: Int)
 private data class LosslessEncoding(
     val extension: String,
     val compressFormat: Bitmap.CompressFormat,
+    val qualityOrEffort: Int,
 )
 
 private fun readBounds(input: File): ImageBounds {
@@ -162,10 +184,20 @@ private fun isSafeBaseName(value: String): Boolean =
 
 private fun losslessEncoding(): LosslessEncoding =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        LosslessEncoding("webp", Bitmap.CompressFormat.WEBP_LOSSLESS)
+        // Per WEBP_LOSSLESS questo valore regola lo sforzo CPU, non la qualita visiva:
+        // 20 conserva gli stessi pixel con file un po' piu grandi ma codifica molto prima.
+        LosslessEncoding(
+            extension = "webp",
+            compressFormat = Bitmap.CompressFormat.WEBP_LOSSLESS,
+            qualityOrEffort = TallPageWebpCompressionEffort,
+        )
     } else {
         // WEBP_LOSSLESS non esiste sulle API 26-29 supportate dall'app.
-        LosslessEncoding("png", Bitmap.CompressFormat.PNG)
+        LosslessEncoding(
+            extension = "png",
+            compressFormat = Bitmap.CompressFormat.PNG,
+            qualityOrEffort = 100,
+        )
     }
 
 private fun createWorkingDirectory(parent: File, baseName: String, purpose: String): File {
@@ -198,7 +230,12 @@ private fun decodeParts(
                     options,
                 ) ?: throw IOException("Cannot decode image part ${index + 1} of ${ranges.size}")
                 try {
-                    writeBitmap(bitmap, File(stagingDirectory, names[index]), encoding.compressFormat)
+                    writeBitmap(
+                        bitmap = bitmap,
+                        destination = File(stagingDirectory, names[index]),
+                        format = encoding.compressFormat,
+                        qualityOrEffort = encoding.qualityOrEffort,
+                    )
                 } finally {
                     bitmap.recycle()
                 }
@@ -213,13 +250,12 @@ private fun writeBitmap(
     bitmap: Bitmap,
     destination: File,
     format: Bitmap.CompressFormat,
+    qualityOrEffort: Int,
 ) {
-    FileOutputStream(destination).use { output ->
-        if (!bitmap.compress(format, 100, output)) {
+    destination.outputStream().buffered().use { output ->
+        if (!bitmap.compress(format, qualityOrEffort, output)) {
             throw IOException("Cannot encode ${destination.name}")
         }
-        output.flush()
-        output.fd.sync()
     }
 }
 

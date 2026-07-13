@@ -9,6 +9,7 @@ import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigDecimal
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -118,11 +119,17 @@ class DownloadPlanAndCbzTest {
     // ---- downloadChapterAsCbz ----
 
     @Test
-    fun downloadChapterAsCbz_writesCbzWithOnePageEntryPerImage() {
-        val normalPng = pngBytes(width = 8, height = 8)
+    fun downloadChapterAsCbz_archivesNormalPagesByteForByteInDownloadOrderWithoutRecompression() {
+        val firstPng = pngBytes(width = 8, height = 8, color = Color.rgb(32, 64, 128))
+        val secondPng = pngBytes(width = 9, height = 7, color = Color.rgb(96, 48, 16))
         val source = testSource(
             pageUrls = listOf("https://img.test/1.png", "https://img.test/2.png"),
-            networkClient = fakeImageClient(normalPng),
+            networkClient = fakeImageClient(
+                mapOf(
+                    "/1.png" to firstPng,
+                    "/2.png" to secondPng,
+                ),
+            ),
         )
         val outputDir = freshOutputDir()
         val chapter = chapter("1")
@@ -135,11 +142,15 @@ class DownloadPlanAndCbzTest {
         val cbz = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
         assertTrue(cbz.exists())
         ZipFile(cbz).use { zip ->
-            val names = zip.entries().toList().map { it.name }.sorted()
-            assertEquals(listOf("001.png", "002.png"), names)
-            names.forEach { name ->
-                zip.getInputStream(zip.getEntry(name)).use { input ->
-                    assertArrayEquals(normalPng, input.readBytes())
+            val entries = zip.entries().toList()
+            assertEquals(listOf("001.png", "002.png"), entries.map(ZipEntry::getName))
+            entries.zip(listOf(firstPng, secondPng)).forEach { (entry, expectedBytes) ->
+                // Le immagini sono già compresse: DEFLATED a livello zero evita una seconda
+                // compressione e non richiede il prepass CRC necessario per le entry STORED.
+                assertEquals(ZipEntry.DEFLATED, entry.method)
+                assertTrue(entry.compressedSize >= entry.size)
+                zip.getInputStream(entry).use { input ->
+                    assertArrayEquals(expectedBytes, input.readBytes())
                 }
             }
         }
@@ -181,6 +192,41 @@ class DownloadPlanAndCbzTest {
     }
 
     @Test
+    fun downloadChapterAsCbz_reportsDownloadCompletionBeforeImageProcessing() {
+        val image = pngBytes(width = 8, height = 8)
+        val source = testSource(
+            pageUrls = listOf("https://img.test/1.png", "https://img.test/2.png"),
+            networkClient = fakeImageClient(image),
+        )
+        val events = mutableListOf<String>()
+
+        runBlocking {
+            source.downloadChapterAsCbz(
+                chapter = chapter("1"),
+                outputDir = freshOutputDir(),
+                pageConcurrency = 1,
+                onProcessingProgress = { completed, total ->
+                    events += "processing:$completed/$total"
+                },
+                onPageProgress = { completed, total ->
+                    events += "download:$completed/$total"
+                },
+            )
+        }
+
+        assertEquals(
+            listOf(
+                "download:1/2",
+                "download:2/2",
+                "processing:0/2",
+                "processing:1/2",
+                "processing:2/2",
+            ),
+            events,
+        )
+    }
+
+    @Test
     fun downloadChapterAsCbz_doesNotNormalizeVyMangaPages() {
         val original = pngBytes(width = 8, height = TallPageNormalizationMinHeightPx)
         val source = testSource(
@@ -190,11 +236,25 @@ class DownloadPlanAndCbzTest {
         )
         val outputDir = freshOutputDir()
         val chapter = chapter("1")
+        val downloadProgress = mutableListOf<Pair<Int, Int>>()
+        val processingProgress = mutableListOf<Pair<Int, Int>>()
 
         runBlocking {
-            source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { _, _ -> }
+            source.downloadChapterAsCbz(
+                chapter = chapter,
+                outputDir = outputDir,
+                pageConcurrency = 1,
+                onProcessingProgress = { completed, total ->
+                    processingProgress += completed to total
+                },
+                onPageProgress = { completed, total ->
+                    downloadProgress += completed to total
+                },
+            )
         }
 
+        assertEquals(listOf(1 to 1), downloadProgress)
+        assertTrue(processingProgress.isEmpty())
         val cbz = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
         ZipFile(cbz).use { zip ->
             val entries = zip.entries().toList()
@@ -317,10 +377,17 @@ class DownloadPlanAndCbzTest {
         )
     }
 
-    private fun fakeImageClient(bytes: ByteArray) = MangaNetworkClient(
+    private fun fakeImageClient(bytes: ByteArray) = fakeImageClient(
+        mapOf("*" to bytes),
+    )
+
+    private fun fakeImageClient(bytesByPath: Map<String, ByteArray>) = MangaNetworkClient(
         OkHttpClient.Builder()
             .addInterceptor(
                 Interceptor { chain ->
+                    val bytes = bytesByPath[chain.request().url.encodedPath]
+                        ?: bytesByPath["*"]
+                        ?: error("Nessuna risposta finta per ${chain.request().url.encodedPath}")
                     Response.Builder()
                         .request(chain.request())
                         .protocol(Protocol.HTTP_1_1)
@@ -336,9 +403,10 @@ class DownloadPlanAndCbzTest {
     private fun pngBytes(
         width: Int,
         height: Int,
+        color: Int = Color.rgb(32, 64, 128),
     ): ByteArray {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
-            eraseColor(Color.rgb(32, 64, 128))
+            eraseColor(color)
         }
         return try {
             ByteArrayOutputStream().use { output ->

@@ -151,6 +151,20 @@ class ScreenTest {
         assertEquals(cap1, cap2)
     }
 
+    @Test
+    fun showHistory_isHistoryScreen_andBelowReader() {
+        val state = MangaUiState(showHistory = true)
+        assertEquals(Screen.History, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        // Il reader aperto dalla cronologia sta sopra.
+        assertEquals(
+            Screen.Reader,
+            state.copy(
+                readerChapter = ReaderChapter(title = "Cap 1", relativePath = "s/1.cbz"),
+            ).currentScreen(),
+        )
+    }
+
     private fun details(mangaUrl: String = "https://mangapill.com/manga/1") = MangaDetails(
         sourceId = MangaSourceIds.MANGAPILL,
         title = "X",

@@ -20,6 +20,7 @@ sealed interface Screen {
     data object Backup : Screen
     data object Changelog : Screen
     data object Updates : Screen
+    data object History : Screen
     data object Feedback : Screen
 }
 
@@ -39,6 +40,7 @@ fun MangaUiState.currentScreen(): Screen = when {
     // (clearSelection) riporta al feed con gli altri eventi ancora evidenziati.
     selected != null -> Screen.Detail
     showUpdates -> Screen.Updates
+    showHistory -> Screen.History
     currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
     else -> Screen.Tabs
 }

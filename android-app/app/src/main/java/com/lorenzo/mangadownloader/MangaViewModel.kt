@@ -247,6 +247,7 @@ data class MangaUiState(
     val showChangelog: Boolean = false,
     val showFeedback: Boolean = false,
     val showUpdates: Boolean = false,
+    val showHistory: Boolean = false,
     val aniList: AniListUiState = AniListUiState(),
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
@@ -678,6 +679,15 @@ class MangaViewModel internal constructor(
      */
     fun refreshUpdatesFeed() {
         updateState { copy(favoriteUpdates = favoriteUpdatesFeedStore.read()) }
+    }
+
+    /** Apre la pagina Cronologia (dal "Vedi tutto" del blocco Letti di recente). */
+    fun openHistory() {
+        updateState { copy(showHistory = true) }
+    }
+
+    fun closeHistory() {
+        updateState { copy(showHistory = false) }
     }
 
     /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
@@ -1873,6 +1883,7 @@ class MangaViewModel internal constructor(
             Screen.Changelog -> closeChangelog()
             Screen.Settings -> closeSettings()
             Screen.Updates -> closeUpdates()
+            Screen.History -> closeHistory()
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
             Screen.Tabs -> Unit

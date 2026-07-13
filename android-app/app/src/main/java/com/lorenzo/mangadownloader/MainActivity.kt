@@ -572,6 +572,13 @@ private fun MangaDownloaderAppContent(
                     onBrowse = goToSearchTab,
                 )
             }
+            Screen.History -> {
+                HistoryScreen(
+                    library = state.library,
+                    padding = innerPadding,
+                    onOpenChapter = viewModel::openReader,
+                )
+            }
             Screen.Backup -> {
                 BackupScreen(
                     padding = innerPadding,

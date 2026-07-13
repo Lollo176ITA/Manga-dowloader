@@ -33,6 +33,7 @@ class HomeSettingsPersistenceTest {
         val custom = AppSettings(
             homeBlockOrder = listOf(
                 HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
+                HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
             ),
             hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
         )
@@ -48,7 +49,15 @@ class HomeSettingsPersistenceTest {
         st.persist(AppSettings(homeBlockOrder = listOf(HomeBlock.RESUME)))
         // I blocchi mancanti vengono appesi in coda nell'ordine di default.
         assertEquals(
-            listOf(HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES, HomeBlock.DISCOVER),
+            listOf(
+                HomeBlock.RESUME,
+                HomeBlock.FAVORITE_UPDATES,
+                HomeBlock.RECENT_FAVORITES,
+                HomeBlock.DISCOVER,
+                HomeBlock.STATS,
+                HomeBlock.HISTORY,
+                HomeBlock.TO_FINISH,
+            ),
             st.read().homeBlockOrder,
         )
     }

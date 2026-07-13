@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NewReleases
@@ -119,6 +122,9 @@ fun HomeScreen(
         HomeBlock.FAVORITE_UPDATES -> state.favoriteUpdates.isEmpty()
         HomeBlock.RECENT_FAVORITES -> state.favorites.isEmpty()
         HomeBlock.DISCOVER -> !discoverHasContent
+        // Render non ancora cablato (arriva in un task successivo): trattali come sempre vuoti
+        // così non occupano spazio finché non hanno un blocco reale da mostrare.
+        HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH -> true
     }
 
     // Carica Scopri solo se il blocco è presente E non nascosto: evita fetch AniList sprecati
@@ -242,6 +248,10 @@ fun HomeScreen(
                             }
                         }
                     }
+
+                    // Render reale in un task successivo; isBlockEmpty li marca sempre vuoti
+                    // quindi questo ramo non è ancora raggiunto, ma serve per l'esaustività.
+                    HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH -> Unit
                 }
             }
         }
@@ -547,6 +557,9 @@ private fun HomeBlock.displayName(): String = when (this) {
     HomeBlock.FAVORITE_UPDATES -> "Novità dai preferiti"
     HomeBlock.RECENT_FAVORITES -> "Preferiti recenti"
     HomeBlock.DISCOVER -> "Scopri"
+    HomeBlock.STATS -> "Statistiche"
+    HomeBlock.HISTORY -> "Letti di recente"
+    HomeBlock.TO_FINISH -> "Da finire"
 }
 
 /** Sottotitolo del blocco nella modalità modifica. */
@@ -555,6 +568,9 @@ private fun HomeBlock.editDescription(): String = when (this) {
     HomeBlock.FAVORITE_UPDATES -> "Nuovi capitoli usciti"
     HomeBlock.RECENT_FAVORITES -> "Aggiunti di recente"
     HomeBlock.DISCOVER -> "Tendenze da AniList"
+    HomeBlock.STATS -> "I tuoi numeri di lettura"
+    HomeBlock.HISTORY -> "Gli ultimi capitoli letti"
+    HomeBlock.TO_FINISH -> "Serie con capitoli da leggere"
 }
 
 /** Icona identificativa del blocco nella modalità modifica. */
@@ -563,4 +579,7 @@ private fun HomeBlock.editIcon(): ImageVector = when (this) {
     HomeBlock.FAVORITE_UPDATES -> Icons.Filled.NewReleases
     HomeBlock.RECENT_FAVORITES -> Icons.Filled.Star
     HomeBlock.DISCOVER -> Icons.Filled.Explore
+    HomeBlock.STATS -> Icons.Filled.BarChart
+    HomeBlock.HISTORY -> Icons.Filled.History
+    HomeBlock.TO_FINISH -> Icons.Filled.Checklist
 }

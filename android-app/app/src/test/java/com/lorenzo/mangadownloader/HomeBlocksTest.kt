@@ -16,8 +16,28 @@ class HomeBlocksTest {
         val result = reconcileHomeBlocks(stored)
         // Gli storati mantengono l'ordine, i mancanti (nell'ordine di default) vanno in coda.
         assertEquals(
-            listOf(HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES),
+            listOf(
+                HomeBlock.DISCOVER,
+                HomeBlock.RESUME,
+                HomeBlock.FAVORITE_UPDATES,
+                HomeBlock.RECENT_FAVORITES,
+                HomeBlock.STATS,
+                HomeBlock.HISTORY,
+                HomeBlock.TO_FINISH,
+            ),
             result,
+        )
+    }
+
+    @Test
+    fun reconcile_oldStoredOrder_appendsNewBlocksAtEnd() {
+        val stored = listOf(
+            HomeBlock.DISCOVER, HomeBlock.RESUME,
+            HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
+        )
+        assertEquals(
+            stored + listOf(HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH),
+            reconcileHomeBlocks(stored),
         )
     }
 
@@ -40,7 +60,7 @@ class HomeBlocksTest {
     fun move_atEdge_isNoOp() {
         val order = DEFAULT_HOME_BLOCK_ORDER
         assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.RESUME, up = true) { false })
-        assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.DISCOVER, up = false) { false })
+        assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.TO_FINISH, up = false) { false })
     }
 
     @Test

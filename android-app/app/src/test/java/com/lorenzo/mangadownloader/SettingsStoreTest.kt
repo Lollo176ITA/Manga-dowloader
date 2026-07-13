@@ -67,6 +67,9 @@ class SettingsStoreTest {
                 HomeBlock.RECENT_FAVORITES,
                 HomeBlock.FAVORITE_UPDATES,
                 HomeBlock.RESUME,
+                HomeBlock.STATS,
+                HomeBlock.HISTORY,
+                HomeBlock.TO_FINISH,
             ),
             hiddenHomeBlocks = setOf(HomeBlock.DISCOVER, HomeBlock.RECENT_FAVORITES),
         )

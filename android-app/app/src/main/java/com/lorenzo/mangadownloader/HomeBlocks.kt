@@ -4,11 +4,19 @@ package com.lorenzo.mangadownloader
  * Blocchi CONTENUTO della Home, riordinabili e nascondibili dall'utente. Saluto, card
  * onboarding ed empty state sono "chrome" e NON fanno parte di questo enum.
  */
-enum class HomeBlock { RESUME, FAVORITE_UPDATES, RECENT_FAVORITES, DISCOVER }
+enum class HomeBlock { RESUME, FAVORITE_UPDATES, RECENT_FAVORITES, DISCOVER, STATS, HISTORY, TO_FINISH }
 
 /** Ordine consigliato dal brief. È anche l'ordine con cui i blocchi nuovi vengono aggiunti in coda. */
 val DEFAULT_HOME_BLOCK_ORDER: List<HomeBlock> =
-    listOf(HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES, HomeBlock.DISCOVER)
+    listOf(
+        HomeBlock.RESUME,
+        HomeBlock.FAVORITE_UPDATES,
+        HomeBlock.RECENT_FAVORITES,
+        HomeBlock.DISCOVER,
+        HomeBlock.STATS,
+        HomeBlock.HISTORY,
+        HomeBlock.TO_FINISH,
+    )
 
 /**
  * Riconcilia una lista persistita: rimuove duplicati e APPENDE i blocchi non presenti

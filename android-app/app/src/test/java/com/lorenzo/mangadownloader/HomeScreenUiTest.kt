@@ -33,6 +33,8 @@ class HomeScreenUiTest {
                     onOpenAllUpdates = {},
                     onOpenFavorite = {},
                     onOpenAllFavorites = {},
+                    onOpenHistory = {},
+                    onOpenSeries = {},
                     onPickDiscover = {},
                     onShowDiscoverInfo = {},
                     onDismissDiscoverInfo = {},
@@ -63,6 +65,17 @@ class HomeScreenUiTest {
         )
         composeRule.onNodeWithText("Scopri").assertDoesNotExist()
     }
+
+    @Test
+    fun libraryWithReadChapters_showsStatsBlock() {
+        render(
+            MangaUiState(
+                library = listOf(sampleSeries()),
+            ),
+        )
+        composeRule.onNodeWithText("Statistiche").assertExists()
+        composeRule.onNodeWithText("Capitoli letti").assertExists()
+    }
 }
 
 private fun sampleAniList() = AniListManga(
@@ -74,4 +87,30 @@ private fun sampleAniList() = AniListManga(
     averageScore = 80,
     description = null,
     status = MangaPublicationStatus.UNKNOWN,
+)
+
+private fun sampleSeries() = DownloadedSeries(
+    sourceId = MangaSourceIds.MANGAPILL,
+    title = "Berserk",
+    mangaUrl = "https://mangapill.com/manga/berserk",
+    coverFile = null,
+    directory = java.io.File("Berserk"),
+    chapters = listOf(
+        DownloadedChapter(
+            title = "Capitolo 1",
+            numberText = "1",
+            numberValue = java.math.BigDecimal.ONE,
+            volumeText = null,
+            labelPrefix = "Capitolo",
+            file = java.io.File("1.cbz"),
+            relativePath = "b/1.cbz",
+            chapterId = "id-1",
+            isRead = true,
+            readerPageIndex = null,
+            readerPageCount = 20,
+            lastReadAtMillis = 1_000L,
+        ),
+    ),
+    totalChapterCount = 1,
+    readChapterIds = setOf("id-1"),
 )

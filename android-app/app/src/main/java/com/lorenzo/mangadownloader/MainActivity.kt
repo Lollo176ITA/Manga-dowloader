@@ -743,6 +743,8 @@ private fun MangaDownloaderAppContent(
                                 viewModel.selectTab(AppTab.FAVORITES)
                                 scope.launch { pagerState.animateScrollToPage(state.tabPageIndex(AppTab.FAVORITES)) }
                             },
+                            onOpenHistory = viewModel::openHistory,
+                            onOpenSeries = viewModel::selectDownloadedSeries,
                             onPickDiscover = viewModel::onPickAniListManga,
                             onShowDiscoverInfo = viewModel::showDiscoveryInfo,
                             onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,

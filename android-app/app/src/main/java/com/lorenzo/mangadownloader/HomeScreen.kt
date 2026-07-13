@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Done
@@ -77,6 +78,8 @@ fun HomeScreen(
     onOpenAllUpdates: () -> Unit,
     onOpenFavorite: (FavoriteManga) -> Unit,
     onOpenAllFavorites: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSeries: (DownloadedSeries) -> Unit,
     onPickDiscover: (AniListManga) -> Unit,
     onShowDiscoverInfo: (AniListManga) -> Unit,
     onDismissDiscoverInfo: () -> Unit,
@@ -102,6 +105,15 @@ fun HomeScreen(
         state.favoriteUpdates.sortedByDescending { it.timestampMillis }.take(5)
     }
     val recentFavorites = remember(state.favorites) { state.favorites.take(12) }
+    val stats = remember(state.library, state.favorites) {
+        computeHomeStats(state.library, state.favorites.size)
+    }
+    val readingHistory = remember(state.library) {
+        computeReadingHistory(state.library, limit = 10)
+    }
+    val seriesToFinish = remember(state.library) {
+        computeSeriesToFinish(state.library)
+    }
     val discovery = state.discovery
     // Il blocco Scopri "ha qualcosa da mostrare" se ci sono risultati, sta caricando, oppure c'è
     // un errore (in errore mostriamo un retry invece di far sparire il blocco).
@@ -122,9 +134,9 @@ fun HomeScreen(
         HomeBlock.FAVORITE_UPDATES -> state.favoriteUpdates.isEmpty()
         HomeBlock.RECENT_FAVORITES -> state.favorites.isEmpty()
         HomeBlock.DISCOVER -> !discoverHasContent
-        // Render non ancora cablato (arriva in un task successivo): trattali come sempre vuoti
-        // così non occupano spazio finché non hanno un blocco reale da mostrare.
-        HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH -> true
+        HomeBlock.STATS -> stats.isEmpty()
+        HomeBlock.HISTORY -> readingHistory.isEmpty()
+        HomeBlock.TO_FINISH -> seriesToFinish.isEmpty()
     }
 
     // Carica Scopri solo se il blocco è presente E non nascosto: evita fetch AniList sprecati
@@ -249,9 +261,34 @@ fun HomeScreen(
                         }
                     }
 
-                    // Render reale in un task successivo; isBlockEmpty li marca sempre vuoti
-                    // quindi questo ramo non è ancora raggiunto, ma serve per l'esaustività.
-                    HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH -> Unit
+                    HomeBlock.STATS -> item(key = "b-stats") {
+                        HomeSection(title = "Statistiche") {
+                            HomeStatsGrid(stats = stats, modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                    }
+
+                    HomeBlock.HISTORY -> item(key = "b-history") {
+                        HomeSection(
+                            title = "Letti di recente",
+                            trailingActionLabel = "Vedi tutto",
+                            onTrailingAction = onOpenHistory,
+                        ) {
+                            HomeCarousel(readingHistory) { entry ->
+                                HomeHistoryChip(item = entry, onClick = { onResume(entry.chapter) })
+                            }
+                        }
+                    }
+
+                    HomeBlock.TO_FINISH -> item(key = "b-tofinish") {
+                        HomeSection(title = "Da finire") {
+                            HomeCarousel(seriesToFinish) { entry ->
+                                HomeToFinishTile(
+                                    item = entry,
+                                    onClick = { onOpenSeries(entry.series) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -549,6 +586,171 @@ private fun HomeDiscoverError(message: String, onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = onRetry) { Text("Riprova") }
+    }
+}
+
+/** Griglia 2×2 delle statistiche di lettura (calcoli in [computeHomeStats]). */
+@Composable
+private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatTile(
+                value = formatStatNumber(stats.seriesCount),
+                label = "Serie in libreria",
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                modifier = Modifier.weight(1f),
+            )
+            StatTile(
+                value = formatStatNumber(stats.chaptersRead),
+                label = "Capitoli letti",
+                icon = Icons.Filled.Done,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatTile(
+                value = formatStatNumber(stats.pagesRead),
+                label = "Pagine lette",
+                icon = Icons.Outlined.AutoStories,
+                modifier = Modifier.weight(1f),
+            )
+            StatTile(
+                value = formatStatNumber(stats.favoritesCount),
+                label = "Preferiti",
+                icon = Icons.Filled.Star,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatTile(
+    value: String,
+    label: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Chip di un capitolo letto di recente (carosello "Letti di recente"): come [HomeUpdateChip]. */
+@Composable
+private fun HomeHistoryChip(
+    item: ReadingHistoryItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val chapter = item.chapter
+    Card(
+        modifier = modifier
+            .width(200.dp)
+            .clickable(onClick = onClick, onClickLabel = "Riapri il capitolo"),
+        shape = MaterialTheme.shapes.large,
+        colors = appCardColors(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CoverImage(
+                model = item.series.coverFile,
+                title = item.series.title,
+                modifier = Modifier
+                    .size(width = 40.dp, height = 56.dp)
+                    .clip(MaterialTheme.shapes.small),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.series.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = chapter.title.ifBlank { "Capitolo ${chapter.numberText}" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** Poster di una serie "da finire": cover + badge col conteggio dei non letti. */
+@Composable
+private fun HomeToFinishTile(
+    item: SeriesToFinish,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .width(104.dp)
+            .clickable(onClick = onClick, onClickLabel = "Apri la serie")
+            .semantics(mergeDescendants = true) {
+                stateDescription = "${item.unreadCount} capitoli da leggere"
+            },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            CoverImage(
+                model = item.series.coverFile,
+                title = item.series.title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(MaterialTheme.shapes.large),
+            )
+            Text(
+                text = "${item.unreadCount}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            )
+        }
+        Text(
+            text = item.series.title,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

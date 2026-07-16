@@ -20,16 +20,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.AutoStories
@@ -48,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -397,9 +388,9 @@ fun HomeScreen(
 }
 
 /**
- * Card di un blocco in modalità modifica (stile mockup): icona del blocco + nome e descrizione
- * (o "Nascosto") + frecce di riordino + occhio per nascondere; sotto, il selettore di taglia
- * S · M · L (nascosto insieme al blocco). I blocchi nascosti restano in lista, attenuati.
+ * Card di un blocco in modalità modifica: nome e descrizione (o "Nascosto") + frecce di
+ * riordino + occhio per nascondere; sotto, il selettore di taglia S · M · L (nascosto
+ * insieme al blocco). I blocchi nascosti restano in lista, attenuati.
  */
 @Composable
 private fun HomeBlockEditRow(
@@ -431,16 +422,6 @@ private fun HomeBlockEditRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                imageVector = block.editIcon(),
-                contentDescription = null,
-                tint = if (hidden) {
-                    MaterialTheme.colorScheme.outline
-                } else {
-                    MaterialTheme.colorScheme.secondary
-                },
-            )
-            Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = block.displayName(),
@@ -693,7 +674,7 @@ private fun HomeStatsGrid(stats: HomeStats, streak: Int, modifier: Modifier = Mo
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatTile(
-                value = if (streak > 0) "$streak 🔥" else "0",
+                value = formatStatNumber(streak),
                 label = if (streak == 1) "Giorno di fila" else "Giorni di fila",
                 modifier = Modifier.weight(1f),
             )
@@ -726,7 +707,7 @@ private fun HomeStatsCompactRow(stats: HomeStats, streak: Int, modifier: Modifie
         ) {
             CompactStat(formatStatNumber(stats.chaptersRead), "Capitoli", Modifier.weight(1f))
             CompactStat(formatStatNumber(stats.pagesRead), "Pagine", Modifier.weight(1f))
-            CompactStat(if (streak > 0) "$streak 🔥" else "0", "Di fila", Modifier.weight(1f))
+            CompactStat(formatStatNumber(streak), "Di fila", Modifier.weight(1f))
         }
     }
 }
@@ -914,18 +895,6 @@ private fun HomeBlock.editDescription(): String = when (this) {
     HomeBlock.STATS -> "I tuoi numeri di lettura"
     HomeBlock.HISTORY -> "Gli ultimi capitoli letti"
     HomeBlock.TO_FINISH -> "Serie con capitoli da leggere"
-}
-
-/** Icona identificativa del blocco nella modalità modifica. */
-private fun HomeBlock.editIcon(): ImageVector = when (this) {
-    HomeBlock.RESUME -> Icons.Filled.PlayCircle
-    HomeBlock.FAVORITE_UPDATES -> Icons.Filled.NewReleases
-    HomeBlock.RECENT_FAVORITES -> Icons.Filled.Star
-    HomeBlock.DISCOVER -> Icons.Filled.Explore
-    HomeBlock.RECOMMENDED -> Icons.Filled.AutoAwesome
-    HomeBlock.STATS -> Icons.Filled.BarChart
-    HomeBlock.HISTORY -> Icons.Filled.History
-    HomeBlock.TO_FINISH -> Icons.Filled.Checklist
 }
 
 /** Larghezza dei poster (preferiti, da finire) per taglia. */

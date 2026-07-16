@@ -89,15 +89,6 @@ fun topReadSeries(
         .take(limit.coerceAtLeast(0))
 }
 
-/** Capitoli letti per fonte, in ordine decrescente; "" raccoglie i record senza fonte nota. */
-fun chaptersReadBySource(memory: Map<String, ReadChapterMemory>): List<Pair<String, Int>> {
-    return memory.values
-        .filter { it.isRead }
-        .groupingBy { it.sourceId }
-        .eachCount()
-        .toList()
-        .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
-}
 
 /**
  * Una riga di cronologia: il record persistito più, se il capitolo è ancora scaricato,

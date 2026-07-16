@@ -87,7 +87,7 @@ class HomeInsightsTest {
         assertEquals(20, stats.pagesRead)
     }
 
-    // --- topReadSeries / chaptersReadBySource ---
+    // --- topReadSeries ---
 
     @Test
     fun topSeries_ranksByChaptersRead_andSurvivesDeletion() {
@@ -110,20 +110,6 @@ class HomeInsightsTest {
         assertEquals(null, top[1].series)
     }
 
-    @Test
-    fun chaptersBySource_countsOnlyReadChapters() {
-        val lib = listOf(
-            series("A", listOf(
-                chapter("1", isRead = true, dir = "a"),
-                chapter("2", readerPageIndex = 3, readerPageCount = 10, dir = "a"), // in corso: fuori
-            )),
-        )
-        val memory = seedReadingMemory(emptyMap(), lib)
-        assertEquals(
-            listOf(MangaSourceIds.MANGAPILL to 1),
-            chaptersReadBySource(memory),
-        )
-    }
 
     @Test
     fun stats_onlyFavorites_isNotEmpty() {

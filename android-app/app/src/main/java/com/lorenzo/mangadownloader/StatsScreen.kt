@@ -2,7 +2,6 @@ package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.Card
@@ -34,7 +32,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -64,7 +61,6 @@ fun StatsScreen(
     val bestDay = remember(diary) { bestReadingDay(diary) }
     val lastWeek = remember(diary) { lastDiaryDays(diary, days = 7, today = today) }
     val topSeries = remember(memory, state.library) { topReadSeries(memory, state.library) }
-    val bySource = remember(memory) { chaptersReadBySource(memory) }
 
     if (stats.isEmpty() && diary.isEmpty()) {
         EmptyState(
@@ -97,7 +93,7 @@ fun StatsScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatsTile(
-                        value = if (streak > 0) "$streak 🔥" else "0",
+                        value = formatStatNumber(streak),
                         label = if (streak == 1) "Giorno di fila" else "Giorni di fila",
                         modifier = Modifier.weight(1f),
                     )
@@ -126,13 +122,6 @@ fun StatsScreen(
                 }
                 Spacer(Modifier.height(14.dp))
                 WeekBarChart(days = lastWeek)
-            }
-        }
-
-        item(key = "heatmap-header") { StatsSectionTitle("Ultimi 3 mesi") }
-        item(key = "heatmap") {
-            StatsCard {
-                ReadingHeatmap(diary = diary, today = today)
             }
         }
 
@@ -184,25 +173,6 @@ fun StatsScreen(
             }
         }
 
-        if (bySource.isNotEmpty()) {
-            item(key = "sources-header") { StatsSectionTitle("Capitoli letti per fonte") }
-            item(key = "sources") {
-                StatsCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        bySource.forEach { (sourceId, count) ->
-                            RecordRow(
-                                label = if (sourceId.isBlank()) {
-                                    "Altre letture"
-                                } else {
-                                    MangaSourceCatalog.shortDisplayName(sourceId)
-                                },
-                                value = chapterCountLabel(count),
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -333,49 +303,6 @@ fun WeekBarChart(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-        }
-    }
-}
-
-/**
- * Heatmap stile GitHub delle ultime ~12 settimane: una colonna per settimana (lun→dom),
- * intensità in base ai capitoli del giorno (le sole pagine valgono come attività minima).
- */
-@Composable
-private fun ReadingHeatmap(
-    diary: Map<String, ReadingDayStats>,
-    today: LocalDate,
-    weeks: Int = 12,
-) {
-    val firstMonday = today.with(DayOfWeek.MONDAY).minusWeeks((weeks - 1).toLong())
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        repeat(weeks) { weekIndex ->
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                repeat(7) { dayIndex ->
-                    val day = firstMonday.plusWeeks(weekIndex.toLong()).plusDays(dayIndex.toLong())
-                    val stats = diary[day.toString()]
-                    val color = when {
-                        day.isAfter(today) -> androidx.compose.ui.graphics.Color.Transparent
-                        stats == null || !stats.hasActivity ->
-                            MaterialTheme.colorScheme.surfaceVariant
-                        stats.chaptersRead >= 5 -> MaterialTheme.colorScheme.primary
-                        stats.chaptersRead >= 2 ->
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(MaterialTheme.shapes.extraSmall)
-                            .background(color),
-                    )
-                }
             }
         }
     }

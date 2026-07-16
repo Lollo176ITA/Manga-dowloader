@@ -101,11 +101,11 @@ fun HomeScreen(
         state.favoriteUpdates.sortedByDescending { it.timestampMillis }.take(5)
     }
     val recentFavorites = remember(state.favorites) { state.favorites.take(12) }
-    val stats = remember(state.library, state.favorites) {
-        computeHomeStats(state.library, state.favorites.size)
+    val stats = remember(state.library, state.favorites, state.readingMemory) {
+        computeHomeStats(state.library, state.favorites.size, state.readingMemory)
     }
-    val readingHistory = remember(state.library) {
-        computeReadingHistory(state.library, limit = 10)
+    val readingHistory = remember(state.library, state.readingMemory) {
+        computeReadingHistory(state.readingMemory, state.library, limit = 10)
     }
     val seriesToFinish = remember(state.library) {
         computeSeriesToFinish(state.library)
@@ -266,7 +266,7 @@ fun HomeScreen(
                             onTrailingAction = onOpenHistory,
                         ) {
                             HomeCarousel(readingHistory) { entry ->
-                                HomeHistoryChip(item = entry, onClick = { onResume(entry.chapter) })
+                                HomeHistoryChip(item = entry, onResume = onResume)
                             }
                         }
                     }
@@ -588,18 +588,28 @@ private fun StatTile(
     }
 }
 
-/** Chip di un capitolo letto di recente (carosello "Letti di recente"): come [HomeUpdateChip]. */
+/**
+ * Chip di un capitolo letto di recente (carosello "Letti di recente"): come [HomeUpdateChip].
+ * Le letture arrivano dalla memoria persistente: un capitolo non più scaricato resta visibile
+ * (copertina segnaposto) ma non è cliccabile, non essendoci più nulla da riaprire.
+ */
 @Composable
 private fun HomeHistoryChip(
     item: ReadingHistoryItem,
-    onClick: () -> Unit,
+    onResume: (DownloadedChapter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chapter = item.chapter
     Card(
         modifier = modifier
             .width(200.dp)
-            .clickable(onClick = onClick, onClickLabel = "Riapri il capitolo"),
+            .then(
+                if (chapter != null) {
+                    Modifier.clickable(onClick = { onResume(chapter) }, onClickLabel = "Riapri il capitolo")
+                } else {
+                    Modifier
+                },
+            ),
         shape = MaterialTheme.shapes.large,
         colors = appCardColors(),
     ) {
@@ -611,34 +621,28 @@ private fun HomeHistoryChip(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             CoverImage(
-                model = item.series.coverFile,
-                title = item.series.title,
+                model = item.series?.coverFile,
+                title = item.memory.seriesTitle,
                 modifier = Modifier
                     .size(width = 40.dp, height = 56.dp)
                     .clip(MaterialTheme.shapes.small),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = item.series.title,
+                    text = item.memory.seriesTitle,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = chapter.title.ifBlank { "Capitolo ${chapter.numberText}" },
+                    text = item.memory.chapterLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val idx = chapter.readerPageIndex
-                val count = chapter.readerPageCount
                 Text(
-                    text = when {
-                        chapter.isRead -> "Completato"
-                        idx != null && count != null && count > 0 -> "pagina ${idx + 1} di $count"
-                        else -> "In corso"
-                    },
+                    text = item.memory.progressLabel(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,

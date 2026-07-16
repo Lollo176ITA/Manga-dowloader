@@ -585,6 +585,7 @@ private fun MangaDownloaderAppContent(
             }
             Screen.History -> {
                 HistoryScreen(
+                    memory = state.readingMemory,
                     library = state.library,
                     padding = innerPadding,
                     onOpenChapter = viewModel::openReader,

@@ -10,9 +10,9 @@ import kotlinx.serialization.json.Json
  * codifica/decodifica tollerante e logica di merge/replace. Speculare alla parte pura di
  * [FavoriteUpdatesStore]. Tutto top-level così è testabile su JVM senza Robolectric.
  *
- * Cosa NON entra nel backup (v1): i **progressi di lettura** (posizione pagina, capitoli letti)
- * vivono in un altro file di prefs e in `series.json`, legati ai file `.cbz` scaricati che non
- * fanno parte del backup. Il campo è riservato per una versione futura senza rompere il formato.
+ * La **memoria di lettura** ([ReadChapterMemory]) entra nel backup come campo additivo con
+ * default (le versioni precedenti la ignorano in lettura, schema invariato). Restano fuori le
+ * **posizioni di pagina** per-file: legate ai `.cbz` scaricati, che nel backup non ci sono.
  * Volutamente esclusi anche i **segreti** del parental control (PIN hash/salt) e lo stato del
  * tutorial: il restore non li tocca mai.
  */
@@ -28,7 +28,59 @@ data class MangaBackup(
     val favoriteDescriptions: Map<String, String> = emptyMap(),
     val recentSearches: List<String> = emptyList(),
     val settings: SettingsBackup = SettingsBackup(),
+    val readingMemory: Map<String, ReadingMemoryBackupEntry> = emptyMap(),
 )
+
+/** Forma nel backup di un record della memoria di lettura; combacia con `ReadingMemoryStore`. */
+@Serializable
+data class ReadingMemoryBackupEntry(
+    val seriesKey: String = "",
+    val seriesTitle: String = "",
+    val chapterLabel: String = "",
+    val pagesRead: Int = 0,
+    val pageCount: Int? = null,
+    val isRead: Boolean = false,
+    val lastReadAtMillis: Long = 0L,
+)
+
+fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryBackupEntry(
+    seriesKey = seriesKey,
+    seriesTitle = seriesTitle,
+    chapterLabel = chapterLabel,
+    pagesRead = pagesRead,
+    pageCount = pageCount,
+    isRead = isRead,
+    lastReadAtMillis = lastReadAtMillis,
+)
+
+fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChapterMemory =
+    ReadChapterMemory(
+        seriesKey = seriesKey.ifBlank { seriesKeyOf(relativePath) },
+        seriesTitle = seriesTitle,
+        chapterLabel = chapterLabel,
+        pagesRead = pagesRead.coerceAtLeast(0),
+        pageCount = pageCount?.takeIf { it > 0 },
+        isRead = isRead,
+        lastReadAtMillis = lastReadAtMillis.coerceAtLeast(0L),
+    )
+
+/**
+ * MERGE della memoria di lettura: per capitolo applica il merge monotono di
+ * [ReadChapterMemory.mergedWith], così reimportare un backup vecchio non fa regredire i numeri.
+ */
+fun mergeReadingMemory(
+    current: Map<String, ReadChapterMemory>,
+    incoming: Map<String, ReadingMemoryBackupEntry>,
+): Map<String, ReadChapterMemory> {
+    if (incoming.isEmpty()) return current
+    val merged = current.toMutableMap()
+    for ((relativePath, entry) in incoming) {
+        if (relativePath.isBlank()) continue
+        val record = entry.toReadChapterMemory(relativePath)
+        merged[relativePath] = merged[relativePath]?.mergedWith(record) ?: record
+    }
+    return merged
+}
 
 /** Forma su disco di un preferito nel backup; combacia con `FavoritesStore`. */
 @Serializable

@@ -9,10 +9,11 @@ import java.util.Locale
 
 /**
  * Calcoli puri dei blocchi Home "Statistiche", "Letti di recente" e "Da finire" (pattern
- * [computeContinueReading]): consumano la libreria già scansionata, niente Android/rete/IO.
+ * [computeContinueReading]): niente Android/rete/IO.
  *
- * Limite noto e accettato: tutto è derivato dalla libreria CORRENTE, quindi eliminare capitoli
- * fa calare i numeri (il contatore storico persistito è rinviato: vedi MIGLIORIE.md).
+ * Statistiche e cronologia sono derivate dalla **memoria di lettura persistente**
+ * ([ReadChapterMemory]): eliminare una serie scaricata non fa più calare i numeri né sparire
+ * le letture passate. La libreria corrente serve solo a risolvere i capitoli ancora apribili.
  */
 data class HomeStats(
     val seriesCount: Int,
@@ -24,53 +25,86 @@ data class HomeStats(
         seriesCount == 0 && chaptersRead == 0 && pagesRead == 0 && favoritesCount == 0
 }
 
-fun computeHomeStats(library: List<DownloadedSeries>, favoritesCount: Int): HomeStats {
-    var chaptersRead = 0
-    var pagesRead = 0
-    for (series in library) {
-        for (chapter in series.chapters) {
-            if (chapter.isRead) chaptersRead++
-            val count = chapter.readerPageCount
-            pagesRead += when {
-                chapter.isRead -> count ?: 0
-                chapter.readerPageIndex != null ->
-                    (chapter.readerPageIndex + 1).coerceAtMost(count ?: Int.MAX_VALUE)
-                else -> 0
-            }
-        }
-    }
+fun computeHomeStats(
+    library: List<DownloadedSeries>,
+    favoritesCount: Int,
+    memory: Map<String, ReadChapterMemory> = emptyMap(),
+): HomeStats {
+    // Il seed rende il calcolo corretto anche se il chiamante passa una memoria non ancora
+    // riallineata alla libreria (idempotente quando lo è già).
+    val effective = seedReadingMemory(memory, library)
     return HomeStats(
         seriesCount = library.size,
-        chaptersRead = chaptersRead,
-        pagesRead = pagesRead,
+        chaptersRead = effective.values.count { it.isRead },
+        pagesRead = effective.values.sumOf { record ->
+            // Con pageCount noto il conteggio è vincolato al capitolo reale: completato =
+            // tutte le pagine, in corso = mai oltre il totale (record stantii inclusi).
+            record.pageCount?.let { count ->
+                if (record.isRead) count else minOf(record.pagesRead, count)
+            } ?: record.pagesRead
+        },
         favoritesCount = favoritesCount,
     )
 }
 
-/** Una riga di cronologia: capitolo letto (o in corso) con la serie di appartenenza. */
+/**
+ * Una riga di cronologia: il record persistito più, se il capitolo è ancora scaricato,
+ * serie e capitolo risolti (per copertina e "riapri nel reader").
+ */
 data class ReadingHistoryItem(
-    val series: DownloadedSeries,
-    val chapter: DownloadedChapter,
+    val relativePath: String,
+    val memory: ReadChapterMemory,
+    val series: DownloadedSeries?,
+    val chapter: DownloadedChapter?,
 )
 
 /**
- * Capitoli con un timestamp di lettura, dal più recente. Include sia i completati sia quelli
- * in corso (a differenza di [computeContinueReading] che tiene solo gli "in corso").
+ * Capitoli con un timestamp di lettura, dal più recente, dalla memoria persistente: le letture
+ * restano anche dopo aver eliminato i file. Include sia i completati sia quelli in corso
+ * (a differenza di [computeContinueReading] che tiene solo gli "in corso").
  */
 fun computeReadingHistory(
+    memory: Map<String, ReadChapterMemory>,
     library: List<DownloadedSeries>,
     limit: Int = Int.MAX_VALUE,
 ): List<ReadingHistoryItem> {
-    return library
-        .flatMap { series -> series.chapters.map { ReadingHistoryItem(series, it) } }
-        .filter { it.chapter.lastReadAtMillis != null }
+    val chaptersByPath = buildMap {
+        for (series in library) {
+            for (chapter in series.chapters) {
+                put(chapter.relativePath, series to chapter)
+            }
+        }
+    }
+    // Il seed assorbe anche i progressi vivi della libreria, quindi il record che ne esce
+    // è già il merge tra memoria e stato su disco: niente ri-merge per riga.
+    return seedReadingMemory(memory, library)
+        .asSequence()
+        .filter { (_, record) -> record.lastReadAtMillis > 0L }
+        .map { (relativePath, record) ->
+            val resolved = chaptersByPath[relativePath]
+            ReadingHistoryItem(
+                relativePath = relativePath,
+                memory = record,
+                series = resolved?.first,
+                chapter = resolved?.second,
+            )
+        }
         .sortedWith(
-            compareByDescending<ReadingHistoryItem> { it.chapter.lastReadAtMillis ?: Long.MIN_VALUE }
-                .thenBy { it.series.title.lowercase() }
-                .thenBy { it.chapter.numberValue ?: BigDecimal.ZERO }
-                .thenBy { it.chapter.numberText },
+            compareByDescending<ReadingHistoryItem> { it.memory.lastReadAtMillis }
+                .thenBy { it.memory.seriesTitle.lowercase() }
+                .thenBy { it.chapter?.numberValue ?: BigDecimal.ZERO }
+                .thenBy { it.memory.chapterLabel },
         )
         .take(limit.coerceAtLeast(0))
+        .toList()
+}
+
+/** Etichetta di avanzamento di un record: "Completato", "pagina X di Y" o "In corso". */
+fun ReadChapterMemory.progressLabel(): String = when {
+    isRead -> "Completato"
+    pageCount != null && pageCount > 0 && pagesRead > 0 ->
+        "pagina ${pagesRead.coerceAtMost(pageCount)} di $pageCount"
+    else -> "In corso"
 }
 
 /** Una serie scaricata con capitoli ancora da leggere. */

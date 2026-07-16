@@ -16,6 +16,7 @@ class HomeInsightsTest {
         readerPageIndex: Int? = null,
         readerPageCount: Int? = null,
         lastReadAtMillis: Long? = null,
+        dir: String = "s",
     ) = DownloadedChapter(
         title = "Capitolo $number",
         numberText = number,
@@ -23,7 +24,7 @@ class HomeInsightsTest {
         volumeText = null,
         labelPrefix = "Capitolo",
         file = File("$number.cbz"),
-        relativePath = "s/$number.cbz",
+        relativePath = "$dir/$number.cbz",
         chapterId = "id-$number",
         isRead = isRead,
         readerPageIndex = readerPageIndex,
@@ -55,12 +56,12 @@ class HomeInsightsTest {
     fun stats_countsSeriesReadChaptersAndPages() {
         val lib = listOf(
             series("A", listOf(
-                chapter("1", isRead = true, readerPageCount = 20),            // completato: 20 pagine
-                chapter("2", readerPageIndex = 4, readerPageCount = 30),      // in corso: 5 pagine
-                chapter("3"),                                                  // mai aperto: 0
+                chapter("1", isRead = true, readerPageCount = 20, dir = "a"),       // completato: 20 pagine
+                chapter("2", readerPageIndex = 4, readerPageCount = 30, dir = "a"), // in corso: 5 pagine
+                chapter("3", dir = "a"),                                            // mai aperto: 0
             )),
             series("B", listOf(
-                chapter("1", isRead = true),                                   // letto senza pageCount: 0 pagine
+                chapter("1", isRead = true, dir = "b"),                             // letto senza pageCount: 0 pagine
             )),
         )
         val stats = computeHomeStats(lib, favoritesCount = 7)
@@ -69,6 +70,19 @@ class HomeInsightsTest {
         assertEquals(25, stats.pagesRead)
         assertEquals(7, stats.favoritesCount)
         assertTrue(!stats.isEmpty())
+    }
+
+    @Test
+    fun stats_survivesLibraryDeletionThroughMemory() {
+        val lib = listOf(
+            series("A", listOf(chapter("1", isRead = true, readerPageCount = 20, dir = "a"))),
+        )
+        val memory = seedReadingMemory(emptyMap(), lib)
+        // Serie eliminata: capitoli e pagine letti restano, cala solo "Serie in libreria".
+        val stats = computeHomeStats(emptyList(), favoritesCount = 0, memory = memory)
+        assertEquals(0, stats.seriesCount)
+        assertEquals(1, stats.chaptersRead)
+        assertEquals(20, stats.pagesRead)
     }
 
     @Test
@@ -88,15 +102,15 @@ class HomeInsightsTest {
     fun history_ordersByLastReadDescAndSkipsNeverRead() {
         val lib = listOf(
             series("A", listOf(
-                chapter("1", isRead = true, lastReadAtMillis = 1_000L),
-                chapter("2", readerPageIndex = 3, readerPageCount = 10, lastReadAtMillis = 3_000L),
-                chapter("3"), // mai letto: escluso
+                chapter("1", isRead = true, lastReadAtMillis = 1_000L, dir = "a"),
+                chapter("2", readerPageIndex = 3, readerPageCount = 10, lastReadAtMillis = 3_000L, dir = "a"),
+                chapter("3", dir = "a"), // mai letto: escluso
             )),
-            series("B", listOf(chapter("5", isRead = true, lastReadAtMillis = 2_000L))),
+            series("B", listOf(chapter("5", isRead = true, lastReadAtMillis = 2_000L, dir = "b"))),
         )
-        val history = computeReadingHistory(lib)
-        assertEquals(listOf("2", "5", "1"), history.map { it.chapter.numberText })
-        assertEquals(listOf("A", "B", "A"), history.map { it.series.title })
+        val history = computeReadingHistory(emptyMap(), lib)
+        assertEquals(listOf("2", "5", "1"), history.map { it.chapter?.numberText })
+        assertEquals(listOf("A", "B", "A"), history.map { it.series?.title })
     }
 
     @Test
@@ -104,7 +118,37 @@ class HomeInsightsTest {
         val lib = listOf(series("A", (1..15).map {
             chapter("$it", isRead = true, lastReadAtMillis = it * 100L)
         }))
-        assertEquals(10, computeReadingHistory(lib, limit = 10).size)
+        assertEquals(10, computeReadingHistory(emptyMap(), lib, limit = 10).size)
+    }
+
+    @Test
+    fun history_keepsDeletedChaptersFromMemory() {
+        val lib = listOf(
+            series("A", listOf(chapter("1", isRead = true, lastReadAtMillis = 1_000L, dir = "a"))),
+        )
+        val memory = seedReadingMemory(emptyMap(), lib)
+        // Libreria svuotata: la lettura resta in cronologia, ma senza capitolo da riaprire.
+        val history = computeReadingHistory(memory, emptyList())
+        assertEquals(1, history.size)
+        assertEquals("A", history.first().memory.seriesTitle)
+        assertEquals("Capitolo 1", history.first().memory.chapterLabel)
+        assertEquals(null, history.first().chapter)
+        assertEquals("Completato", history.first().memory.progressLabel())
+    }
+
+    @Test
+    fun history_mergesLiveLibraryProgressOverMemory() {
+        val stale = mapOf(
+            "a/1.cbz" to ReadChapterMemory("a", "A", "Capitolo 1", 2, 10, false, 1_000L),
+        )
+        val lib = listOf(
+            series("A", listOf(
+                chapter("1", readerPageIndex = 6, readerPageCount = 10, lastReadAtMillis = 2_000L, dir = "a"),
+            )),
+        )
+        val history = computeReadingHistory(stale, lib)
+        assertEquals("pagina 7 di 10", history.first().memory.progressLabel())
+        assertEquals(2_000L, history.first().memory.lastReadAtMillis)
     }
 
     // --- computeSeriesToFinish ---

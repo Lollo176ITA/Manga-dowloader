@@ -35,6 +35,28 @@ class JsonStoresPersistenceTest {
     }
 
     @Test
+    fun readingMemory_roundTripsAndFallsBackOnCorruptJson() {
+        val store = ReadingMemoryStore(prefs())
+        val expected = mapOf(
+            "Berserk/chapter_1.cbz" to ReadChapterMemory(
+                seriesKey = "Berserk",
+                seriesTitle = "Berserk",
+                chapterLabel = "Capitolo 1",
+                pagesRead = 20,
+                pageCount = 20,
+                isRead = true,
+                lastReadAtMillis = 1_000L,
+            ),
+        )
+
+        store.persist(expected)
+        assertEquals(expected, store.read())
+
+        prefs().edit().putString("reading_memory_json", "{broken").commit()
+        assertTrue(store.read().isEmpty())
+    }
+
+    @Test
     fun aniListTrackings_roundTripKeepsDomainMapping() {
         val store = AniListStore(prefs())
         val expected = mapOf(

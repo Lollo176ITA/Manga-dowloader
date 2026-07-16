@@ -235,6 +235,9 @@ data class MangaUiState(
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
     val library: List<DownloadedSeries> = emptyList(),
+    // Memoria di lettura persistente (statistiche/cronologia): sopravvive all'eliminazione
+    // dei download. Fonte di verità su disco: ReadingMemoryStore.
+    val readingMemory: Map<String, ReadChapterMemory> = emptyMap(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
     val readerChapter: ReaderChapter? = null,
@@ -311,12 +314,14 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
+    private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
         favoriteDescriptionsStore = favoriteDescriptionsStore,
         recentSearchesStore = recentSearchesStore,
         settingsStore = settingsStore,
+        readingMemoryStore = readingMemoryStore,
         appVersionName = BuildConfig.VERSION_NAME,
     )
 
@@ -331,6 +336,11 @@ class MangaViewModel internal constructor(
     private val initialFavorites = favoritesStore.read()
     private val initialSettings = settingsStore.read()
     private val initialFavoriteSeen = favoriteUpdatesStore.read()
+    private val initialReadingMemory = readingMemoryStore.read()
+
+    // Ultima memoria di lettura scritta su disco: persiste solo sui cambi reali (il seed
+    // restituisce la stessa istanza quando non c'è nulla di nuovo).
+    private var lastPersistedReadingMemory = initialReadingMemory
 
     private val _state = MutableStateFlow(
         MangaUiState(
@@ -342,6 +352,7 @@ class MangaViewModel internal constructor(
                 else -> AppTab.HOME
             },
             recentSearches = recentSearchesStore.read(),
+            readingMemory = initialReadingMemory,
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
             favoriteSeenStates = initialFavoriteSeen,
@@ -633,6 +644,9 @@ class MangaViewModel internal constructor(
             if (clearFeed) {
                 favoriteUpdatesFeedStore.write(emptyList())
             }
+            // Il BackupManager ha già persistito la memoria ripristinata: allinea la baseline
+            // per non riscriverla identica al prossimo confronto.
+            lastPersistedReadingMemory = result.readingMemory
             updateState {
                 copy(
                     favorites = result.favorites,
@@ -642,6 +656,7 @@ class MangaViewModel internal constructor(
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
                     recentSearches = result.recentSearches,
                     settings = result.settings,
+                    readingMemory = result.readingMemory,
                     errorMessage = restoreMessage(result),
                 )
             }
@@ -1436,6 +1451,7 @@ class MangaViewModel internal constructor(
             try {
                 val snapshot = scanLibrarySnapshot(forceRefresh)
                 updateState { withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -1778,6 +1794,13 @@ class MangaViewModel internal constructor(
             }
         }
 
+        recordReaderProgressInMemory(
+            chapter = chapter,
+            pagesSeen = nextPageIndex + 1,
+            pageCount = safePageCount,
+            newlyRead = newlyRead,
+        )
+
         if (newlyRead) {
             maybeSyncAniListOnChapterRead(chapter)
         }
@@ -1860,6 +1883,7 @@ class MangaViewModel internal constructor(
                 }
                 val snapshot = scanLibrarySnapshot()
                 updateState { withLibrarySnapshot(snapshot) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1871,6 +1895,9 @@ class MangaViewModel internal constructor(
     fun closeReader() {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        // Consolida su disco le pagine avanzate durante la sessione di lettura (la scrittura
+        // per-swipe è deliberatamente rimandata, vedi recordReaderProgressInMemory).
+        persistReadingMemoryIfChanged()
         updateState { clearedReaderState() }
     }
 
@@ -1911,6 +1938,8 @@ class MangaViewModel internal constructor(
         } else {
             libraryRepository.markChapterUnread(chapter)
         }
+        // Prima del refresh: il seed dello snapshot deve vedere la memoria già aggiornata.
+        recordChaptersMarkedInMemory(listOf(chapter), read)
         refreshLibraryAfterReadChange()
     }
 
@@ -1921,15 +1950,17 @@ class MangaViewModel internal constructor(
         if (index < 0) {
             return
         }
-        libraryRepository.markChaptersRead(
-            series.chapters.take(index + 1).filterNot { it.isRead },
-        )
+        val toMark = series.chapters.take(index + 1).filterNot { it.isRead }
+        libraryRepository.markChaptersRead(toMark)
+        recordChaptersMarkedInMemory(toMark, read = true)
         refreshLibraryAfterReadChange()
     }
 
     /** Voce del menu serie in libreria: tutti i capitoli scaricati segnati come letti. */
     fun markAllChaptersRead(series: DownloadedSeries) {
-        libraryRepository.markChaptersRead(series.chapters.filterNot { it.isRead })
+        val toMark = series.chapters.filterNot { it.isRead }
+        libraryRepository.markChaptersRead(toMark)
+        recordChaptersMarkedInMemory(toMark, read = true)
         refreshLibraryAfterReadChange()
     }
 
@@ -1940,6 +1971,7 @@ class MangaViewModel internal constructor(
             try {
                 val snapshot = scanLibrarySnapshot()
                 updateState { withLibrarySnapshot(snapshot) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -2001,6 +2033,7 @@ class MangaViewModel internal constructor(
                     val baseState = if (clearReader) clearedReaderState() else this
                     baseState.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
                 }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -2443,21 +2476,131 @@ class MangaViewModel internal constructor(
     }
 
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
+        // Memoria di lettura: assorbe i progressi dello snapshot (seed monotono, che è anche
+        // la migrazione per chi aveva già letture) e reidrata il "letto" sulle serie
+        // eliminate e riscaricate. La scrittura su disco la fa il chiamante
+        // (persistReadingMemoryIfChanged) fuori dalla lambda di updateState.
+        val seededMemory = seedReadingMemory(readingMemory, snapshot)
+        val rehydrated = snapshot.map { it.withReadingMemoryApplied(seededMemory) }
+
         val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
-        val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
+        val updatedSelected = rehydrated.firstOrNull { it.directory.absolutePath == selectedDirectory }
         val readerPath = readerChapter?.downloadedChapter?.relativePath
         val updatedReader = readerPath?.let { path ->
             updatedSelected?.chapters?.firstOrNull { it.relativePath == path }
-                ?: snapshot.asSequence()
+                ?: rehydrated.asSequence()
                     .flatMap { it.chapters.asSequence() }
                     .firstOrNull { it.relativePath == path }
         }
 
         return copy(
-            library = snapshot,
+            library = rehydrated,
+            readingMemory = seededMemory,
             selectedDownloadedSeries = updatedSelected,
             readerChapter = updatedReader?.toReaderChapter() ?: readerChapter,
         ).withReaderAdjacency(updatedReader?.relativePath ?: readerPath)
+    }
+
+    /** Scrive la memoria di lettura su disco solo se diversa dall'ultima persistita. */
+    private fun persistReadingMemoryIfChanged() {
+        val memory = _state.value.readingMemory
+        if (memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory) {
+            readingMemoryStore.persist(memory)
+            lastPersistedReadingMemory = memory
+        }
+    }
+
+    /** Titolo della serie che possiede [seriesKey] (nome cartella), se ancora in libreria. */
+    private fun seriesTitleForKey(seriesKey: String): String? {
+        val state = _state.value
+        return state.selectedDownloadedSeries?.takeIf { it.directory.name == seriesKey }?.title
+            ?: state.library.firstOrNull { it.directory.name == seriesKey }?.title
+    }
+
+    /**
+     * Registra nella memoria di lettura persistente l'avanzamento del reader (merge monotono:
+     * i numeri non regrediscono). Vale per scaricati e streaming: le statistiche contano anche
+     * le letture online e sopravvivono all'eliminazione dei download.
+     */
+    private fun recordReaderProgressInMemory(
+        chapter: ReaderChapter,
+        pagesSeen: Int,
+        pageCount: Int,
+        newlyRead: Boolean,
+    ) {
+        val streaming = chapter.streamingChapter
+        val seriesKey: String
+        val seriesTitle: String
+        if (streaming != null) {
+            seriesKey = seriesKeyForStreaming(streaming.sourceId, streaming.mangaUrl)
+            seriesTitle = streaming.mangaTitle
+        } else {
+            seriesKey = seriesKeyOf(chapter.relativePath)
+            seriesTitle = seriesTitleForKey(seriesKey) ?: seriesKey
+        }
+        val record = ReadChapterMemory(
+            seriesKey = seriesKey,
+            seriesTitle = seriesTitle,
+            chapterLabel = chapter.title.ifBlank {
+                chapter.downloadedChapter?.displayLabel().orEmpty()
+            },
+            pagesRead = pagesSeen,
+            pageCount = pageCount,
+            isRead = chapter.isRead || newlyRead,
+            lastReadAtMillis = System.currentTimeMillis(),
+        )
+        val current = _state.value.readingMemory[chapter.relativePath]
+        val next = current?.mergedWith(record) ?: record
+        if (next == current) return
+        updateState { copy(readingMemory = readingMemory + (chapter.relativePath to next)) }
+        // Su disco solo ai passaggi significativi (nuovo record, capitolo completato): la
+        // posizione per-pagina è già durevole nelle prefs del reader e riserializzare
+        // l'intera mappa a ogni swipe crescerebbe col totale dei capitoli mai letti.
+        // Il resto viene scritto alla chiusura del reader e a ogni snapshot libreria.
+        if (current == null || next.isRead != current.isRead) {
+            persistReadingMemoryIfChanged()
+        }
+    }
+
+    /**
+     * Allinea la memoria di lettura a un letto/non letto deciso a mano (long-press, "fino a
+     * qui", "tutti letti"). Override esplicito, non merge: "non letto" deve poter regredire.
+     * Nessun timestamp nuovo: il letto a mano non entra nella cronologia "Letti di recente";
+     * il "non letto" azzera anche pagine e timestamp, come il reset del progresso su disco.
+     */
+    private fun recordChaptersMarkedInMemory(chapters: List<DownloadedChapter>, read: Boolean) {
+        val first = chapters.firstOrNull() ?: return
+        val state = _state.value
+        // Tutti i capitoli di una chiamata appartengono alla stessa serie: risolve una volta.
+        val seriesKey = seriesKeyOf(first.relativePath)
+        val seriesTitle = seriesTitleForKey(seriesKey)
+        val updates = mutableMapOf<String, ReadChapterMemory>()
+        for (chapter in chapters) {
+            val existing = state.readingMemory[chapter.relativePath]
+            val base = existing ?: ReadChapterMemory(
+                seriesKey = seriesKeyOf(chapter.relativePath),
+                seriesTitle = seriesTitle ?: seriesKeyOf(chapter.relativePath),
+                chapterLabel = chapter.displayLabel(),
+                pagesRead = 0,
+                pageCount = chapter.readerPageCount,
+                isRead = false,
+                lastReadAtMillis = chapter.lastReadAtMillis ?: 0L,
+            )
+            val next = if (read) {
+                base.copy(
+                    isRead = true,
+                    pagesRead = maxOf(base.pagesRead, base.pageCount ?: chapter.readerPageCount ?: 0),
+                )
+            } else {
+                base.copy(isRead = false, pagesRead = 0, lastReadAtMillis = 0L)
+            }
+            if (next != existing) {
+                updates[chapter.relativePath] = next
+            }
+        }
+        if (updates.isEmpty()) return
+        updateState { copy(readingMemory = readingMemory + updates) }
+        persistReadingMemoryIfChanged()
     }
 
     /**

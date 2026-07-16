@@ -28,20 +28,22 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Pagina Cronologia (da "Vedi tutto" del blocco Letti di recente): tutti i capitoli con un
- * timestamp di lettura, raggruppati per giorno ("Oggi", "Ieri", data estesa). Tap = riapri il
- * capitolo nel reader. Stateless: consuma la libreria e delega al callback.
+ * timestamp di lettura, raggruppati per giorno ("Oggi", "Ieri", data estesa). Le letture
+ * vengono dalla memoria persistente, quindi restano anche per i capitoli eliminati (riga non
+ * cliccabile). Tap su un capitolo ancora scaricato = riapri nel reader. Stateless.
  */
 @Composable
 fun HistoryScreen(
+    memory: Map<String, ReadChapterMemory>,
     library: List<DownloadedSeries>,
     padding: PaddingValues,
     onOpenChapter: (DownloadedChapter) -> Unit,
 ) {
-    val history = remember(library) { computeReadingHistory(library) }
+    val history = remember(memory, library) { computeReadingHistory(memory, library) }
+    // Raggruppamento NON memoizzato: "Oggi"/"Ieri" dipendono dall'orologio, e una schermata
+    // rimasta aperta oltre la mezzanotte deve rietichettare i gruppi alla ricomposizione.
     val now = System.currentTimeMillis()
-    val groups = remember(history) {
-        history.groupBy { historyDayLabel(it.chapter.lastReadAtMillis ?: 0L, now) }
-    }
+    val groups = history.groupBy { historyDayLabel(it.memory.lastReadAtMillis, now) }
 
     if (history.isEmpty()) {
         EmptyState(
@@ -75,8 +77,8 @@ fun HistoryScreen(
                 )
             }
             items.forEach { item ->
-                item(key = "h-${item.chapter.relativePath}") {
-                    HistoryRow(item = item, onOpen = { onOpenChapter(item.chapter) })
+                item(key = "h-${item.relativePath}") {
+                    HistoryRow(item = item, onOpen = onOpenChapter)
                 }
             }
         }
@@ -86,14 +88,20 @@ fun HistoryScreen(
 @Composable
 private fun HistoryRow(
     item: ReadingHistoryItem,
-    onOpen: () -> Unit,
+    onOpen: (DownloadedChapter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chapter = item.chapter
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpen, onClickLabel = "Riapri il capitolo"),
+            .then(
+                if (chapter != null) {
+                    Modifier.clickable(onClick = { onOpen(chapter) }, onClickLabel = "Riapri il capitolo")
+                } else {
+                    Modifier
+                },
+            ),
         shape = MaterialTheme.shapes.large,
         colors = appCardColors(),
     ) {
@@ -105,33 +113,32 @@ private fun HistoryRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             CoverImage(
-                model = item.series.coverFile,
-                title = item.series.title,
+                model = item.series?.coverFile,
+                title = item.memory.seriesTitle,
                 modifier = Modifier
                     .size(width = 44.dp, height = 62.dp)
                     .clip(MaterialTheme.shapes.small),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = item.series.title,
+                    text = item.memory.seriesTitle,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = chapter.title.ifBlank { "Capitolo ${chapter.numberText}" },
+                    text = item.memory.chapterLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val idx = chapter.readerPageIndex
-                val count = chapter.readerPageCount
                 Text(
                     text = when {
-                        chapter.isRead -> "Completato"
-                        idx != null && count != null && count > 0 -> "pagina ${idx + 1} di $count"
-                        else -> "In corso"
+                        chapter != null -> item.memory.progressLabel()
+                        isStreamingMemoryPath(item.relativePath) ->
+                            "${item.memory.progressLabel()} · letto in streaming"
+                        else -> "${item.memory.progressLabel()} · non più scaricato"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,

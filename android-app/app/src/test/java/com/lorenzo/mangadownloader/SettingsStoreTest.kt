@@ -67,6 +67,7 @@ class SettingsStoreTest {
                 HomeBlock.RECENT_FAVORITES,
                 HomeBlock.FAVORITE_UPDATES,
                 HomeBlock.RESUME,
+                HomeBlock.RECOMMENDED,
                 HomeBlock.STATS,
                 HomeBlock.HISTORY,
                 HomeBlock.TO_FINISH,

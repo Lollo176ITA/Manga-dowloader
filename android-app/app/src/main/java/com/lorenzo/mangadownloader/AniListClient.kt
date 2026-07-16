@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -48,6 +49,17 @@ data class AniListManga(
     /** Titolo da mostrare in UI, con lo stesso ordine di preferenza di [searchTitle]. */
     fun displayTitle(): String = searchTitle() ?: "Senza titolo"
 }
+
+/**
+ * Una raccomandazione della community AniList: "chi ha letto [seedMediaId] consiglia [manga]",
+ * con [rating] = voti netti della community su quel suggerimento. Alimenta il blocco Home
+ * "Consigliati per te" (vedi [aggregateRecommendations]).
+ */
+data class AniListRecommendation(
+    val seedMediaId: Int,
+    val rating: Int,
+    val manga: AniListManga,
+)
 
 /** Criterio di ordinamento AniList, una sezione della schermata Scopri per ogni valore. */
 enum class AniListSort(val apiValue: String) {
@@ -111,6 +123,27 @@ class AniListClient(
             put("variables", variables)
         }.toString()
         return parseMediaResponse(post(payload))
+    }
+
+    /**
+     * Raccomandazioni della community per i media indicati, in un'unica query. Usata dal blocco
+     * "Consigliati per te": i semi sono i titoli dell'utente (preferiti/letti) già risolti in id
+     * AniList via [searchManga]. Le voci per adulti vengono scartate come nella vetrina Scopri.
+     */
+    fun fetchRecommendations(
+        mediaIds: List<Int>,
+        perSeed: Int = RECOMMENDATIONS_PER_SEED,
+    ): List<AniListRecommendation> {
+        if (mediaIds.isEmpty()) return emptyList()
+        val variables = buildJsonObject {
+            putJsonArray("ids") { mediaIds.forEach { add(it) } }
+            put("perSeed", perSeed)
+        }
+        val payload = buildJsonObject {
+            put("query", RECOMMENDATIONS_QUERY)
+            put("variables", variables)
+        }.toString()
+        return parseRecommendationsResponse(post(payload))
     }
 
     /** Capitoli totali + entry dell'utente (se esiste) per un media, per seedare il tracking. */
@@ -178,6 +211,7 @@ class AniListClient(
         private const val ENDPOINT = "https://graphql.anilist.co"
         private const val DEFAULT_PER_PAGE = 24
         private const val MATCH_PER_PAGE = 10
+        private const val RECOMMENDATIONS_PER_SEED = 8
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -216,6 +250,33 @@ class AniListClient(
                   status
                   chapters
                   format
+                }
+              }
+            }
+        """.trimIndent()
+
+        // Raccomandazioni per più semi in un colpo solo. `isAdult` viene richiesto sul
+        // suggerimento per poterlo filtrare in parsing (vetrina libera, come la Scopri).
+        private val RECOMMENDATIONS_QUERY = """
+            query (${'$'}ids: [Int], ${'$'}perSeed: Int) {
+              Page(page: 1, perPage: 25) {
+                media(id_in: ${'$'}ids, type: MANGA) {
+                  id
+                  recommendations(perPage: ${'$'}perSeed, sort: RATING_DESC) {
+                    nodes {
+                      rating
+                      mediaRecommendation {
+                        id
+                        title { romaji english }
+                        coverImage { large }
+                        genres
+                        averageScore
+                        description(asHtml: false)
+                        status
+                        isAdult
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -263,30 +324,71 @@ class AniListClient(
                 ?.jsonArray
                 ?: return emptyList()
 
-            return media.mapNotNull { element ->
-                val obj = element.jsonObject
-                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
-                val title = obj["title"]?.jsonObject
-                val romaji = title?.get("romaji")?.jsonPrimitive?.contentOrNull?.trim()
-                val english = title?.get("english")?.jsonPrimitive?.contentOrNull?.trim()
-                if (romaji.isNullOrBlank() && english.isNullOrBlank()) {
-                    return@mapNotNull null
+            return media.mapNotNull { element -> parseMangaObject(element.jsonObject) }
+        }
+
+        /** Un singolo oggetto media GraphQL → [AniListManga]; `null` se manca id o titolo. */
+        private fun parseMangaObject(obj: JsonObject): AniListManga? {
+            val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return null
+            val title = obj["title"]?.jsonObject
+            val romaji = title?.get("romaji")?.jsonPrimitive?.contentOrNull?.trim()
+            val english = title?.get("english")?.jsonPrimitive?.contentOrNull?.trim()
+            if (romaji.isNullOrBlank() && english.isNullOrBlank()) {
+                return null
+            }
+            return AniListManga(
+                id = id,
+                titleRomaji = romaji?.takeIf(String::isNotBlank),
+                titleEnglish = english?.takeIf(String::isNotBlank),
+                coverUrl = obj["coverImage"]?.jsonObject?.get("large")
+                    ?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
+                genres = obj["genres"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                    ?: emptyList(),
+                averageScore = obj["averageScore"]?.jsonPrimitive?.intOrNull,
+                description = cleanDescription(obj["description"]?.jsonPrimitive?.contentOrNull),
+                status = mangaStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
+                chapters = obj["chapters"]?.jsonPrimitive?.intOrNull,
+                format = obj["format"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
+            )
+        }
+
+        /**
+         * Estrae le raccomandazioni dalla [RECOMMENDATIONS_QUERY]. Tollerante come
+         * [parseMediaResponse]; scarta le voci per adulti e i suggerimenti senza media.
+         */
+        internal fun parseRecommendationsResponse(jsonText: String): List<AniListRecommendation> {
+            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("Page")
+                ?.jsonObject?.get("media")
+                ?.jsonArray
+                ?: return emptyList()
+
+            return media.flatMap { seedElement ->
+                val seedObj = seedElement.jsonObject
+                val seedId = seedObj["id"]?.jsonPrimitive?.intOrNull ?: return@flatMap emptyList()
+                val nodes = seedObj["recommendations"]
+                    ?.takeIf { it !is JsonNull }
+                    ?.jsonObject?.get("nodes")
+                    ?.takeIf { it !is JsonNull }
+                    ?.jsonArray
+                    ?: return@flatMap emptyList()
+                nodes.mapNotNull { node ->
+                    val nodeObj = node.takeIf { it !is JsonNull }?.jsonObject ?: return@mapNotNull null
+                    val recommended = nodeObj["mediaRecommendation"]
+                        ?.takeIf { it !is JsonNull }
+                        ?.jsonObject
+                        ?: return@mapNotNull null
+                    if (recommended["isAdult"]?.jsonPrimitive?.booleanOrNull == true) {
+                        return@mapNotNull null
+                    }
+                    val manga = parseMangaObject(recommended) ?: return@mapNotNull null
+                    AniListRecommendation(
+                        seedMediaId = seedId,
+                        rating = nodeObj["rating"]?.jsonPrimitive?.intOrNull ?: 0,
+                        manga = manga,
+                    )
                 }
-                AniListManga(
-                    id = id,
-                    titleRomaji = romaji?.takeIf(String::isNotBlank),
-                    titleEnglish = english?.takeIf(String::isNotBlank),
-                    coverUrl = obj["coverImage"]?.jsonObject?.get("large")
-                        ?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
-                    genres = obj["genres"]?.jsonArray
-                        ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
-                        ?: emptyList(),
-                    averageScore = obj["averageScore"]?.jsonPrimitive?.intOrNull,
-                    description = cleanDescription(obj["description"]?.jsonPrimitive?.contentOrNull),
-                    status = mangaStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
-                    chapters = obj["chapters"]?.jsonPrimitive?.intOrNull,
-                    format = obj["format"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
-                )
             }
         }
 

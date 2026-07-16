@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Explore
@@ -80,6 +81,7 @@ fun HomeScreen(
     onShowDiscoverInfo: (AniListManga) -> Unit,
     onDismissDiscoverInfo: () -> Unit,
     onLoadDiscover: () -> Unit,
+    onLoadRecommendations: () -> Unit,
     onOpenGenre: (DiscoverGenre) -> Unit,
     onSearchFirst: () -> Unit,
     onStartTutorial: () -> Unit,
@@ -89,9 +91,13 @@ fun HomeScreen(
 ) {
     val settings = state.settings
 
+    // Scopri e Consigliati sono vetrine AniList: entrambe escluse sotto controllo parentale.
     val blocks = remember(settings.homeBlockOrder, settings.parentalControlEnabled) {
         reconcileHomeBlocks(settings.homeBlockOrder)
-            .filter { it != HomeBlock.DISCOVER || !settings.parentalControlEnabled }
+            .filter {
+                (it != HomeBlock.DISCOVER && it != HomeBlock.RECOMMENDED) ||
+                    !settings.parentalControlEnabled
+            }
     }
     val hidden = settings.hiddenHomeBlocks
     val continueItem = remember(state.library) {
@@ -118,6 +124,11 @@ fun HomeScreen(
         discovery.newest.isNotEmpty() ||
         discovery.isLoadingSections ||
         discovery.sectionsError != null
+    // Stessa logica per i Consigliati; senza semi (né preferiti né letture) il blocco sparisce.
+    val recommendations = state.recommendations
+    val recommendedHasContent = recommendations.items.isNotEmpty() ||
+        recommendations.isLoading ||
+        recommendations.error != null
     // L'utente ha già dei contenuti? Considera anche la libreria scaricata: chi ha download non
     // deve vedere l'empty state "La tua Home si riempie mentre leggi".
     val hasAnyContent = continueItem != null ||
@@ -130,6 +141,7 @@ fun HomeScreen(
         HomeBlock.FAVORITE_UPDATES -> state.favoriteUpdates.isEmpty()
         HomeBlock.RECENT_FAVORITES -> state.favorites.isEmpty()
         HomeBlock.DISCOVER -> !discoverHasContent
+        HomeBlock.RECOMMENDED -> !recommendedHasContent
         HomeBlock.STATS -> stats.isEmpty()
         HomeBlock.HISTORY -> readingHistory.isEmpty()
         HomeBlock.TO_FINISH -> seriesToFinish.isEmpty()
@@ -139,6 +151,9 @@ fun HomeScreen(
     // quando l'utente ha nascosto il blocco.
     if (HomeBlock.DISCOVER in blocks && HomeBlock.DISCOVER !in hidden) {
         LaunchedEffect(Unit) { onLoadDiscover() }
+    }
+    if (HomeBlock.RECOMMENDED in blocks && HomeBlock.RECOMMENDED !in hidden) {
+        LaunchedEffect(Unit) { onLoadRecommendations() }
     }
 
     LazyColumn(
@@ -249,6 +264,33 @@ fun HomeScreen(
                             discovery.isLoadingSections -> item(key = "b-discover-loading") { HomeDiscoverLoading() }
                             sectionsError != null -> item(key = "b-discover-error") {
                                 HomeDiscoverError(message = sectionsError, onRetry = onLoadDiscover)
+                            }
+                        }
+                    }
+
+                    HomeBlock.RECOMMENDED -> {
+                        item(key = "b-recommended-header") {
+                            HomeSectionTitle(title = "Consigliati per te")
+                        }
+                        when {
+                            recommendations.items.isNotEmpty() -> item(key = "b-recommended-row") {
+                                HomeCarousel(recommendations.items) { manga ->
+                                    DiscoveryCard(
+                                        manga = manga,
+                                        modifier = Modifier.width(124.dp),
+                                        onClick = { onPickDiscover(manga) },
+                                        onShowInfo = { onShowDiscoverInfo(manga) },
+                                    )
+                                }
+                            }
+                            recommendations.isLoading -> item(key = "b-recommended-loading") {
+                                HomeDiscoverLoading()
+                            }
+                            recommendations.error != null -> item(key = "b-recommended-error") {
+                                HomeDiscoverError(
+                                    message = recommendations.error,
+                                    onRetry = onLoadRecommendations,
+                                )
                             }
                         }
                     }
@@ -709,6 +751,7 @@ private fun HomeBlock.displayName(): String = when (this) {
     HomeBlock.FAVORITE_UPDATES -> "Novità dai preferiti"
     HomeBlock.RECENT_FAVORITES -> "Preferiti recenti"
     HomeBlock.DISCOVER -> "Scopri"
+    HomeBlock.RECOMMENDED -> "Consigliati per te"
     HomeBlock.STATS -> "Statistiche"
     HomeBlock.HISTORY -> "Letti di recente"
     HomeBlock.TO_FINISH -> "Da finire"
@@ -720,6 +763,7 @@ private fun HomeBlock.editDescription(): String = when (this) {
     HomeBlock.FAVORITE_UPDATES -> "Nuovi capitoli usciti"
     HomeBlock.RECENT_FAVORITES -> "Aggiunti di recente"
     HomeBlock.DISCOVER -> "Tendenze da AniList"
+    HomeBlock.RECOMMENDED -> "In base a preferiti e letture"
     HomeBlock.STATS -> "I tuoi numeri di lettura"
     HomeBlock.HISTORY -> "Gli ultimi capitoli letti"
     HomeBlock.TO_FINISH -> "Serie con capitoli da leggere"
@@ -731,6 +775,7 @@ private fun HomeBlock.editIcon(): ImageVector = when (this) {
     HomeBlock.FAVORITE_UPDATES -> Icons.Filled.NewReleases
     HomeBlock.RECENT_FAVORITES -> Icons.Filled.Star
     HomeBlock.DISCOVER -> Icons.Filled.Explore
+    HomeBlock.RECOMMENDED -> Icons.Filled.AutoAwesome
     HomeBlock.STATS -> Icons.Filled.BarChart
     HomeBlock.HISTORY -> Icons.Filled.History
     HomeBlock.TO_FINISH -> Icons.Filled.Checklist

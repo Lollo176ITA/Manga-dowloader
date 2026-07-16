@@ -21,6 +21,7 @@ class HomeBlocksTest {
                 HomeBlock.RESUME,
                 HomeBlock.FAVORITE_UPDATES,
                 HomeBlock.RECENT_FAVORITES,
+                HomeBlock.RECOMMENDED,
                 HomeBlock.STATS,
                 HomeBlock.HISTORY,
                 HomeBlock.TO_FINISH,
@@ -36,7 +37,7 @@ class HomeBlocksTest {
             HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
         )
         assertEquals(
-            stored + listOf(HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH),
+            stored + listOf(HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH),
             reconcileHomeBlocks(stored),
         )
     }

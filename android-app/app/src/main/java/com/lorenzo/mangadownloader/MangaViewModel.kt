@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.imageLoader
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -51,6 +52,18 @@ data class DiscoveryUiState(
     val genreResults: List<AniListManga> = emptyList(),
     val isLoadingGenre: Boolean = false,
     val genreError: String? = null,
+)
+
+/**
+ * Stato del blocco Home "Consigliati per te": raccomandazioni della community AniList a partire
+ * da preferiti e letture dell'utente (vedi [MangaViewModel.loadRecommendations]). Come per la
+ * Scopri, sono solo metadati: il tap fa il ponte verso le fonti reali.
+ */
+data class RecommendationsUiState(
+    val items: List<AniListManga> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val loaded: Boolean = false,
 )
 
 /**
@@ -218,6 +231,7 @@ data class MangaUiState(
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
     val discovery: DiscoveryUiState = DiscoveryUiState(),
+    val recommendations: RecommendationsUiState = RecommendationsUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
@@ -379,6 +393,7 @@ class MangaViewModel internal constructor(
 
     private var searchJob: Job? = null
     private var discoveryJob: Job? = null
+    private var recommendationsJob: Job? = null
     private var genreJob: Job? = null
     private var detailJob: Job? = null
     private var infoJob: Job? = null
@@ -2259,6 +2274,91 @@ class MangaViewModel internal constructor(
                         discovery = discovery.copy(
                             isLoadingSections = false,
                             sectionsError = exc.message ?: "Errore caricamento Scopri",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Carica il blocco Home "Consigliati per te". Idempotente per sessione (come la Scopri):
+     * semi = titoli di preferiti e serie lette; ogni seme viene risolto in un media AniList via
+     * ricerca, poi un'unica query prende le raccomandazioni della community, aggregate e
+     * ripulite da ciò che l'utente ha già. Nessun seme → blocco vuoto (la Home lo nasconde).
+     */
+    fun loadRecommendations(forceRefresh: Boolean = false) {
+        val state = _state.value
+        if (state.settings.parentalControlEnabled) return
+        val current = state.recommendations
+        if (!forceRefresh && (current.loaded || current.isLoading)) {
+            return
+        }
+        val seeds = selectRecommendationSeeds(state.favorites, state.readingMemory)
+        if (seeds.isEmpty()) {
+            updateState {
+                copy(recommendations = recommendations.copy(items = emptyList(), loaded = true))
+            }
+            return
+        }
+        val excludeTitles = buildSet {
+            state.favorites.forEach { add(normalizedRecommendationTitle(it.title)) }
+            state.library.forEach { add(normalizedRecommendationTitle(it.title)) }
+            state.readingMemory.values.forEach { add(normalizedRecommendationTitle(it.seriesTitle)) }
+        }
+        recommendationsJob?.cancel()
+        updateState { copy(recommendations = recommendations.copy(isLoading = true, error = null)) }
+        recommendationsJob = viewModelScope.launch {
+            try {
+                val items = withContext(Dispatchers.IO) {
+                    // Un seme che non matcha (titolo oscuro, refuso) non deve far fallire il
+                    // blocco; se però falliscono TUTTE le ricerche è un problema reale (rete)
+                    // e va mostrato il "Riprova".
+                    val lookups = coroutineScope {
+                        seeds.map { title ->
+                            async {
+                                runCatching {
+                                    aniListClient.searchManga(title, perPage = 5)
+                                        .let { results ->
+                                            results.firstOrNull { it.format != "NOVEL" }
+                                                ?: results.firstOrNull()
+                                        }?.id
+                                }
+                            }
+                        }.map { it.await() }
+                    }
+                    if (lookups.isNotEmpty() && lookups.all { it.isFailure }) {
+                        throw lookups.first().exceptionOrNull() ?: IOException("Ricerca AniList non riuscita")
+                    }
+                    val seedIds = lookups.mapNotNull { it.getOrNull() }.distinct()
+                    if (seedIds.isEmpty()) {
+                        emptyList()
+                    } else {
+                        aggregateRecommendations(
+                            recommendations = aniListClient.fetchRecommendations(seedIds),
+                            excludeIds = seedIds.toSet(),
+                            excludeTitles = excludeTitles,
+                        )
+                    }
+                }
+                updateState {
+                    copy(
+                        recommendations = recommendations.copy(
+                            items = items,
+                            isLoading = false,
+                            loaded = true,
+                            error = null,
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        recommendations = recommendations.copy(
+                            isLoading = false,
+                            error = exc.message ?: "Errore caricamento consigli",
                         ),
                     )
                 }

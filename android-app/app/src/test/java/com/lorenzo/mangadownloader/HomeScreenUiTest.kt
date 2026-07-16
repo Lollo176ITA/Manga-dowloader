@@ -40,6 +40,7 @@ class HomeScreenUiTest {
                     onShowDiscoverInfo = {},
                     onDismissDiscoverInfo = {},
                     onLoadDiscover = {},
+                    onLoadRecommendations = {},
                     onOpenGenre = {},
                     onSearchFirst = {},
                     onStartTutorial = {},

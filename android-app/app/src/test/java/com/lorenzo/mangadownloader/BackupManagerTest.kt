@@ -162,7 +162,7 @@ class BackupManagerTest {
             AppSettings(
                 homeBlockOrder = listOf(
                     HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
-                    HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
+                    HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
                 ),
                 hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
             ),
@@ -171,7 +171,7 @@ class BackupManagerTest {
         assertEquals(
             listOf(
                 "DISCOVER", "RESUME", "FAVORITE_UPDATES", "RECENT_FAVORITES",
-                "STATS", "HISTORY", "TO_FINISH",
+                "RECOMMENDED", "STATS", "HISTORY", "TO_FINISH",
             ),
             backup.settings.homeBlockOrder,
         )
@@ -182,7 +182,7 @@ class BackupManagerTest {
         assertEquals(
             listOf(
                 HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
-                HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
+                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
             ),
             restored.homeBlockOrder,
         )

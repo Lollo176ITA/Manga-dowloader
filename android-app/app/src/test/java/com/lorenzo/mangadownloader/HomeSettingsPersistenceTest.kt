@@ -28,20 +28,12 @@ class HomeSettingsPersistenceTest {
     }
 
     @Test
-    fun roundTrip_blockSizes_defaultMediumNotPersisted() {
+    fun roundTrip_cardDensity() {
         val st = store()
-        st.persist(
-            AppSettings(
-                homeBlockSizes = mapOf(
-                    HomeBlock.STATS to HomeBlockSize.LARGE,
-                    HomeBlock.RESUME to HomeBlockSize.SMALL,
-                ),
-            ),
-        )
-        assertEquals(
-            mapOf(HomeBlock.STATS to HomeBlockSize.LARGE, HomeBlock.RESUME to HomeBlockSize.SMALL),
-            st.read().homeBlockSizes,
-        )
+        st.persist(AppSettings(cardDensity = CardDensity.COMPACT))
+        assertEquals(CardDensity.COMPACT, st.read().cardDensity)
+        // Default per chi non ha mai scelto (o per un backup vecchio senza il campo).
+        assertEquals(CardDensity.NORMAL, AppSettings().cardDensity)
     }
 
     @Test

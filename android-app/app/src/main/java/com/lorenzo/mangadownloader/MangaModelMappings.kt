@@ -19,6 +19,22 @@ fun MangaDetails.toFavoriteManga(addedAt: Long = 0L): FavoriteManga = FavoriteMa
     addedAt = addedAt,
 )
 
+/**
+ * Preferito costruito da una serie scaricata (stella nella schermata serie): `null` senza
+ * l'URL d'origine, che è l'identità del preferito. La cover resta `null` (su disco c'è un
+ * File locale, non un URL): arriva al prossimo fetch dei dettagli come per gli altri.
+ */
+fun DownloadedSeries.toFavoriteManga(addedAt: Long = 0L): FavoriteManga? {
+    val url = mangaUrl?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    return FavoriteManga(
+        sourceId = sourceId,
+        title = title,
+        mangaUrl = url,
+        coverUrl = null,
+        addedAt = addedAt,
+    )
+}
+
 fun FavoriteManga.toSearchResult(): MangaSearchResult = MangaSearchResult(
     sourceId = sourceId,
     title = title,

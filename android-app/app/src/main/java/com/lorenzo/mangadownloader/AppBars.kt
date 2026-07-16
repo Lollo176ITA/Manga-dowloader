@@ -58,6 +58,7 @@ fun AppTopBar(
     visibleTab: AppTab,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onToggleFavoriteSeries: () -> Unit,
     onOpenSettings: () -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
@@ -172,6 +173,20 @@ fun AppTopBar(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
                     modifier = anchorFor(TutorialAnchor.DETAIL_FAVORITE),
+                )
+            }
+
+            // Stella anche sulla serie scaricata: magari il manga è stato scaricato senza
+            // metterlo tra i preferiti. Solo con un URL d'origine (l'identità del preferito).
+            val seriesMangaUrl = selectedSeries?.mangaUrl?.takeIf { it.isNotBlank() }
+            if (screen == Screen.DownloadedSeries && selectedSeries != null && seriesMangaUrl != null) {
+                val isSeriesFavorite = MangaSourceCatalog.identityKey(
+                    selectedSeries.sourceId,
+                    seriesMangaUrl,
+                ) in state.favoriteMangaKeys
+                FavoriteToggleAction(
+                    isFavorite = isSeriesFavorite,
+                    onToggle = onToggleFavoriteSeries,
                 )
             }
 

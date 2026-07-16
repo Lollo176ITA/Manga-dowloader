@@ -48,7 +48,6 @@ class HomeScreenUiTest {
                     onDismissTutorial = {},
                     onMoveBlock = { _, _ -> },
                     onSetBlockHidden = { _, _ -> },
-                    onSetBlockSize = { _, _ -> },
                 )
             }
         }

@@ -25,6 +25,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -114,7 +115,11 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         themeMode = state.settings.themeMode,
         useDynamicColor = state.settings.useDynamicColor,
     ) {
-        MangaDownloaderAppContent(state = state, viewModel = viewModel)
+        // Densità globale delle card (impostazione stile tema): fornita qui alla radice,
+        // le card condivise la leggono via LocalCardDensity senza parametri da infilare.
+        CompositionLocalProvider(LocalCardDensity provides state.settings.cardDensity) {
+            MangaDownloaderAppContent(state = state, viewModel = viewModel)
+        }
     }
 }
 
@@ -506,6 +511,7 @@ private fun MangaDownloaderAppContent(
                     visibleTab = visiblePagerTab,
                     onBack = viewModel::handleBack,
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
+                    onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
                     onOpenSettings = viewModel::openSettings,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
@@ -652,6 +658,7 @@ private fun MangaDownloaderAppContent(
                     isAniListConnecting = state.aniList.isConnecting,
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
+                    onSelectCardDensity = viewModel::setCardDensity,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
                     onRestartTutorial = viewModel::restartTutorial,
                     onConnectAniList = {
@@ -795,7 +802,6 @@ private fun MangaDownloaderAppContent(
                             onDismissTutorial = viewModel::onTutorialWelcomeSkip,
                             onMoveBlock = viewModel::moveHomeBlock,
                             onSetBlockHidden = viewModel::setHomeBlockHidden,
-                            onSetBlockSize = viewModel::setHomeBlockSize,
                         )
                         AppTab.SEARCH -> SearchScreen(
                             state = state,

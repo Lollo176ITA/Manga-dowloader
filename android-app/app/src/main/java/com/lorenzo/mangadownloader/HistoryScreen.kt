@@ -1,29 +1,20 @@
 package com.lorenzo.mangadownloader
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
@@ -92,58 +83,18 @@ private fun HistoryRow(
     modifier: Modifier = Modifier,
 ) {
     val chapter = item.chapter
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (chapter != null) {
-                    Modifier.clickable(onClick = { onOpen(chapter) }, onClickLabel = "Riapri il capitolo")
-                } else {
-                    Modifier
-                },
-            ),
-        shape = MaterialTheme.shapes.large,
-        colors = appCardColors(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            CoverImage(
-                model = item.series?.coverFile,
-                title = item.memory.seriesTitle,
-                modifier = Modifier
-                    .size(width = 44.dp, height = 62.dp)
-                    .clip(MaterialTheme.shapes.small),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.memory.seriesTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = item.memory.chapterLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = when {
-                        chapter != null -> item.memory.progressLabel()
-                        isStreamingMemoryPath(item.relativePath) ->
-                            "${item.memory.progressLabel()} · letto in streaming"
-                        else -> "${item.memory.progressLabel()} · non più scaricato"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-    }
+    MangaRowCard(
+        coverModel = item.series?.coverFile,
+        title = item.memory.seriesTitle,
+        modifier = modifier,
+        subtitle = item.memory.chapterLabel,
+        caption = when {
+            chapter != null -> item.memory.progressLabel()
+            isStreamingMemoryPath(item.relativePath) ->
+                "${item.memory.progressLabel()} · letto in streaming"
+            else -> "${item.memory.progressLabel()} · non più scaricato"
+        },
+        onClick = chapter?.let { { onOpen(it) } },
+        onClickLabel = "Riapri il capitolo",
+    )
 }

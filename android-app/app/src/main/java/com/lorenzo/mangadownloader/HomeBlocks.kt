@@ -56,16 +56,6 @@ fun moveHomeBlockInOrder(
     }
 }
 
-/**
- * Taglia di un blocco Home, scelta dalla modalità modifica: compatta, normale (default)
- * o estesa. Cosa cambi in concreto lo decide il rendering del singolo blocco.
- */
-enum class HomeBlockSize(val label: String) {
-    SMALL("S"),
-    MEDIUM("M"),
-    LARGE("L"),
-}
-
 /** Saluto leggero in base all'ora (0-23). 5-12 mattina, 13-18 pomeriggio, altrimenti sera. */
 fun homeGreeting(hourOfDay: Int): String = when (hourOfDay) {
     in 5..12 -> "Buongiorno"

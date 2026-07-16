@@ -1,19 +1,15 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -34,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
@@ -50,7 +45,6 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
     items: List<AniListManga>,
     onPick: (AniListManga) -> Unit,
     onShowInfo: (AniListManga) -> Unit,
-    cardWidth: androidx.compose.ui.unit.Dp = 124.dp,
 ) {
     if (items.isEmpty()) return
     item(key = "header-$title") {
@@ -71,7 +65,6 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
             items(items, key = { it.id }) { manga ->
                 DiscoveryCard(
                     manga = manga,
-                    modifier = Modifier.width(cardWidth),
                     onClick = { onPick(manga) },
                     onShowInfo = { onShowInfo(manga) },
                 )
@@ -84,45 +77,25 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
 internal fun DiscoveryCard(
     manga: AniListManga,
     modifier: Modifier = Modifier,
+    fillWidth: Boolean = false,
     onClick: () -> Unit,
     onShowInfo: () -> Unit,
 ) {
-    // Tile "cover-forward" (stile mockup): poster arrotondato con badge sovrapposti e titolo
-    // sotto, senza card contenitore — le copertine sono le protagoniste.
-    Column(modifier = modifier.clickable(onClick = onClick, onClickLabel = "Apri")) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            CoverImage(
-                model = manga.coverUrl,
-                title = manga.displayTitle(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(MaterialTheme.shapes.large),
-            )
-            InfoBadge(
-                onClick = onShowInfo,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp),
-            )
-            manga.averageScore?.let { score ->
-                ScoreBadge(
-                    score = score,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp),
-                )
-            }
-        }
-        Text(
-            text = manga.displayTitle(),
-            modifier = Modifier.padding(top = 6.dp),
-            style = MaterialTheme.typography.bodySmall,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    // Sottile wrapper sul poster condiviso [MangaPosterCard]: badge info in alto a sinistra e
+    // valutazione in alto a destra. `fillWidth=false` → larghezza da carosello; le griglie
+    // passano `fillWidth=true`. Gli slot già posizionano e "paddano" i badge.
+    MangaPosterCard(
+        coverModel = manga.coverUrl,
+        title = manga.displayTitle(),
+        modifier = modifier,
+        onClick = onClick,
+        onClickLabel = "Apri",
+        fillWidth = fillWidth,
+        topStartBadge = { InfoBadge(onClick = onShowInfo) },
+        topEndBadge = manga.averageScore?.let { score ->
+            { ScoreBadge(score = score) }
+        },
+    )
 }
 
 @Composable

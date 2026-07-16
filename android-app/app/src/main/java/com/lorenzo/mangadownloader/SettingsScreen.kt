@@ -29,6 +29,7 @@ fun SettingsScreen(
     padding: PaddingValues,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
+    onSelectCardDensity: (CardDensity) -> Unit,
     onRestartTutorial: () -> Unit,
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
@@ -74,6 +75,11 @@ fun SettingsScreen(
                 onSelectMode = onSelectThemeMode,
                 useDynamicColor = settings.useDynamicColor,
                 onToggleDynamicColor = onToggleDynamicColor,
+            )
+            SettingsDivider()
+            CardDensityContent(
+                currentDensity = settings.cardDensity,
+                onSelectDensity = onSelectCardDensity,
             )
             SettingsDivider()
             ReadingModeContent(

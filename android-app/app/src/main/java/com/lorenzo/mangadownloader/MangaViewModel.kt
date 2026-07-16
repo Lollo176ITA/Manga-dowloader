@@ -150,11 +150,11 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
-    // Personalizzazione della Home: ordine dei blocchi, quelli nascosti e le taglie.
-    // I blocchi assenti dalla mappa taglie sono MEDIUM (il default non si persiste).
+    // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
     val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
-    val homeBlockSizes: Map<HomeBlock, HomeBlockSize> = emptyMap(),
+    // Densità globale delle card (come il tema): guida dimensioni e varianti compatte.
+    val cardDensity: CardDensity = CardDensity.NORMAL,
     // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
     val showHomeTab: Boolean = true,
 )
@@ -1479,6 +1479,16 @@ class MangaViewModel internal constructor(
     fun toggleFavoriteSelectedManga() {
         val selected = _state.value.selected ?: return
         toggleFavorite(selected.toFavoriteManga())
+    }
+
+    /**
+     * Stella nella schermata di una serie scaricata: magari il manga è stato scaricato senza
+     * ricordarsi di metterlo tra i preferiti. No-op se la serie non ha un URL d'origine
+     * (identità del preferito) — in quel caso la stella non viene proprio mostrata.
+     */
+    fun toggleFavoriteSelectedSeries() {
+        val favorite = _state.value.selectedDownloadedSeries?.toFavoriteManga() ?: return
+        toggleFavorite(favorite)
     }
 
     fun refreshLibrary(forceRefresh: Boolean = false) {
@@ -3272,14 +3282,9 @@ class MangaViewModel internal constructor(
         it.copy(hiddenHomeBlocks = hiddenSet)
     }
 
-    /** Taglia (S/M/L) di un blocco Home; il default MEDIUM non viene salvato esplicitamente. */
-    fun setHomeBlockSize(block: HomeBlock, size: HomeBlockSize) = updateSettings {
-        val sizes = if (size == HomeBlockSize.MEDIUM) {
-            it.homeBlockSizes - block
-        } else {
-            it.homeBlockSizes + (block to size)
-        }
-        it.copy(homeBlockSizes = sizes)
+    /** Densità globale delle card (Grande/Normale/Compatta), come il tema. */
+    fun setCardDensity(density: CardDensity) = updateSettings {
+        it.copy(cardDensity = density)
     }
 
     /**

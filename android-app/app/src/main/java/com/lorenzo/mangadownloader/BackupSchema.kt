@@ -168,7 +168,7 @@ data class SettingsBackup(
     val librarySort: String = LibrarySort.TITLE_ASC.name,
     val homeBlockOrder: List<String> = emptyList(),
     val hiddenHomeBlocks: List<String> = emptyList(),
-    val homeBlockSizes: Map<String, String> = emptyMap(),
+    val cardDensity: String = CardDensity.NORMAL.name,
     val showHomeTab: Boolean = true,
 )
 
@@ -233,7 +233,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     librarySort = librarySort.name,
     homeBlockOrder = homeBlockOrder.map { it.name },
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
-    homeBlockSizes = homeBlockSizes.entries.associate { (block, size) -> block.name to size.name },
+    cardDensity = cardDensity.name,
     showHomeTab = showHomeTab,
 )
 
@@ -285,11 +285,7 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
         homeBlockOrder.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() },
     ),
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
-    homeBlockSizes = homeBlockSizes.entries
-        .mapNotNull { (block, size) ->
-            runCatching { HomeBlock.valueOf(block) to HomeBlockSize.valueOf(size) }.getOrNull()
-        }
-        .toMap(),
+    cardDensity = runCatching { CardDensity.valueOf(cardDensity) }.getOrDefault(current.cardDensity),
     showHomeTab = showHomeTab,
 )
 

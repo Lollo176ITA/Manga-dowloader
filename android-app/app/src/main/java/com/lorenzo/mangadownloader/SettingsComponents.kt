@@ -181,6 +181,34 @@ fun ThemeModeContent(
     }
 }
 
+/** Densità globale delle card (poster e righe manga in tutta l'app), stile selettore tema. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CardDensityContent(
+    currentDensity: CardDensity,
+    onSelectDensity: (CardDensity) -> Unit,
+) {
+    Column {
+        SettingsSubheader("Dimensione card")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            CardDensity.entries.forEachIndexed { index, density ->
+                SegmentedButton(
+                    selected = currentDensity == density,
+                    onClick = { onSelectDensity(density) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CardDensity.entries.size),
+                    label = { Text(density.label) },
+                )
+            }
+        }
+        Text(
+            text = "Vale per le card dei manga in tutta l'app, Home compresa.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingModeContent(

@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -30,7 +28,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -159,15 +156,25 @@ fun StatsScreen(
         if (topSeries.isNotEmpty()) {
             item(key = "top-header") { StatsSectionTitle("Serie più lette") }
             item(key = "top") {
-                StatsCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        topSeries.forEachIndexed { index, entry ->
-                            TopSeriesRow(
-                                position = index + 1,
-                                entry = entry,
-                                onOpen = entry.series?.let { series -> { onOpenSeries(series) } },
-                            )
-                        }
+                // Le righe sono già card ([MangaRowCard]): niente contenitore [StatsCard] esterno.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    topSeries.forEachIndexed { index, entry ->
+                        MangaRowCard(
+                            coverModel = entry.series?.coverFile,
+                            title = entry.title,
+                            subtitle = chapterCountLabel(entry.chaptersRead),
+                            onClick = entry.series?.let { series -> { onOpenSeries(series) } },
+                            onClickLabel = "Apri la serie",
+                            leading = {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(18.dp),
+                                )
+                            },
+                        )
                     }
                 }
             }
@@ -324,54 +331,5 @@ private fun RecordRow(label: String, value: String) {
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
         )
-    }
-}
-
-@Composable
-private fun TopSeriesRow(
-    position: Int,
-    entry: SeriesReadCount,
-    onOpen: (() -> Unit)?,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (onOpen != null) {
-                    Modifier.clickable(onClick = onOpen, onClickLabel = "Apri la serie")
-                } else {
-                    Modifier
-                },
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            text = "$position",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(18.dp),
-        )
-        CoverImage(
-            model = entry.series?.coverFile,
-            title = entry.title,
-            modifier = Modifier
-                .size(width = 34.dp, height = 48.dp)
-                .clip(MaterialTheme.shapes.small),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = entry.title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = chapterCountLabel(entry.chaptersRead),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 }

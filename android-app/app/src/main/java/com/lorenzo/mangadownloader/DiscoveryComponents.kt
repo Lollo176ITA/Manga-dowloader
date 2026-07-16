@@ -50,6 +50,7 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
     items: List<AniListManga>,
     onPick: (AniListManga) -> Unit,
     onShowInfo: (AniListManga) -> Unit,
+    cardWidth: androidx.compose.ui.unit.Dp = 124.dp,
 ) {
     if (items.isEmpty()) return
     item(key = "header-$title") {
@@ -70,7 +71,7 @@ internal fun androidx.compose.foundation.lazy.LazyListScope.discoverySection(
             items(items, key = { it.id }) { manga ->
                 DiscoveryCard(
                     manga = manga,
-                    modifier = Modifier.width(124.dp),
+                    modifier = Modifier.width(cardWidth),
                     onClick = { onPick(manga) },
                     onShowInfo = { onShowInfo(manga) },
                 )

@@ -82,6 +82,7 @@ fun AppTopBar(
         Screen.Changelog -> "Novità"
         Screen.Settings -> "Impostazioni"
         Screen.Updates -> "Aggiornamenti"
+        Screen.Stats -> "Statistiche"
         Screen.History -> "Cronologia"
         Screen.DiscoverGenre -> state.discovery.selectedGenre?.label ?: "Scopri"
         Screen.Reader -> readerChapter?.title ?: "Manga Downloader"

@@ -17,12 +17,15 @@ import java.util.Locale
  */
 data class HomeStats(
     val seriesCount: Int,
+    /** Serie con almeno un capitolo letto, dalla memoria persistente: incluse le eliminate. */
+    val seriesReadCount: Int,
     val chaptersRead: Int,
     val pagesRead: Int,
     val favoritesCount: Int,
 ) {
     fun isEmpty(): Boolean =
-        seriesCount == 0 && chaptersRead == 0 && pagesRead == 0 && favoritesCount == 0
+        seriesCount == 0 && seriesReadCount == 0 && chaptersRead == 0 &&
+            pagesRead == 0 && favoritesCount == 0
 }
 
 fun computeHomeStats(
@@ -35,6 +38,11 @@ fun computeHomeStats(
     val effective = seedReadingMemory(memory, library)
     return HomeStats(
         seriesCount = library.size,
+        seriesReadCount = effective.values
+            .asSequence()
+            .filter { it.isRead }
+            .distinctBy { it.seriesKey }
+            .count(),
         chaptersRead = effective.values.count { it.isRead },
         pagesRead = effective.values.sumOf { record ->
             // Con pageCount noto il conteggio è vincolato al capitolo reale: completato =
@@ -45,6 +53,50 @@ fun computeHomeStats(
         },
         favoritesCount = favoritesCount,
     )
+}
+
+/** Una serie della classifica "più lette": titolo + capitoli letti, con la serie risolta se scaricata. */
+data class SeriesReadCount(
+    val seriesKey: String,
+    val title: String,
+    val chaptersRead: Int,
+    val series: DownloadedSeries?,
+)
+
+/** Top serie per capitoli letti dalla memoria persistente (incluse le eliminate). */
+fun topReadSeries(
+    memory: Map<String, ReadChapterMemory>,
+    library: List<DownloadedSeries>,
+    limit: Int = 5,
+): List<SeriesReadCount> {
+    val byDirectory = library.associateBy { it.directory.name }
+    return memory.values
+        .asSequence()
+        .filter { it.isRead }
+        .groupBy { it.seriesKey }
+        .map { (seriesKey, records) ->
+            SeriesReadCount(
+                seriesKey = seriesKey,
+                title = records.firstOrNull { it.seriesTitle.isNotBlank() }?.seriesTitle ?: seriesKey,
+                chaptersRead = records.size,
+                series = byDirectory[seriesKey],
+            )
+        }
+        .sortedWith(
+            compareByDescending<SeriesReadCount> { it.chaptersRead }
+                .thenBy { it.title.lowercase() },
+        )
+        .take(limit.coerceAtLeast(0))
+}
+
+/** Capitoli letti per fonte, in ordine decrescente; "" raccoglie i record senza fonte nota. */
+fun chaptersReadBySource(memory: Map<String, ReadChapterMemory>): List<Pair<String, Int>> {
+    return memory.values
+        .filter { it.isRead }
+        .groupingBy { it.sourceId }
+        .eachCount()
+        .toList()
+        .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
 }
 
 /**

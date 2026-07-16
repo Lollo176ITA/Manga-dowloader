@@ -29,6 +29,7 @@ data class MangaBackup(
     val recentSearches: List<String> = emptyList(),
     val settings: SettingsBackup = SettingsBackup(),
     val readingMemory: Map<String, ReadingMemoryBackupEntry> = emptyMap(),
+    val readingDiary: Map<String, ReadingDiaryBackupEntry> = emptyMap(),
 )
 
 /** Forma nel backup di un record della memoria di lettura; combacia con `ReadingMemoryStore`. */
@@ -41,6 +42,7 @@ data class ReadingMemoryBackupEntry(
     val pageCount: Int? = null,
     val isRead: Boolean = false,
     val lastReadAtMillis: Long = 0L,
+    val sourceId: String = "",
 )
 
 fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryBackupEntry(
@@ -51,6 +53,7 @@ fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryB
     pageCount = pageCount,
     isRead = isRead,
     lastReadAtMillis = lastReadAtMillis,
+    sourceId = sourceId,
 )
 
 fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChapterMemory =
@@ -62,7 +65,46 @@ fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChap
         pageCount = pageCount?.takeIf { it > 0 },
         isRead = isRead,
         lastReadAtMillis = lastReadAtMillis.coerceAtLeast(0L),
+        sourceId = sourceId,
     )
+
+/** Forma nel backup di un giorno del diario di lettura; combacia con `ReadingDiaryStore`. */
+@Serializable
+data class ReadingDiaryBackupEntry(
+    val chaptersRead: Int = 0,
+    val pagesRead: Int = 0,
+)
+
+fun ReadingDayStats.toBackupEntry(): ReadingDiaryBackupEntry =
+    ReadingDiaryBackupEntry(chaptersRead = chaptersRead, pagesRead = pagesRead)
+
+fun ReadingDiaryBackupEntry.toReadingDayStats(): ReadingDayStats = ReadingDayStats(
+    chaptersRead = chaptersRead.coerceAtLeast(0),
+    pagesRead = pagesRead.coerceAtLeast(0),
+)
+
+/** MERGE del diario: per giorno tiene il massimo, così un backup vecchio non regredisce nulla. */
+fun mergeReadingDiary(
+    current: Map<String, ReadingDayStats>,
+    incoming: Map<String, ReadingDiaryBackupEntry>,
+): Map<String, ReadingDayStats> {
+    if (incoming.isEmpty()) return current
+    val merged = current.toMutableMap()
+    for ((dayKey, entry) in incoming) {
+        if (diaryDayOf(dayKey) == null) continue
+        val stats = entry.toReadingDayStats()
+        val existing = merged[dayKey]
+        merged[dayKey] = if (existing == null) {
+            stats
+        } else {
+            ReadingDayStats(
+                chaptersRead = maxOf(existing.chaptersRead, stats.chaptersRead),
+                pagesRead = maxOf(existing.pagesRead, stats.pagesRead),
+            )
+        }
+    }
+    return merged
+}
 
 /**
  * MERGE della memoria di lettura: per capitolo applica il merge monotono di
@@ -126,6 +168,7 @@ data class SettingsBackup(
     val librarySort: String = LibrarySort.TITLE_ASC.name,
     val homeBlockOrder: List<String> = emptyList(),
     val hiddenHomeBlocks: List<String> = emptyList(),
+    val homeBlockSizes: Map<String, String> = emptyMap(),
     val showHomeTab: Boolean = true,
 )
 
@@ -190,6 +233,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     librarySort = librarySort.name,
     homeBlockOrder = homeBlockOrder.map { it.name },
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
+    homeBlockSizes = homeBlockSizes.entries.associate { (block, size) -> block.name to size.name },
     showHomeTab = showHomeTab,
 )
 
@@ -241,6 +285,11 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
         homeBlockOrder.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() },
     ),
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
+    homeBlockSizes = homeBlockSizes.entries
+        .mapNotNull { (block, size) ->
+            runCatching { HomeBlock.valueOf(block) to HomeBlockSize.valueOf(size) }.getOrNull()
+        }
+        .toMap(),
     showHomeTab = showHomeTab,
 )
 

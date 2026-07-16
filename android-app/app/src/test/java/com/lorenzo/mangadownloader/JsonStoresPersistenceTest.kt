@@ -57,6 +57,23 @@ class JsonStoresPersistenceTest {
     }
 
     @Test
+    fun readingDiary_roundTripsAndSkipsCorruptDayKeys() {
+        val store = ReadingDiaryStore(prefs())
+        val expected = mapOf("2026-07-16" to ReadingDayStats(chaptersRead = 3, pagesRead = 40))
+
+        store.persist(expected)
+        assertEquals(expected, store.read())
+
+        prefs().edit()
+            .putString(
+                "reading_diary_json",
+                """{"2026-07-16":{"chaptersRead":1,"pagesRead":2},"garbage":{"chaptersRead":9}}""",
+            )
+            .commit()
+        assertEquals(setOf("2026-07-16"), store.read().keys)
+    }
+
+    @Test
     fun aniListTrackings_roundTripKeepsDomainMapping() {
         val store = AniListStore(prefs())
         val expected = mapOf(

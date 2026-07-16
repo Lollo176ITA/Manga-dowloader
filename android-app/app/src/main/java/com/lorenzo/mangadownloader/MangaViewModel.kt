@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import coil3.imageLoader
 import java.io.File
 import java.io.IOException
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -149,9 +150,11 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
-    // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
+    // Personalizzazione della Home: ordine dei blocchi, quelli nascosti e le taglie.
+    // I blocchi assenti dalla mappa taglie sono MEDIUM (il default non si persiste).
     val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
+    val homeBlockSizes: Map<HomeBlock, HomeBlockSize> = emptyMap(),
     // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
     val showHomeTab: Boolean = true,
 )
@@ -252,6 +255,8 @@ data class MangaUiState(
     // Memoria di lettura persistente (statistiche/cronologia): sopravvive all'eliminazione
     // dei download. Fonte di verità su disco: ReadingMemoryStore.
     val readingMemory: Map<String, ReadChapterMemory> = emptyMap(),
+    // Diario giornaliero (capitoli/pagine per data): andamento, streak, heatmap, record.
+    val readingDiary: Map<String, ReadingDayStats> = emptyMap(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
     val readerChapter: ReaderChapter? = null,
@@ -272,6 +277,7 @@ data class MangaUiState(
     val showFeedback: Boolean = false,
     val showUpdates: Boolean = false,
     val showHistory: Boolean = false,
+    val showStats: Boolean = false,
     val aniList: AniListUiState = AniListUiState(),
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
@@ -329,6 +335,7 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
+    private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
@@ -336,6 +343,7 @@ class MangaViewModel internal constructor(
         recentSearchesStore = recentSearchesStore,
         settingsStore = settingsStore,
         readingMemoryStore = readingMemoryStore,
+        readingDiaryStore = readingDiaryStore,
         appVersionName = BuildConfig.VERSION_NAME,
     )
 
@@ -351,10 +359,12 @@ class MangaViewModel internal constructor(
     private val initialSettings = settingsStore.read()
     private val initialFavoriteSeen = favoriteUpdatesStore.read()
     private val initialReadingMemory = readingMemoryStore.read()
+    private val initialReadingDiary = readingDiaryStore.read()
 
-    // Ultima memoria di lettura scritta su disco: persiste solo sui cambi reali (il seed
-    // restituisce la stessa istanza quando non c'è nulla di nuovo).
+    // Ultimi memoria/diario di lettura scritti su disco: persistono solo sui cambi reali
+    // (il seed restituisce la stessa istanza quando non c'è nulla di nuovo).
     private var lastPersistedReadingMemory = initialReadingMemory
+    private var lastPersistedReadingDiary = initialReadingDiary
 
     private val _state = MutableStateFlow(
         MangaUiState(
@@ -367,6 +377,7 @@ class MangaViewModel internal constructor(
             },
             recentSearches = recentSearchesStore.read(),
             readingMemory = initialReadingMemory,
+            readingDiary = initialReadingDiary,
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
             favoriteSeenStates = initialFavoriteSeen,
@@ -659,9 +670,10 @@ class MangaViewModel internal constructor(
             if (clearFeed) {
                 favoriteUpdatesFeedStore.write(emptyList())
             }
-            // Il BackupManager ha già persistito la memoria ripristinata: allinea la baseline
-            // per non riscriverla identica al prossimo confronto.
+            // Il BackupManager ha già persistito memoria e diario ripristinati: allinea le
+            // baseline per non riscriverli identici al prossimo confronto.
             lastPersistedReadingMemory = result.readingMemory
+            lastPersistedReadingDiary = result.readingDiary
             updateState {
                 copy(
                     favorites = result.favorites,
@@ -672,6 +684,7 @@ class MangaViewModel internal constructor(
                     recentSearches = result.recentSearches,
                     settings = result.settings,
                     readingMemory = result.readingMemory,
+                    readingDiary = result.readingDiary,
                     errorMessage = restoreMessage(result),
                 )
             }
@@ -727,6 +740,15 @@ class MangaViewModel internal constructor(
 
     fun closeHistory() {
         updateState { copy(showHistory = false) }
+    }
+
+    /** Apre la pagina Statistiche (dal "Vedi tutto" del blocco Statistiche). */
+    fun openStats() {
+        updateState { copy(showStats = true) }
+    }
+
+    fun closeStats() {
+        updateState { copy(showStats = false) }
     }
 
     /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
@@ -1486,9 +1508,11 @@ class MangaViewModel internal constructor(
                 selectedDownloadedSeries = series,
                 currentTab = AppTab.LIBRARY,
                 // Chiude eventuali overlay sopra: aprendo la serie dalla Gestione memoria
-                // (raggiunta dalle Impostazioni) si deve atterrare sulla schermata serie.
+                // (dalle Impostazioni) o dalla classifica della pagina Statistiche si deve
+                // atterrare sulla schermata serie.
                 showStorageManager = false,
                 showSettings = false,
+                showStats = false,
                 errorMessage = null,
             )
         }
@@ -1935,6 +1959,7 @@ class MangaViewModel internal constructor(
             Screen.Settings -> closeSettings()
             Screen.Updates -> closeUpdates()
             Screen.History -> closeHistory()
+            Screen.Stats -> closeStats()
             Screen.DiscoverGenre -> closeDiscoverGenre()
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
@@ -2601,20 +2626,25 @@ class MangaViewModel internal constructor(
         ).withReaderAdjacency(updatedReader?.relativePath ?: readerPath)
     }
 
-    /** Scrive la memoria di lettura su disco solo se diversa dall'ultima persistita. */
+    /** Scrive memoria e diario di lettura su disco solo se diversi dagli ultimi persistiti. */
     private fun persistReadingMemoryIfChanged() {
         val memory = _state.value.readingMemory
         if (memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory) {
             readingMemoryStore.persist(memory)
             lastPersistedReadingMemory = memory
         }
+        val diary = _state.value.readingDiary
+        if (diary !== lastPersistedReadingDiary && diary != lastPersistedReadingDiary) {
+            readingDiaryStore.persist(diary)
+            lastPersistedReadingDiary = diary
+        }
     }
 
-    /** Titolo della serie che possiede [seriesKey] (nome cartella), se ancora in libreria. */
-    private fun seriesTitleForKey(seriesKey: String): String? {
+    /** La serie che possiede [seriesKey] (nome cartella), se ancora in libreria. */
+    private fun seriesForKey(seriesKey: String): DownloadedSeries? {
         val state = _state.value
-        return state.selectedDownloadedSeries?.takeIf { it.directory.name == seriesKey }?.title
-            ?: state.library.firstOrNull { it.directory.name == seriesKey }?.title
+        return state.selectedDownloadedSeries?.takeIf { it.directory.name == seriesKey }
+            ?: state.library.firstOrNull { it.directory.name == seriesKey }
     }
 
     /**
@@ -2631,13 +2661,18 @@ class MangaViewModel internal constructor(
         val streaming = chapter.streamingChapter
         val seriesKey: String
         val seriesTitle: String
+        val sourceId: String
         if (streaming != null) {
             seriesKey = seriesKeyForStreaming(streaming.sourceId, streaming.mangaUrl)
             seriesTitle = streaming.mangaTitle
+            sourceId = streaming.sourceId
         } else {
             seriesKey = seriesKeyOf(chapter.relativePath)
-            seriesTitle = seriesTitleForKey(seriesKey) ?: seriesKey
+            val series = seriesForKey(seriesKey)
+            seriesTitle = series?.title ?: seriesKey
+            sourceId = series?.sourceId.orEmpty()
         }
+        val now = System.currentTimeMillis()
         val record = ReadChapterMemory(
             seriesKey = seriesKey,
             seriesTitle = seriesTitle,
@@ -2647,12 +2682,27 @@ class MangaViewModel internal constructor(
             pagesRead = pagesSeen,
             pageCount = pageCount,
             isRead = chapter.isRead || newlyRead,
-            lastReadAtMillis = System.currentTimeMillis(),
+            lastReadAtMillis = now,
+            sourceId = sourceId,
         )
         val current = _state.value.readingMemory[chapter.relativePath]
         val next = current?.mergedWith(record) ?: record
         if (next == current) return
-        updateState { copy(readingMemory = readingMemory + (chapter.relativePath to next)) }
+
+        // Diario giornaliero: registra i delta reali di questa sessione (pagine avanzate,
+        // capitolo appena finito), mai i valori assoluti — le riletture non gonfiano i numeri.
+        val dayKey = diaryDayKey(now)
+        val chaptersDelta = if (next.isRead && current?.isRead != true && newlyRead) 1 else 0
+        val pagesDelta = (next.pagesRead - (current?.pagesRead ?: 0)).coerceAtLeast(0)
+        updateState {
+            copy(
+                readingMemory = readingMemory + (chapter.relativePath to next),
+                readingDiary = pruneReadingDiary(
+                    readingDiary.withReadingActivity(dayKey, chaptersDelta, pagesDelta),
+                    today = LocalDate.now(),
+                ),
+            )
+        }
         // Su disco solo ai passaggi significativi (nuovo record, capitolo completato): la
         // posizione per-pagina è già durevole nelle prefs del reader e riserializzare
         // l'intera mappa a ogni swipe crescerebbe col totale dei capitoli mai letti.
@@ -2673,18 +2723,19 @@ class MangaViewModel internal constructor(
         val state = _state.value
         // Tutti i capitoli di una chiamata appartengono alla stessa serie: risolve una volta.
         val seriesKey = seriesKeyOf(first.relativePath)
-        val seriesTitle = seriesTitleForKey(seriesKey)
+        val series = seriesForKey(seriesKey)
         val updates = mutableMapOf<String, ReadChapterMemory>()
         for (chapter in chapters) {
             val existing = state.readingMemory[chapter.relativePath]
             val base = existing ?: ReadChapterMemory(
                 seriesKey = seriesKeyOf(chapter.relativePath),
-                seriesTitle = seriesTitle ?: seriesKeyOf(chapter.relativePath),
+                seriesTitle = series?.title ?: seriesKeyOf(chapter.relativePath),
                 chapterLabel = chapter.displayLabel(),
                 pagesRead = 0,
                 pageCount = chapter.readerPageCount,
                 isRead = false,
                 lastReadAtMillis = chapter.lastReadAtMillis ?: 0L,
+                sourceId = series?.sourceId.orEmpty(),
             )
             val next = if (read) {
                 base.copy(
@@ -3219,6 +3270,16 @@ class MangaViewModel internal constructor(
     fun setHomeBlockHidden(block: HomeBlock, hidden: Boolean) = updateSettings {
         val hiddenSet = if (hidden) it.hiddenHomeBlocks + block else it.hiddenHomeBlocks - block
         it.copy(hiddenHomeBlocks = hiddenSet)
+    }
+
+    /** Taglia (S/M/L) di un blocco Home; il default MEDIUM non viene salvato esplicitamente. */
+    fun setHomeBlockSize(block: HomeBlock, size: HomeBlockSize) = updateSettings {
+        val sizes = if (size == HomeBlockSize.MEDIUM) {
+            it.homeBlockSizes - block
+        } else {
+            it.homeBlockSizes + (block to size)
+        }
+        it.copy(homeBlockSizes = sizes)
     }
 
     /**

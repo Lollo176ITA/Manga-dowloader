@@ -16,6 +16,7 @@ class BackupManager(
     private val recentSearchesStore: RecentSearchesStore,
     private val settingsStore: SettingsStore,
     private val readingMemoryStore: ReadingMemoryStore,
+    private val readingDiaryStore: ReadingDiaryStore,
     private val appVersionName: String,
 ) {
 
@@ -29,6 +30,7 @@ class BackupManager(
         recentSearches = recentSearchesStore.read(),
         settings = settingsStore.read().toBackup(),
         readingMemory = readingMemoryStore.read().mapValues { (_, record) -> record.toBackupEntry() },
+        readingDiary = readingDiaryStore.read().mapValues { (_, stats) -> stats.toBackupEntry() },
     )
 
     /** Scrive il backup come JSON UTF-8 sullo stream fornito (aperto/chiuso dal chiamante). */
@@ -66,10 +68,11 @@ class BackupManager(
                 favoriteDescriptions = favoriteDescriptionsStore.read() + backup.favoriteDescriptions
             }
         }
-        // La memoria di lettura si UNISCE sempre, anche in REPLACE: azzerarla perderebbe
-        // letture che il backup (magari di una versione vecchia, senza il campo) non ha, e
-        // il seed dal prossimo scan della libreria la ripopolerebbe comunque in parte.
+        // Memoria e diario di lettura si UNISCONO sempre, anche in REPLACE: azzerarli
+        // perderebbe letture che il backup (magari di una versione vecchia, senza i campi)
+        // non ha, e il seed dal prossimo scan della libreria li ripopolerebbe comunque in parte.
         val readingMemory = mergeReadingMemory(readingMemoryStore.read(), backup.readingMemory)
+        val readingDiary = mergeReadingDiary(readingDiaryStore.read(), backup.readingDiary)
         val settings = backup.settings.applyTo(settingsStore.read())
 
         favoritesStore.persist(favorites)
@@ -78,6 +81,7 @@ class BackupManager(
         favoriteDescriptionsStore.write(favoriteDescriptions)
         settingsStore.persist(settings)
         readingMemoryStore.persist(readingMemory)
+        readingDiaryStore.persist(readingDiary)
 
         return BackupRestoreResult(
             favorites = favorites,
@@ -85,6 +89,7 @@ class BackupManager(
             recentSearches = recentSearches,
             favoriteDescriptions = favoriteDescriptions,
             readingMemory = readingMemory,
+            readingDiary = readingDiary,
             favoritesTotal = favorites.size,
             favoritesAdded = (favorites.size - currentFavorites.size).coerceAtLeast(0),
             mode = mode,
@@ -99,6 +104,7 @@ data class BackupRestoreResult(
     val recentSearches: List<String>,
     val favoriteDescriptions: Map<String, String>,
     val readingMemory: Map<String, ReadChapterMemory>,
+    val readingDiary: Map<String, ReadingDayStats>,
     val favoritesTotal: Int,
     val favoritesAdded: Int,
     val mode: BackupRestoreMode,

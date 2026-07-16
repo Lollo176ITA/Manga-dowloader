@@ -29,12 +29,14 @@ import androidx.compose.ui.unit.dp
  * Hero "Riprendi" della Home (stile mockup): card su `primaryContainer` con copertina, sopratitolo
  * RIPRENDI, serie + capitolo, barra di progresso lineare standard e "pagina X di Y".
  * Tap = riprende il reader all'ultima pagina. Riusa i dati già in [ContinueReadingItem].
+ * Con [compact] (taglia S del blocco) la card si stringe: mini-cover, niente barra di progresso.
  */
 @Composable
 fun HomeResumeCard(
     item: ContinueReadingItem,
     onResume: (DownloadedChapter) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val chapter = item.chapter
     Card(
@@ -50,25 +52,30 @@ fun HomeResumeCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(if (compact) 12.dp else 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CoverImage(
                 model = item.series.coverFile,
                 title = item.series.title,
                 modifier = Modifier
-                    .size(width = 64.dp, height = 92.dp)
+                    .size(
+                        width = if (compact) 40.dp else 64.dp,
+                        height = if (compact) 56.dp else 92.dp,
+                    )
                     .clip(MaterialTheme.shapes.medium),
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "RIPRENDI",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(2.dp))
+                if (!compact) {
+                    Text(
+                        text = "RIPRENDI",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                }
                 Text(
                     text = item.series.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -85,25 +92,33 @@ fun HomeResumeCard(
                 val idx = chapter.readerPageIndex
                 val count = chapter.readerPageCount
                 if (idx != null && count != null && count > 0) {
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { ((idx + 1).toFloat() / count).coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.25f),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "pagina ${idx + 1} di $count",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    if (compact) {
+                        Text(
+                            text = "pagina ${idx + 1} di $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { ((idx + 1).toFloat() / count).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.25f),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "pagina ${idx + 1} di $count",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
             Icon(
                 imageVector = Icons.Filled.PlayCircle,
                 contentDescription = "Riprendi la lettura",
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(if (compact) 32.dp else 40.dp),
             )
         }
     }

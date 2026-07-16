@@ -28,6 +28,23 @@ class HomeSettingsPersistenceTest {
     }
 
     @Test
+    fun roundTrip_blockSizes_defaultMediumNotPersisted() {
+        val st = store()
+        st.persist(
+            AppSettings(
+                homeBlockSizes = mapOf(
+                    HomeBlock.STATS to HomeBlockSize.LARGE,
+                    HomeBlock.RESUME to HomeBlockSize.SMALL,
+                ),
+            ),
+        )
+        assertEquals(
+            mapOf(HomeBlock.STATS to HomeBlockSize.LARGE, HomeBlock.RESUME to HomeBlockSize.SMALL),
+            st.read().homeBlockSizes,
+        )
+    }
+
+    @Test
     fun roundTrip_orderAndHidden() {
         val st = store()
         val custom = AppSettings(

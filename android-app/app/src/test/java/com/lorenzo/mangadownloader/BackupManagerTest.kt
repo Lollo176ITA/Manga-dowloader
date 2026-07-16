@@ -36,6 +36,7 @@ class BackupManagerTest {
         recentSearchesStore = RecentSearchesStore(prefs()),
         settingsStore = SettingsStore(prefs()),
         readingMemoryStore = ReadingMemoryStore(prefs()),
+        readingDiaryStore = ReadingDiaryStore(prefs()),
         appVersionName = "1.9.0",
     )
 
@@ -131,6 +132,27 @@ class BackupManagerTest {
         prefs().edit().clear().commit()
         manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
         assertEquals(mapOf("Berserk/chapter_1.cbz" to record), ReadingMemoryStore(prefs()).read())
+    }
+
+    @Test
+    fun backup_roundTripsReadingDiary_withMonotoneMerge() {
+        ReadingDiaryStore(prefs()).persist(
+            mapOf("2026-07-15" to ReadingDayStats(chaptersRead = 2, pagesRead = 30)),
+        )
+        val backup = manager().buildBackup(nowMs = 1L)
+        assertEquals(2, backup.readingDiary["2026-07-15"]?.chaptersRead)
+
+        // Restore di un backup più vecchio: per giorno vince il massimo, mai regressioni.
+        val older = MangaBackup(
+            readingDiary = mapOf(
+                "2026-07-15" to ReadingDiaryBackupEntry(chaptersRead = 1, pagesRead = 99),
+                "2026-07-10" to ReadingDiaryBackupEntry(chaptersRead = 5, pagesRead = 50),
+            ),
+        )
+        manager().restore(encodeBackup(older).byteInputStream(), BackupRestoreMode.REPLACE)
+        val restored = ReadingDiaryStore(prefs()).read()
+        assertEquals(ReadingDayStats(2, 99), restored["2026-07-15"])
+        assertEquals(ReadingDayStats(5, 50), restored["2026-07-10"])
     }
 
     @Test

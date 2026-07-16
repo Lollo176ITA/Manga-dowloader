@@ -591,6 +591,13 @@ private fun MangaDownloaderAppContent(
                     onOpenChapter = viewModel::openReader,
                 )
             }
+            Screen.Stats -> {
+                StatsScreen(
+                    state = state,
+                    padding = innerPadding,
+                    onOpenSeries = viewModel::selectDownloadedSeries,
+                )
+            }
             Screen.DiscoverGenre -> {
                 DiscoverGenreScreen(
                     discovery = state.discovery,
@@ -770,6 +777,7 @@ private fun MangaDownloaderAppContent(
                                 scope.launch { pagerState.animateScrollToPage(state.tabPageIndex(AppTab.FAVORITES)) }
                             },
                             onOpenHistory = viewModel::openHistory,
+                            onOpenStats = viewModel::openStats,
                             onOpenSeries = viewModel::selectDownloadedSeries,
                             onPickDiscover = viewModel::onPickAniListManga,
                             onShowDiscoverInfo = viewModel::showDiscoveryInfo,
@@ -787,6 +795,7 @@ private fun MangaDownloaderAppContent(
                             onDismissTutorial = viewModel::onTutorialWelcomeSkip,
                             onMoveBlock = viewModel::moveHomeBlock,
                             onSetBlockHidden = viewModel::setHomeBlockHidden,
+                            onSetBlockSize = viewModel::setHomeBlockSize,
                         )
                         AppTab.SEARCH -> SearchScreen(
                             state = state,

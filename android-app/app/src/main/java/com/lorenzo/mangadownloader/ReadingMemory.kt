@@ -10,7 +10,7 @@ package com.lorenzo.mangadownloader
  * del reader, stabile tra un download e l'altro (scaricati) e univoca per capitolo (streaming).
  */
 data class ReadChapterMemory(
-    /** Identità della serie: cartella per gli scaricati, `sourceId|mangaUrl` per lo streaming. */
+    /** Identità della serie: cartella per gli scaricati, chiave streaming per l'online. */
     val seriesKey: String,
     val seriesTitle: String,
     /** Etichetta del capitolo così com'era mostrata ("Capitolo 12", titolo...). */
@@ -21,6 +21,8 @@ data class ReadChapterMemory(
     val isRead: Boolean,
     /** 0 = mai letto nel reader (es. segnato letto a mano): resta fuori dalla cronologia. */
     val lastReadAtMillis: Long,
+    /** Fonte del capitolo ([MangaSourceIds]); "" per i record storici che non la conoscono. */
+    val sourceId: String = "",
 )
 
 /**
@@ -36,6 +38,7 @@ fun ReadChapterMemory.mergedWith(other: ReadChapterMemory): ReadChapterMemory = 
     pageCount = other.pageCount ?: pageCount,
     isRead = isRead || other.isRead,
     lastReadAtMillis = maxOf(lastReadAtMillis, other.lastReadAtMillis),
+    sourceId = other.sourceId.ifBlank { sourceId },
 )
 
 /** Etichetta visuale di un capitolo scaricato, con lo stesso ripiego usato nelle liste. */
@@ -60,6 +63,7 @@ fun readingMemoryOf(series: DownloadedSeries, chapter: DownloadedChapter): ReadC
         pageCount = chapter.readerPageCount,
         isRead = chapter.isRead,
         lastReadAtMillis = chapter.lastReadAtMillis ?: 0L,
+        sourceId = series.sourceId,
     )
 }
 

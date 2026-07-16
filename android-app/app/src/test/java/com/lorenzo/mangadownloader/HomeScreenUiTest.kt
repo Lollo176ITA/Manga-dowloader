@@ -35,6 +35,7 @@ class HomeScreenUiTest {
                     onOpenFavorite = {},
                     onOpenAllFavorites = {},
                     onOpenHistory = {},
+                    onOpenStats = {},
                     onOpenSeries = {},
                     onPickDiscover = {},
                     onShowDiscoverInfo = {},
@@ -47,6 +48,7 @@ class HomeScreenUiTest {
                     onDismissTutorial = {},
                     onMoveBlock = { _, _ -> },
                     onSetBlockHidden = { _, _ -> },
+                    onSetBlockSize = { _, _ -> },
                 )
             }
         }

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,12 +50,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.time.LocalDate
 
 /**
  * Tab Home: il centro dell'app. Il saluto e l'azione di personalizzazione vivono nella top bar
@@ -76,6 +80,7 @@ fun HomeScreen(
     onOpenFavorite: (FavoriteManga) -> Unit,
     onOpenAllFavorites: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenStats: () -> Unit,
     onOpenSeries: (DownloadedSeries) -> Unit,
     onPickDiscover: (AniListManga) -> Unit,
     onShowDiscoverInfo: (AniListManga) -> Unit,
@@ -88,8 +93,12 @@ fun HomeScreen(
     onDismissTutorial: () -> Unit,
     onMoveBlock: (HomeBlock, Boolean) -> Unit,
     onSetBlockHidden: (HomeBlock, Boolean) -> Unit,
+    onSetBlockSize: (HomeBlock, HomeBlockSize) -> Unit,
 ) {
     val settings = state.settings
+    // Taglia per blocco (S/M/L, default M): decisa dalla modalità modifica.
+    fun sizeOf(block: HomeBlock): HomeBlockSize =
+        settings.homeBlockSizes[block] ?: HomeBlockSize.MEDIUM
 
     // Scopri e Consigliati sono vetrine AniList: entrambe escluse sotto controllo parentale.
     val blocks = remember(settings.homeBlockOrder, settings.parentalControlEnabled) {
@@ -109,6 +118,12 @@ fun HomeScreen(
     val recentFavorites = remember(state.favorites) { state.favorites.take(12) }
     val stats = remember(state.library, state.favorites, state.readingMemory) {
         computeHomeStats(state.library, state.favorites.size, state.readingMemory)
+    }
+    val streak = remember(state.readingDiary) {
+        currentReadingStreak(state.readingDiary, LocalDate.now())
+    }
+    val lastWeek = remember(state.readingDiary) {
+        lastDiaryDays(state.readingDiary, days = 7, today = LocalDate.now())
     }
     val readingHistory = remember(state.library, state.readingMemory) {
         computeReadingHistory(state.readingMemory, state.library, limit = 10)
@@ -167,7 +182,8 @@ fun HomeScreen(
             // Modalità modifica: solo la lista dei blocchi come card, niente contenuti.
             item(key = "edit-hint") {
                 Text(
-                    text = "Sposta i blocchi con le frecce, tocca l'occhio per nasconderli.",
+                    text = "Sposta i blocchi con le frecce, tocca l'occhio per nasconderli, " +
+                        "scegli la taglia con S · M · L.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -180,8 +196,10 @@ fun HomeScreen(
                         index = index,
                         lastIndex = blocks.lastIndex,
                         hidden = block in hidden,
+                        size = sizeOf(block),
                         onMove = onMoveBlock,
                         onSetHidden = onSetBlockHidden,
+                        onSetSize = onSetBlockSize,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
@@ -207,11 +225,13 @@ fun HomeScreen(
                 // I blocchi nascosti o vuoti non occupano spazio.
                 if (block in hidden || isBlockEmpty(block)) return@forEach
 
+                val size = sizeOf(block)
                 when (block) {
                     HomeBlock.RESUME -> item(key = "b-resume") {
                         HomeResumeCard(
                             item = continueItem!!,
                             onResume = onResume,
+                            compact = size == HomeBlockSize.SMALL,
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
@@ -223,7 +243,11 @@ fun HomeScreen(
                             onTrailingAction = onOpenAllUpdates,
                         ) {
                             HomeCarousel(recentUpdates) { event ->
-                                HomeUpdateChip(event = event, onClick = { onOpenUpdate(event) })
+                                HomeUpdateChip(
+                                    event = event,
+                                    width = size.chipWidth(),
+                                    onClick = { onOpenUpdate(event) },
+                                )
                             }
                         }
                     }
@@ -238,6 +262,7 @@ fun HomeScreen(
                                 HomePosterTile(
                                     coverModel = favorite.coverUrl,
                                     title = favorite.title,
+                                    width = size.posterWidth(),
                                     onClick = { onOpenFavorite(favorite) },
                                 )
                             }
@@ -257,9 +282,10 @@ fun HomeScreen(
                         val sectionsError = discovery.sectionsError
                         when {
                             hasSections -> {
-                                discoverySection("Tendenze", discovery.trending, onPickDiscover, onShowDiscoverInfo)
-                                discoverySection("Più votati", discovery.topRated, onPickDiscover, onShowDiscoverInfo)
-                                discoverySection("Novità", discovery.newest, onPickDiscover, onShowDiscoverInfo)
+                                val cardWidth = size.discoverCardWidth()
+                                discoverySection("Tendenze", discovery.trending, onPickDiscover, onShowDiscoverInfo, cardWidth)
+                                discoverySection("Più votati", discovery.topRated, onPickDiscover, onShowDiscoverInfo, cardWidth)
+                                discoverySection("Novità", discovery.newest, onPickDiscover, onShowDiscoverInfo, cardWidth)
                             }
                             discovery.isLoadingSections -> item(key = "b-discover-loading") { HomeDiscoverLoading() }
                             sectionsError != null -> item(key = "b-discover-error") {
@@ -277,7 +303,7 @@ fun HomeScreen(
                                 HomeCarousel(recommendations.items) { manga ->
                                     DiscoveryCard(
                                         manga = manga,
-                                        modifier = Modifier.width(124.dp),
+                                        modifier = Modifier.width(size.discoverCardWidth()),
                                         onClick = { onPickDiscover(manga) },
                                         onShowInfo = { onShowDiscoverInfo(manga) },
                                     )
@@ -296,8 +322,40 @@ fun HomeScreen(
                     }
 
                     HomeBlock.STATS -> item(key = "b-stats") {
-                        HomeSection(title = "Statistiche") {
-                            HomeStatsGrid(stats = stats, modifier = Modifier.padding(horizontal = 16.dp))
+                        HomeSection(
+                            title = "Statistiche",
+                            trailingActionLabel = "Vedi tutto",
+                            onTrailingAction = onOpenStats,
+                        ) {
+                            when (size) {
+                                HomeBlockSize.SMALL -> HomeStatsCompactRow(
+                                    stats = stats,
+                                    streak = streak,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                                HomeBlockSize.MEDIUM -> HomeStatsGrid(
+                                    stats = stats,
+                                    streak = streak,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                                HomeBlockSize.LARGE -> Column(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    HomeStatsGrid(stats = stats, streak = streak)
+                                    Card(
+                                        shape = MaterialTheme.shapes.large,
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        ),
+                                    ) {
+                                        WeekBarChart(
+                                            days = lastWeek,
+                                            modifier = Modifier.padding(14.dp),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -308,7 +366,11 @@ fun HomeScreen(
                             onTrailingAction = onOpenHistory,
                         ) {
                             HomeCarousel(readingHistory) { entry ->
-                                HomeHistoryChip(item = entry, onResume = onResume)
+                                HomeHistoryChip(
+                                    item = entry,
+                                    width = size.chipWidth(),
+                                    onResume = onResume,
+                                )
                             }
                         }
                     }
@@ -318,6 +380,7 @@ fun HomeScreen(
                             HomeCarousel(seriesToFinish) { entry ->
                                 HomeToFinishTile(
                                     item = entry,
+                                    width = size.posterWidth(),
                                     onClick = { onOpenSeries(entry.series) },
                                 )
                             }
@@ -335,8 +398,8 @@ fun HomeScreen(
 
 /**
  * Card di un blocco in modalità modifica (stile mockup): icona del blocco + nome e descrizione
- * (o "Nascosto") + frecce di riordino + occhio per nascondere. I blocchi nascosti restano in
- * lista, attenuati, così si possono riattivare.
+ * (o "Nascosto") + frecce di riordino + occhio per nascondere; sotto, il selettore di taglia
+ * S · M · L (nascosto insieme al blocco). I blocchi nascosti restano in lista, attenuati.
  */
 @Composable
 private fun HomeBlockEditRow(
@@ -344,8 +407,10 @@ private fun HomeBlockEditRow(
     index: Int,
     lastIndex: Int,
     hidden: Boolean,
+    size: HomeBlockSize,
     onMove: (HomeBlock, Boolean) -> Unit,
     onSetHidden: (HomeBlock, Boolean) -> Unit,
+    onSetSize: (HomeBlock, HomeBlockSize) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -405,6 +470,31 @@ private fun HomeBlockEditRow(
                 )
             }
         }
+        if (!hidden) {
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Taglia",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(2.dp))
+                HomeBlockSize.entries.forEach { candidate ->
+                    FilterChip(
+                        selected = size == candidate,
+                        onClick = { onSetSize(block, candidate) },
+                        label = { Text(candidate.label) },
+                        modifier = Modifier.semantics {
+                            contentDescription =
+                                "Taglia ${candidate.label} per ${block.displayName()}"
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -418,10 +508,11 @@ private fun HomeUpdateChip(
     event: FavoriteUpdateEvent,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    width: Dp = 200.dp,
 ) {
     Card(
         modifier = modifier
-            .width(200.dp)
+            .width(width)
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 if (!event.seen) stateDescription = "Non letto"
@@ -479,10 +570,11 @@ private fun HomePosterTile(
     title: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    width: Dp = 104.dp,
 ) {
     Column(
         modifier = modifier
-            .width(104.dp)
+            .width(width)
             .clickable(onClick = onClick, onClickLabel = "Apri"),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -571,26 +663,38 @@ private fun HomeDiscoverError(message: String, onRetry: () -> Unit) {
     }
 }
 
-/** Griglia 2×2 delle statistiche di lettura (calcoli in [computeHomeStats]). */
+/** Griglia 3×2 delle statistiche di lettura (calcoli in [computeHomeStats] + streak dal diario). */
 @Composable
-private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
+private fun HomeStatsGrid(stats: HomeStats, streak: Int, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile(
-                value = formatStatNumber(stats.seriesCount),
-                label = "Serie in libreria",
-                modifier = Modifier.weight(1f),
-            )
             StatTile(
                 value = formatStatNumber(stats.chaptersRead),
                 label = "Capitoli letti",
                 modifier = Modifier.weight(1f),
             )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatTile(
                 value = formatStatNumber(stats.pagesRead),
                 label = "Pagine lette",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatTile(
+                value = formatStatNumber(stats.seriesReadCount),
+                label = "Serie lette",
+                modifier = Modifier.weight(1f),
+            )
+            StatTile(
+                value = formatStatNumber(stats.seriesCount),
+                label = "Serie in libreria",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            StatTile(
+                value = if (streak > 0) "$streak 🔥" else "0",
+                label = if (streak == 1) "Giorno di fila" else "Giorni di fila",
                 modifier = Modifier.weight(1f),
             )
             StatTile(
@@ -599,6 +703,47 @@ private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+/** Variante compatta (taglia S): una sola card con i tre numeri chiave in riga. */
+@Composable
+private fun HomeStatsCompactRow(stats: HomeStats, streak: Int, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {},
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CompactStat(formatStatNumber(stats.chaptersRead), "Capitoli", Modifier.weight(1f))
+            CompactStat(formatStatNumber(stats.pagesRead), "Pagine", Modifier.weight(1f))
+            CompactStat(if (streak > 0) "$streak 🔥" else "0", "Di fila", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun CompactStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -640,11 +785,12 @@ private fun HomeHistoryChip(
     item: ReadingHistoryItem,
     onResume: (DownloadedChapter) -> Unit,
     modifier: Modifier = Modifier,
+    width: Dp = 200.dp,
 ) {
     val chapter = item.chapter
     Card(
         modifier = modifier
-            .width(200.dp)
+            .width(width)
             .then(
                 if (chapter != null) {
                     Modifier.clickable(onClick = { onResume(chapter) }, onClickLabel = "Riapri il capitolo")
@@ -700,6 +846,7 @@ private fun HomeToFinishTile(
     item: SeriesToFinish,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    width: Dp = 104.dp,
 ) {
     val label = if (item.unreadCount == 1) {
         "1 capitolo da leggere"
@@ -708,7 +855,7 @@ private fun HomeToFinishTile(
     }
     Column(
         modifier = modifier
-            .width(104.dp)
+            .width(width)
             .clickable(onClick = onClick, onClickLabel = "Apri la serie")
             .semantics(mergeDescendants = true) {
                 stateDescription = label
@@ -779,6 +926,27 @@ private fun HomeBlock.editIcon(): ImageVector = when (this) {
     HomeBlock.STATS -> Icons.Filled.BarChart
     HomeBlock.HISTORY -> Icons.Filled.History
     HomeBlock.TO_FINISH -> Icons.Filled.Checklist
+}
+
+/** Larghezza dei poster (preferiti, da finire) per taglia. */
+private fun HomeBlockSize.posterWidth(): Dp = when (this) {
+    HomeBlockSize.SMALL -> 88.dp
+    HomeBlockSize.MEDIUM -> 104.dp
+    HomeBlockSize.LARGE -> 128.dp
+}
+
+/** Larghezza delle chip orizzontali (novità, letti di recente) per taglia. */
+private fun HomeBlockSize.chipWidth(): Dp = when (this) {
+    HomeBlockSize.SMALL -> 168.dp
+    HomeBlockSize.MEDIUM -> 200.dp
+    HomeBlockSize.LARGE -> 240.dp
+}
+
+/** Larghezza delle card AniList (Scopri, Consigliati) per taglia. */
+private fun HomeBlockSize.discoverCardWidth(): Dp = when (this) {
+    HomeBlockSize.SMALL -> 104.dp
+    HomeBlockSize.MEDIUM -> 124.dp
+    HomeBlockSize.LARGE -> 148.dp
 }
 
 /** Carosello "Esplora per genere": card compatte, colori container ciclici, icona per genere. */

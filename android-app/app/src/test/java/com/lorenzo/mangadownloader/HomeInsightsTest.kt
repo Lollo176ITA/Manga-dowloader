@@ -49,7 +49,7 @@ class HomeInsightsTest {
     fun stats_emptyLibraryAndNoFavorites_isEmpty() {
         val stats = computeHomeStats(emptyList(), favoritesCount = 0)
         assertTrue(stats.isEmpty())
-        assertEquals(HomeStats(0, 0, 0, 0), stats)
+        assertEquals(HomeStats(0, 0, 0, 0, 0), stats)
     }
 
     @Test
@@ -66,6 +66,7 @@ class HomeInsightsTest {
         )
         val stats = computeHomeStats(lib, favoritesCount = 7)
         assertEquals(2, stats.seriesCount)
+        assertEquals(2, stats.seriesReadCount)
         assertEquals(2, stats.chaptersRead)
         assertEquals(25, stats.pagesRead)
         assertEquals(7, stats.favoritesCount)
@@ -81,8 +82,47 @@ class HomeInsightsTest {
         // Serie eliminata: capitoli e pagine letti restano, cala solo "Serie in libreria".
         val stats = computeHomeStats(emptyList(), favoritesCount = 0, memory = memory)
         assertEquals(0, stats.seriesCount)
+        assertEquals(1, stats.seriesReadCount)
         assertEquals(1, stats.chaptersRead)
         assertEquals(20, stats.pagesRead)
+    }
+
+    // --- topReadSeries / chaptersReadBySource ---
+
+    @Test
+    fun topSeries_ranksByChaptersRead_andSurvivesDeletion() {
+        // dir = nome della cartella serie (directory di `series("A")` = File("A")).
+        val lib = listOf(
+            series("A", listOf(
+                chapter("1", isRead = true, dir = "A"),
+                chapter("2", isRead = true, dir = "A"),
+            )),
+        )
+        val memory = seedReadingMemory(
+            seedReadingMemory(emptyMap(), lib),
+            listOf(series("B", listOf(chapter("1", isRead = true, dir = "B")))),
+        )
+        // "B" è stata eliminata dalla libreria: resta in classifica, senza serie risolta.
+        val top = topReadSeries(memory, lib)
+        assertEquals(listOf("A", "B"), top.map { it.title })
+        assertEquals(listOf(2, 1), top.map { it.chaptersRead })
+        assertEquals("A", top[0].series?.title)
+        assertEquals(null, top[1].series)
+    }
+
+    @Test
+    fun chaptersBySource_countsOnlyReadChapters() {
+        val lib = listOf(
+            series("A", listOf(
+                chapter("1", isRead = true, dir = "a"),
+                chapter("2", readerPageIndex = 3, readerPageCount = 10, dir = "a"), // in corso: fuori
+            )),
+        )
+        val memory = seedReadingMemory(emptyMap(), lib)
+        assertEquals(
+            listOf(MangaSourceIds.MANGAPILL to 1),
+            chaptersReadBySource(memory),
+        )
     }
 
     @Test

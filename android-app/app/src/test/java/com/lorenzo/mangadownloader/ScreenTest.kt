@@ -166,6 +166,18 @@ class ScreenTest {
     }
 
     @Test
+    fun showStats_isStatsScreen_andBelowOverlays() {
+        val state = MangaUiState(showStats = true)
+        assertEquals(Screen.Stats, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        // Le impostazioni (e gli altri overlay) stanno sopra la pagina Statistiche.
+        assertEquals(
+            Screen.Settings,
+            state.copy(showSettings = true).currentScreen(),
+        )
+    }
+
+    @Test
     fun visibleTabs_withHomeDisabled_excludesHomeAndReindexes() {
         val state = MangaUiState(settings = AppSettings(showHomeTab = false))
         assertEquals(listOf(AppTab.SEARCH, AppTab.FAVORITES, AppTab.LIBRARY), state.visibleTabs())

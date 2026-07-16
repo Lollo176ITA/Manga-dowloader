@@ -20,28 +20,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.LibraryBooks
-import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.QuestionMark
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.TheaterComedy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.AutoStories
@@ -244,10 +231,7 @@ fun HomeScreen(
 
                     HomeBlock.DISCOVER -> {
                         item(key = "b-discover-header") {
-                            HomeSectionTitle(
-                                title = "Scopri",
-                                leadingIcon = Icons.Filled.Explore,
-                            )
+                            HomeSectionTitle(title = "Scopri")
                         }
                         item(key = "b-discover-genres") {
                             HomeGenreRow(onOpenGenre = onOpenGenre)
@@ -553,13 +537,11 @@ private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
             StatTile(
                 value = formatStatNumber(stats.seriesCount),
                 label = "Serie in libreria",
-                icon = Icons.AutoMirrored.Filled.LibraryBooks,
                 modifier = Modifier.weight(1f),
             )
             StatTile(
                 value = formatStatNumber(stats.chaptersRead),
                 label = "Capitoli letti",
-                icon = Icons.Filled.Done,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -567,13 +549,11 @@ private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
             StatTile(
                 value = formatStatNumber(stats.pagesRead),
                 label = "Pagine lette",
-                icon = Icons.Outlined.AutoStories,
                 modifier = Modifier.weight(1f),
             )
             StatTile(
                 value = formatStatNumber(stats.favoritesCount),
                 label = "Preferiti",
-                icon = Icons.Filled.Star,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -584,7 +564,6 @@ private fun HomeStatsGrid(stats: HomeStats, modifier: Modifier = Modifier) {
 private fun StatTile(
     value: String,
     label: String,
-    icon: ImageVector,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -595,13 +574,6 @@ private fun StatTile(
         ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.height(8.dp))
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineMedium,
@@ -786,34 +758,11 @@ private fun GenreCard(genre: DiscoverGenre, index: Int, onClick: () -> Unit) {
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Icon(
-                imageVector = genre.icon(),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = genre.label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
+        Text(
+            text = genre.label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        )
     }
-}
-
-/** Icona per genere: mapping UI, tenuto fuori dall'enum puro. */
-private fun DiscoverGenre.icon(): ImageVector = when (this) {
-    DiscoverGenre.ACTION -> Icons.Filled.FlashOn
-    DiscoverGenre.ADVENTURE -> Icons.Filled.Explore
-    DiscoverGenre.COMEDY -> Icons.Filled.EmojiEmotions
-    DiscoverGenre.DRAMA -> Icons.Filled.TheaterComedy
-    DiscoverGenre.FANTASY -> Icons.Filled.AutoAwesome
-    DiscoverGenre.HORROR -> Icons.Filled.NightsStay
-    DiscoverGenre.MYSTERY -> Icons.Filled.QuestionMark
-    DiscoverGenre.ROMANCE -> Icons.Filled.Favorite
-    DiscoverGenre.SCI_FI -> Icons.Filled.RocketLaunch
-    DiscoverGenre.SLICE_OF_LIFE -> Icons.Filled.LocalCafe
-    DiscoverGenre.SPORTS -> Icons.Filled.SportsSoccer
-    DiscoverGenre.SUPERNATURAL -> Icons.Filled.AutoFixHigh
 }

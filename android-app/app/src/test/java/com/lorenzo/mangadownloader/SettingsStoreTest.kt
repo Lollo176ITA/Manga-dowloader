@@ -64,15 +64,13 @@ class SettingsStoreTest {
             aniListSyncEnabled = false,
             homeBlockOrder = listOf(
                 HomeBlock.DISCOVER,
-                HomeBlock.RECENT_FAVORITES,
                 HomeBlock.FAVORITE_UPDATES,
                 HomeBlock.RESUME,
                 HomeBlock.RECOMMENDED,
                 HomeBlock.STATS,
                 HomeBlock.HISTORY,
-                HomeBlock.TO_FINISH,
             ),
-            hiddenHomeBlocks = setOf(HomeBlock.DISCOVER, HomeBlock.RECENT_FAVORITES),
+            hiddenHomeBlocks = setOf(HomeBlock.DISCOVER, HomeBlock.STATS),
         )
 
         store.persist(expected)

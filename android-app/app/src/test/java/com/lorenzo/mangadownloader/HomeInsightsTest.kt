@@ -177,25 +177,6 @@ class HomeInsightsTest {
         assertEquals(2_000L, history.first().memory.lastReadAtMillis)
     }
 
-    // --- computeSeriesToFinish ---
-
-    @Test
-    fun toFinish_excludesFullyReadSeries_andCountsUnread() {
-        val lib = listOf(
-            series("Tutta letta", listOf(chapter("1", isRead = true), chapter("2", isRead = true))),
-            series("Metà", listOf(chapter("1", isRead = true, lastReadAtMillis = 5_000L), chapter("2"), chapter("3"))),
-            series("Mai aperta", listOf(chapter("1"))),
-        )
-        val result = computeSeriesToFinish(lib)
-        assertEquals(listOf("Metà", "Mai aperta"), result.map { it.series.title })
-        assertEquals(listOf(2, 1), result.map { it.unreadCount })
-    }
-
-    @Test
-    fun toFinish_emptyLibrary_returnsEmpty() {
-        assertTrue(computeSeriesToFinish(emptyList()).isEmpty())
-    }
-
     // --- historyDayLabel / formatStatNumber ---
 
     @Test

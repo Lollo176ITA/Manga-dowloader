@@ -25,10 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -180,21 +178,6 @@ fun UnseenDot(modifier: Modifier = Modifier) {
         modifier = modifier
             .size(10.dp)
             .background(MaterialTheme.colorScheme.primary, CircleShape),
-    )
-}
-
-/** Badge circolare con un conteggio (es. capitoli non letti), per gli angoli del poster. */
-@Composable
-fun CountBadge(count: Int, modifier: Modifier = Modifier) {
-    Text(
-        text = "$count",
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onPrimary,
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.primary, CircleShape)
-            .padding(horizontal = 7.dp, vertical = 3.dp)
-            .clearAndSetSemantics {},
     )
 }
 

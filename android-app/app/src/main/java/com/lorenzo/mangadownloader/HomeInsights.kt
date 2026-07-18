@@ -150,29 +150,6 @@ fun ReadChapterMemory.progressLabel(): String = when {
     else -> "In corso"
 }
 
-/** Una serie scaricata con capitoli ancora da leggere. */
-data class SeriesToFinish(
-    val series: DownloadedSeries,
-    val unreadCount: Int,
-)
-
-/**
- * Serie con almeno un capitolo scaricato non letto: prima quelle lette di recente (le più
- * "calde"), le mai aperte in fondo, tie-break per titolo così l'ordine è stabile.
- */
-fun computeSeriesToFinish(library: List<DownloadedSeries>): List<SeriesToFinish> {
-    return library
-        .mapNotNull { series ->
-            val unread = series.chapters.count { !it.isRead }
-            if (unread == 0) null else SeriesToFinish(series, unread)
-        }
-        .sortedWith(
-            compareByDescending<SeriesToFinish> { item ->
-                item.series.chapters.maxOfOrNull { it.lastReadAtMillis ?: 0L } ?: 0L
-            }.thenBy { it.series.title.lowercase() },
-        )
-}
-
 /** Etichetta del gruppo-giorno nella pagina Cronologia: "Oggi", "Ieri" o data estesa. */
 fun historyDayLabel(
     lastReadAtMillis: Long,

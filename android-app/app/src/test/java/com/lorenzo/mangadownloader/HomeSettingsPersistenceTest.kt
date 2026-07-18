@@ -41,8 +41,8 @@ class HomeSettingsPersistenceTest {
         val st = store()
         val custom = AppSettings(
             homeBlockOrder = listOf(
-                HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
-                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
+                HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
+                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY,
             ),
             hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
         )
@@ -61,12 +61,10 @@ class HomeSettingsPersistenceTest {
             listOf(
                 HomeBlock.RESUME,
                 HomeBlock.FAVORITE_UPDATES,
-                HomeBlock.RECENT_FAVORITES,
                 HomeBlock.DISCOVER,
                 HomeBlock.RECOMMENDED,
                 HomeBlock.STATS,
                 HomeBlock.HISTORY,
-                HomeBlock.TO_FINISH,
             ),
             st.read().homeBlockOrder,
         )

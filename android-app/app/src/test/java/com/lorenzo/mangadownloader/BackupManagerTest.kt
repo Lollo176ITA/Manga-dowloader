@@ -183,8 +183,8 @@ class BackupManagerTest {
         SettingsStore(prefs()).persist(
             AppSettings(
                 homeBlockOrder = listOf(
-                    HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
-                    HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
+                    HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
+                    HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY,
                 ),
                 hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
             ),
@@ -192,8 +192,8 @@ class BackupManagerTest {
         val backup = manager().buildBackup(nowMs = 1L)
         assertEquals(
             listOf(
-                "DISCOVER", "RESUME", "FAVORITE_UPDATES", "RECENT_FAVORITES",
-                "RECOMMENDED", "STATS", "HISTORY", "TO_FINISH",
+                "DISCOVER", "RESUME", "FAVORITE_UPDATES",
+                "RECOMMENDED", "STATS", "HISTORY",
             ),
             backup.settings.homeBlockOrder,
         )
@@ -203,8 +203,8 @@ class BackupManagerTest {
         val restored = SettingsStore(prefs()).read()
         assertEquals(
             listOf(
-                HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
-                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH,
+                HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
+                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY,
             ),
             restored.homeBlockOrder,
         )

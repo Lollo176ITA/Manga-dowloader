@@ -20,11 +20,9 @@ class HomeBlocksTest {
                 HomeBlock.DISCOVER,
                 HomeBlock.RESUME,
                 HomeBlock.FAVORITE_UPDATES,
-                HomeBlock.RECENT_FAVORITES,
                 HomeBlock.RECOMMENDED,
                 HomeBlock.STATS,
                 HomeBlock.HISTORY,
-                HomeBlock.TO_FINISH,
             ),
             result,
         )
@@ -34,10 +32,10 @@ class HomeBlocksTest {
     fun reconcile_oldStoredOrder_appendsNewBlocksAtEnd() {
         val stored = listOf(
             HomeBlock.DISCOVER, HomeBlock.RESUME,
-            HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES,
+            HomeBlock.FAVORITE_UPDATES,
         )
         assertEquals(
-            stored + listOf(HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY, HomeBlock.TO_FINISH),
+            stored + listOf(HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY),
             reconcileHomeBlocks(stored),
         )
     }
@@ -50,9 +48,9 @@ class HomeBlocksTest {
 
     @Test
     fun move_up_swapsWithVisibleNeighbor() {
-        val order = listOf(HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES, HomeBlock.DISCOVER)
+        val order = listOf(HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECOMMENDED, HomeBlock.DISCOVER)
         assertEquals(
-            listOf(HomeBlock.FAVORITE_UPDATES, HomeBlock.RESUME, HomeBlock.RECENT_FAVORITES, HomeBlock.DISCOVER),
+            listOf(HomeBlock.FAVORITE_UPDATES, HomeBlock.RESUME, HomeBlock.RECOMMENDED, HomeBlock.DISCOVER),
             moveHomeBlockInOrder(order, HomeBlock.FAVORITE_UPDATES, up = true) { false },
         )
     }
@@ -61,16 +59,16 @@ class HomeBlocksTest {
     fun move_atEdge_isNoOp() {
         val order = DEFAULT_HOME_BLOCK_ORDER
         assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.RESUME, up = true) { false })
-        assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.TO_FINISH, up = false) { false })
+        assertEquals(order, moveHomeBlockInOrder(order, HomeBlock.HISTORY, up = false) { false })
     }
 
     @Test
     fun move_skipsBlockHiddenFromView() {
         // DISCOVER è nascosto dalla vista (es. controllo parentale): spostando FAVORITE_UPDATES su,
         // scambia col vicino VISIBILE (RESUME), non col DISCOVER interposto — niente tap morto.
-        val order = listOf(HomeBlock.RESUME, HomeBlock.DISCOVER, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECENT_FAVORITES)
+        val order = listOf(HomeBlock.RESUME, HomeBlock.DISCOVER, HomeBlock.FAVORITE_UPDATES, HomeBlock.RECOMMENDED)
         assertEquals(
-            listOf(HomeBlock.FAVORITE_UPDATES, HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.RECENT_FAVORITES),
+            listOf(HomeBlock.FAVORITE_UPDATES, HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.RECOMMENDED),
             moveHomeBlockInOrder(order, HomeBlock.FAVORITE_UPDATES, up = true) { it == HomeBlock.DISCOVER },
         )
     }

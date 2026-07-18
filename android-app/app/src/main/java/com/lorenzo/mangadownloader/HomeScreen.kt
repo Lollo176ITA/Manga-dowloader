@@ -60,11 +60,8 @@ fun HomeScreen(
     onResume: (DownloadedChapter) -> Unit,
     onOpenUpdate: (FavoriteUpdateEvent) -> Unit,
     onOpenAllUpdates: () -> Unit,
-    onOpenFavorite: (FavoriteManga) -> Unit,
-    onOpenAllFavorites: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenStats: () -> Unit,
-    onOpenSeries: (DownloadedSeries) -> Unit,
     onPickDiscover: (AniListManga) -> Unit,
     onShowDiscoverInfo: (AniListManga) -> Unit,
     onDismissDiscoverInfo: () -> Unit,
@@ -97,7 +94,6 @@ fun HomeScreen(
     val recentUpdates = remember(state.favoriteUpdates) {
         state.favoriteUpdates.sortedByDescending { it.timestampMillis }.take(5)
     }
-    val recentFavorites = remember(state.favorites) { state.favorites.take(12) }
     val stats = remember(state.library, state.favorites, state.readingMemory) {
         computeHomeStats(state.library, state.favorites.size, state.readingMemory)
     }
@@ -109,9 +105,6 @@ fun HomeScreen(
     }
     val readingHistory = remember(state.library, state.readingMemory) {
         computeReadingHistory(state.readingMemory, state.library, limit = 10)
-    }
-    val seriesToFinish = remember(state.library) {
-        computeSeriesToFinish(state.library)
     }
     val discovery = state.discovery
     // Il blocco Scopri "ha qualcosa da mostrare" se ci sono risultati, sta caricando, oppure c'è
@@ -136,12 +129,10 @@ fun HomeScreen(
     fun isBlockEmpty(block: HomeBlock): Boolean = when (block) {
         HomeBlock.RESUME -> continueItem == null
         HomeBlock.FAVORITE_UPDATES -> state.favoriteUpdates.isEmpty()
-        HomeBlock.RECENT_FAVORITES -> state.favorites.isEmpty()
         HomeBlock.DISCOVER -> !discoverHasContent
         HomeBlock.RECOMMENDED -> !recommendedHasContent
         HomeBlock.STATS -> stats.isEmpty()
         HomeBlock.HISTORY -> readingHistory.isEmpty()
-        HomeBlock.TO_FINISH -> seriesToFinish.isEmpty()
     }
 
     // Carica Scopri solo se il blocco è presente E non nascosto: evita fetch AniList sprecati
@@ -229,23 +220,6 @@ fun HomeScreen(
                                     inCarousel = true,
                                     cardStateDescription = "Non letto".takeIf { !event.seen },
                                     trailing = { if (!event.seen) UnseenDot() },
-                                )
-                            }
-                        }
-                    }
-
-                    HomeBlock.RECENT_FAVORITES -> item(key = "b-favorites") {
-                        HomeSection(
-                            title = "Preferiti recenti",
-                            trailingActionLabel = "Vedi tutti",
-                            onTrailingAction = onOpenAllFavorites,
-                        ) {
-                            HomeCarousel(recentFavorites) { favorite ->
-                                MangaPosterCard(
-                                    coverModel = favorite.coverUrl,
-                                    title = favorite.title,
-                                    onClick = { onOpenFavorite(favorite) },
-                                    onClickLabel = "Apri",
                                 )
                             }
                         }
@@ -354,26 +328,6 @@ fun HomeScreen(
                                     onClick = entry.chapter?.let { chapter -> { onResume(chapter) } },
                                     onClickLabel = "Riapri il capitolo",
                                     inCarousel = true,
-                                )
-                            }
-                        }
-                    }
-
-                    HomeBlock.TO_FINISH -> item(key = "b-tofinish") {
-                        HomeSection(title = "Da finire") {
-                            HomeCarousel(seriesToFinish) { entry ->
-                                val unreadLabel = if (entry.unreadCount == 1) {
-                                    "1 capitolo da leggere"
-                                } else {
-                                    "${entry.unreadCount} capitoli da leggere"
-                                }
-                                MangaPosterCard(
-                                    coverModel = entry.series.coverFile,
-                                    title = entry.series.title,
-                                    onClick = { onOpenSeries(entry.series) },
-                                    onClickLabel = "Apri la serie",
-                                    cardStateDescription = unreadLabel,
-                                    topEndBadge = { CountBadge(count = entry.unreadCount) },
                                 )
                             }
                         }
@@ -635,24 +589,20 @@ private fun StatTile(
 private fun HomeBlock.displayName(): String = when (this) {
     HomeBlock.RESUME -> "Continua a leggere"
     HomeBlock.FAVORITE_UPDATES -> "Novità dai preferiti"
-    HomeBlock.RECENT_FAVORITES -> "Preferiti recenti"
     HomeBlock.DISCOVER -> "Scopri"
     HomeBlock.RECOMMENDED -> "Consigliati per te"
     HomeBlock.STATS -> "Statistiche"
     HomeBlock.HISTORY -> "Letti di recente"
-    HomeBlock.TO_FINISH -> "Da finire"
 }
 
 /** Sottotitolo del blocco nella modalità modifica. */
 private fun HomeBlock.editDescription(): String = when (this) {
     HomeBlock.RESUME -> "Il capitolo da riprendere"
     HomeBlock.FAVORITE_UPDATES -> "Nuovi capitoli usciti"
-    HomeBlock.RECENT_FAVORITES -> "Aggiunti di recente"
     HomeBlock.DISCOVER -> "Tendenze da AniList"
     HomeBlock.RECOMMENDED -> "In base a preferiti e letture"
     HomeBlock.STATS -> "I tuoi numeri di lettura"
     HomeBlock.HISTORY -> "Gli ultimi capitoli letti"
-    HomeBlock.TO_FINISH -> "Serie con capitoli da leggere"
 }
 
 /** Carosello "Esplora per genere": card compatte, colori container ciclici, icona per genere. */

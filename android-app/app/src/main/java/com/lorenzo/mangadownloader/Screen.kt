@@ -20,7 +20,10 @@ sealed interface Screen {
     data object Backup : Screen
     data object Changelog : Screen
     data object Updates : Screen
+    data object History : Screen
+    data object Stats : Screen
     data object Feedback : Screen
+    data object DiscoverGenre : Screen
 }
 
 /**
@@ -39,6 +42,9 @@ fun MangaUiState.currentScreen(): Screen = when {
     // (clearSelection) riporta al feed con gli altri eventi ancora evidenziati.
     selected != null -> Screen.Detail
     showUpdates -> Screen.Updates
+    showHistory -> Screen.History
+    showStats -> Screen.Stats
+    discovery.selectedGenre != null -> Screen.DiscoverGenre
     currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
     else -> Screen.Tabs
 }
@@ -46,13 +52,9 @@ fun MangaUiState.currentScreen(): Screen = when {
 /** C'è una schermata da chiudere col tasto "indietro"? (cioè non siamo già sulle tab). */
 fun MangaUiState.canHandleBack(): Boolean = currentScreen() != Screen.Tabs
 
-/**
- * Tab effettivamente mostrate nella bottom bar / pager, nell'ordine. La tab [AppTab.DISCOVERY]
- * (vetrina AniList) compare solo se attivata dal flag nelle impostazioni — di default è nascosta.
- * Il resto delle tab è sempre presente.
- */
+/** Tab mostrate nella bottom bar / pager: Home · Cerca · Preferiti · Libreria (Home opzionale). */
 fun MangaUiState.visibleTabs(): List<AppTab> =
-    AppTab.entries.filter { it != AppTab.DISCOVERY || settings.discoveryEnabled }
+    if (settings.showHomeTab) AppTab.entries else AppTab.entries.filterNot { it == AppTab.HOME }
 
 /** Indice della tab tra quelle visibili (per il pager), o 0 se non visibile. */
 fun MangaUiState.tabPageIndex(tab: AppTab): Int =
@@ -73,5 +75,6 @@ fun MangaUiState.tabPageIndex(tab: AppTab): Int =
 fun MangaUiState.saveableScreenKey(): String = when (currentScreen()) {
     Screen.Detail -> "Detail:${selected?.mangaUrl.orEmpty()}"
     Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.absolutePath.orEmpty()}"
+    Screen.DiscoverGenre -> "DiscoverGenre:${discovery.selectedGenre?.apiGenre.orEmpty()}"
     else -> currentScreen().toString()
 }

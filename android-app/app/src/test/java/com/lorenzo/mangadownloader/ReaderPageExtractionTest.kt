@@ -10,6 +10,7 @@ import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,6 +42,64 @@ class ReaderPageExtractionTest {
     }
 
     @Test
+    fun normalizedTallPageParts_keepNamesAndOrder() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes(
+                "001__part_0001.webp" to byteArrayOf(1),
+                "001__part_0002.webp" to byteArrayOf(2),
+                "002.jpg" to byteArrayOf(3),
+                "003__part_0001.webp" to byteArrayOf(4),
+                "003__part_0002.webp" to byteArrayOf(5),
+            ),
+        )
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(
+            listOf(
+                "001__part_0001.webp",
+                "001__part_0002.webp",
+                "002.jpg",
+                "003__part_0001.webp",
+                "003__part_0002.webp",
+            ),
+            pages.map(File::getName),
+        )
+    }
+
+    @Test
+    fun normalizedPartName_cannotEscapeReaderCache() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes("../001__part_0001.webp" to byteArrayOf(1)),
+        )
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(listOf("001__part_0001.webp"), pages.map(File::getName))
+        assertTrue(pages.single().canonicalPath.startsWith(application.cacheDir.canonicalPath))
+    }
+
+    @Test
+    fun duplicateOrderedPageName_isRejectedWithoutPartialCache() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(
+            zipBytes("001.jpg" to byteArrayOf(1), "001.JPG" to byteArrayOf(2)),
+        )
+
+        var thrown = false
+        try {
+            runBlocking { repo.extractReaderPages(chapter) }
+        } catch (_: IOException) {
+            thrown = true
+        }
+
+        assertTrue(thrown)
+        assertFalse(cacheDirFor(chapter).exists())
+    }
+
+    @Test
     fun corruptCbz_throwsAndLeavesNoPartialCache() {
         val repo = LibraryRepository(application)
         // Dati casuali (incomprimibili) così lo zip è grande; troncato dentro al primo
@@ -65,6 +124,53 @@ class ReaderPageExtractionTest {
         assertFalse(cacheDir.exists())
     }
 
+    @Test
+    fun emptyCachedPage_isReextractedFromCbz() {
+        val repo = LibraryRepository(application)
+        val chapter = chapterWithCbz(zipBytes("a.jpg" to byteArrayOf(1, 2, 3), "b.jpg" to byteArrayOf(4, 5)))
+        val firstPages = runBlocking { repo.extractReaderPages(chapter) }
+        // Simula una pagina persa (scrittura troncata, cache ripulita a metà).
+        firstPages[0].writeBytes(ByteArray(0))
+
+        val pages = runBlocking { repo.extractReaderPages(chapter) }
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.all { it.length() > 0L })
+        assertEquals(3L, pages[0].length())
+    }
+
+    @Test
+    fun extraction_evictsLeastRecentlyUsedChaptersBeyondLimit() {
+        val repo = LibraryRepository(application)
+        val cacheRoot = File(application.cacheDir, "reader-pages")
+        // Deve combaciare con MAX_EXTRACTED_READER_CHAPTERS di LibraryRepository.
+        val limit = 10
+
+        // Riempie la cache fino al limite, con timestamp crescenti espliciti: lastModified
+        // può avere granularità di 1 secondo e senza l'ordine LRU sarebbe ambiguo.
+        val chapters = (1..limit).map { index ->
+            chapterWithCbz(zipBytes("p.jpg" to byteArrayOf(1)), index = index)
+        }
+        chapters.forEachIndexed { position, chapter ->
+            runBlocking { repo.extractReaderPages(chapter) }
+            cacheDirFor(chapter).setLastModified(1_000L * (position + 1))
+        }
+
+        // Il capitolo oltre il limite fa cadere il meno usato di recente (il primo).
+        val newest = chapterWithCbz(zipBytes("p.jpg" to byteArrayOf(1)), index = limit + 1)
+        runBlocking { repo.extractReaderPages(newest) }
+
+        assertFalse(cacheDirFor(chapters.first()).exists())
+        assertTrue(cacheDirFor(chapters.last()).exists())
+        assertTrue(cacheDirFor(newest).exists())
+        assertEquals(limit, cacheRoot.listFiles()?.count { it.isDirectory })
+    }
+
+    private fun cacheDirFor(chapter: DownloadedChapter): File = File(
+        File(application.cacheDir, "reader-pages"),
+        DownloadStorage.readerCacheDirectoryName(chapter.relativePath),
+    )
+
     private fun randomBytes(size: Int): ByteArray = ByteArray(size).also { kotlin.random.Random(1).nextBytes(it) }
 
     private fun zipBytes(vararg entries: Pair<String, ByteArray>): ByteArray {
@@ -79,20 +185,20 @@ class ReaderPageExtractionTest {
         return output.toByteArray()
     }
 
-    private fun chapterWithCbz(cbzBytes: ByteArray): DownloadedChapter {
+    private fun chapterWithCbz(cbzBytes: ByteArray, index: Int = 1): DownloadedChapter {
         val root = DownloadStorage.libraryRoot(application)
         val seriesDir = File(root, "TestSeries").apply { mkdirs() }
-        val cbz = File(seriesDir, "chapter_001.cbz")
+        val cbz = File(seriesDir, "chapter_${index.toString().padStart(3, '0')}.cbz")
         cbz.writeBytes(cbzBytes)
         return DownloadedChapter(
-            title = "Capitolo 1",
-            numberText = "1",
+            title = "Capitolo $index",
+            numberText = "$index",
             numberValue = null,
             volumeText = null,
             labelPrefix = "Capitolo",
             file = cbz,
             relativePath = DownloadStorage.relativePath(root, cbz),
-            chapterId = "number:1",
+            chapterId = "number:$index",
             isRead = false,
             readerPageIndex = null,
             readerPageCount = null,

@@ -6,16 +6,10 @@ import android.os.StatFs
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.IOException
 import java.math.BigDecimal
@@ -55,22 +49,24 @@ data class DownloadedSeries(
     val readChapterIds: Set<String>,
 )
 
+@Serializable
 data class SeriesMetadata(
-    val sourceId: String,
-    val title: String,
-    val mangaUrl: String?,
-    val coverFileName: String?,
-    val totalChapters: Int?,
-    val readChapterIds: Set<String>,
-    val chapters: List<SeriesMetadataChapter>,
+    val sourceId: String = "",
+    val title: String = "",
+    val mangaUrl: String? = null,
+    val coverFileName: String? = null,
+    val totalChapters: Int? = null,
+    val readChapterIds: Set<String> = emptySet(),
+    val chapters: List<SeriesMetadataChapter> = emptyList(),
 )
 
+@Serializable
 data class SeriesMetadataChapter(
-    val numberText: String,
-    val url: String?,
-    val slug: String?,
-    val fileName: String,
-    val id: String?,
+    val numberText: String = "",
+    val url: String? = null,
+    val slug: String? = null,
+    val fileName: String = "",
+    val id: String? = null,
     val volumeText: String? = null,
     val labelPrefix: String = "Capitolo",
 )
@@ -191,43 +187,13 @@ object SeriesMetadataJson {
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
     }
 
     fun write(target: File, metadata: SeriesMetadata) {
-        val payload = buildJsonObject {
-            put("sourceId", JsonPrimitive(metadata.sourceId))
-            put("title", JsonPrimitive(metadata.title))
-            metadata.mangaUrl?.let { put("mangaUrl", JsonPrimitive(it)) }
-            metadata.coverFileName?.let { put("coverFileName", JsonPrimitive(it)) }
-            metadata.totalChapters?.let { put("totalChapters", JsonPrimitive(it)) }
-            put(
-                "readChapterIds",
-                buildJsonArray {
-                    metadata.readChapterIds
-                        .sorted()
-                        .forEach { id -> add(JsonPrimitive(id)) }
-                },
-            )
-            put(
-                "chapters",
-                buildJsonArray {
-                    metadata.chapters.forEach { chapter ->
-                        add(
-                            buildJsonObject {
-                                put("numberText", JsonPrimitive(chapter.numberText))
-                                chapter.url?.let { put("url", JsonPrimitive(it)) }
-                                chapter.slug?.let { put("slug", JsonPrimitive(it)) }
-                                chapter.volumeText?.let { put("volumeText", JsonPrimitive(it)) }
-                                put("labelPrefix", JsonPrimitive(chapter.labelPrefix))
-                                put("fileName", JsonPrimitive(chapter.fileName))
-                                chapter.id?.let { put("id", JsonPrimitive(it)) }
-                            },
-                        )
-                    }
-                },
-            )
-        }
-        target.writeText(json.encodeToString(JsonObject.serializer(), payload))
+        val stableMetadata = metadata.copy(readChapterIds = metadata.readChapterIds.toSortedSet())
+        target.writeText(json.encodeToString(stableMetadata))
     }
 
     fun read(target: File): SeriesMetadata? {
@@ -241,54 +207,34 @@ object SeriesMetadataJson {
 
     fun parse(raw: String): SeriesMetadata? {
         return try {
-            val root = json.parseToJsonElement(raw).jsonObject
-            val title = root["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            if (title.isBlank()) {
-                return null
-            }
-            val chapters = root["chapters"]
-                ?.jsonArray
-                ?.mapNotNull { element -> parseChapter(element.jsonObject) }
-                .orEmpty()
-            val mangaUrl = root["mangaUrl"]?.jsonPrimitive?.contentOrNull
-            SeriesMetadata(
-                sourceId = MangaSourceCatalog.resolveSourceId(
-                    sourceId = root["sourceId"]?.jsonPrimitive?.contentOrNull,
-                    url = mangaUrl,
-                ),
-                title = title,
-                mangaUrl = mangaUrl,
-                coverFileName = root["coverFileName"]?.jsonPrimitive?.contentOrNull,
-                totalChapters = root["totalChapters"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
-                readChapterIds = root["readChapterIds"]
-                    ?.jsonArray
-                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
-                    ?.toSet()
-                    .orEmpty(),
-                chapters = chapters,
-            )
+            json.decodeFromString<SeriesMetadata>(raw).normalizedOrNull()
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun parseChapter(jsonObject: JsonObject): SeriesMetadataChapter? {
-        val numberText = jsonObject["numberText"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        val fileName = jsonObject["fileName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        if (numberText.isBlank() || fileName.isBlank()) {
-            return null
-        }
-        return SeriesMetadataChapter(
-            numberText = numberText,
-            url = jsonObject["url"]?.jsonPrimitive?.contentOrNull,
-            slug = jsonObject["slug"]?.jsonPrimitive?.contentOrNull,
-            fileName = fileName,
-            id = jsonObject["id"]?.jsonPrimitive?.contentOrNull,
-            volumeText = jsonObject["volumeText"]?.jsonPrimitive?.contentOrNull,
-            labelPrefix = jsonObject["labelPrefix"]?.jsonPrimitive?.contentOrNull
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?: "Capitolo",
+    private fun SeriesMetadata.normalizedOrNull(): SeriesMetadata? {
+        val normalizedTitle = title.trim().takeIf(String::isNotBlank) ?: return null
+        return copy(
+            sourceId = MangaSourceCatalog.resolveSourceId(
+                sourceId = sourceId,
+                url = mangaUrl,
+            ),
+            title = normalizedTitle,
+            readChapterIds = readChapterIds.mapNotNullTo(linkedSetOf()) {
+                it.trim().takeIf(String::isNotBlank)
+            },
+            chapters = chapters.mapNotNull { it.normalizedOrNull() },
+        )
+    }
+
+    private fun SeriesMetadataChapter.normalizedOrNull(): SeriesMetadataChapter? {
+        val normalizedNumber = numberText.trim().takeIf(String::isNotBlank) ?: return null
+        val normalizedFileName = fileName.trim().takeIf(String::isNotBlank) ?: return null
+        return copy(
+            numberText = normalizedNumber,
+            fileName = normalizedFileName,
+            labelPrefix = labelPrefix.trim().takeIf(String::isNotBlank) ?: "Capitolo",
         )
     }
 }
@@ -415,6 +361,17 @@ object LibraryScanner {
 class LibraryRepository(
     private val context: Context,
 ) {
+    /**
+     * I CBZ prodotti dall'app usano il numero della pagina originale sia per i file
+     * normali sia per i frammenti persistenti. Conserviamo quei nomi numerici per non
+     * perdere l'ordine nei capitoli misti; ogni altra entry viene rinominata in modo
+     * sequenziale e sicuro.
+     */
+    private val orderedReaderPageName = Regex(
+        pattern = """^\d+(?:__part_\d{4,})?\.[A-Za-z0-9]+$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     @Volatile
@@ -622,27 +579,59 @@ class LibraryRepository(
             ?.filter { it.isFile }
             ?.sortedBy { it.name }
             .orEmpty()
-        if (existing.isNotEmpty()) {
+        // La cache si riusa solo se integra: un file vuoto (scrittura interrotta, spazio
+        // esaurito) sarebbe una pagina irrecuperabile a ogni rilettura — il .cbz in
+        // libreria è ancora lì, meglio ributtare giù tutto da quello.
+        if (existing.isNotEmpty() && existing.all { it.length() > 0L }) {
+            // Rinfresca il timestamp: per l'eviction LRU questo capitolo è appena stato usato.
+            cacheDir.setLastModified(System.currentTimeMillis())
             return@withContext existing
         }
 
         if (cacheDir.exists()) {
             cacheDir.deleteRecursively()
         }
-        cacheDir.mkdirs()
+        // Estrazione in una cartella temporanea rinominata solo a lavoro finito: se il
+        // processo muore a metà non resta una cache parziale che alla riapertura verrebbe
+        // scambiata per estrazione completa (pagine mancanti in silenzio).
+        val tempDir = File(cacheRoot, "${cacheDir.name}.tmp")
+        if (tempDir.exists()) {
+            tempDir.deleteRecursively()
+        }
+        tempDir.mkdirs()
 
         val extracted = mutableListOf<File>()
+        val usedOutputNames = mutableSetOf<String>()
         try {
             ZipInputStream(chapter.file.inputStream().buffered()).use { zip ->
                 var entry = zip.nextEntry
                 var index = 1
                 while (entry != null) {
                     if (!entry.isDirectory) {
-                        val extension = entry.name
+                        val entryFileName = entry.name
+                            .substringAfterLast('/')
+                            .substringAfterLast('\\')
+                        val extension = entryFileName
                             .substringAfterLast('.', "jpg")
                             .lowercase(Locale.US)
                             .ifBlank { "jpg" }
-                        val outFile = File(cacheDir, "${index.toString().padStart(3, '0')}.$extension")
+                        val preservedName = entryFileName.takeIf(orderedReaderPageName::matches)
+                        val outputName = if (preservedName != null) {
+                            if (!usedOutputNames.add(preservedName.lowercase(Locale.US))) {
+                                throw IOException("Nome pagina duplicato nel CBZ: $preservedName")
+                            }
+                            preservedName
+                        } else {
+                            val prefix = index.toString().padStart(3, '0')
+                            var suffix = 0
+                            var candidate: String
+                            do {
+                                candidate = "$prefix${if (suffix == 0) "" else "_$suffix"}.$extension"
+                                suffix += 1
+                            } while (!usedOutputNames.add(candidate.lowercase(Locale.US)))
+                            candidate
+                        }
+                        val outFile = File(tempDir, outputName)
                         outFile.outputStream().buffered().use { output ->
                             zip.copyTo(output)
                         }
@@ -654,17 +643,41 @@ class LibraryRepository(
                 }
             }
         } catch (e: IOException) {
-            // Un .cbz corrotto/troncato non deve lasciare una cache parziale: altrimenti
-            // alla riapertura verrebbe scambiata per estrazione completa (vedi sopra).
-            cacheDir.deleteRecursively()
+            // Un .cbz corrotto/troncato non deve lasciare residui su disco.
+            tempDir.deleteRecursively()
             throw IOException("Capitolo scaricato corrotto o illeggibile", e)
         }
 
         if (extracted.isEmpty()) {
-            cacheDir.deleteRecursively()
+            tempDir.deleteRecursively()
             throw IOException("Nessuna pagina trovata nel capitolo scaricato")
         }
-        extracted.sortedBy { it.name }
+        if (!tempDir.renameTo(cacheDir)) {
+            tempDir.deleteRecursively()
+            throw IOException("Impossibile finalizzare le pagine estratte")
+        }
+
+        cacheDir.setLastModified(System.currentTimeMillis())
+        evictOldReaderPageCaches(cacheRoot, justExtracted = cacheDir)
+        extracted
+            .map { File(cacheDir, it.name) }
+            .sortedBy { it.name }
+    }
+
+    /**
+     * Tiene la cache delle pagine estratte entro [MAX_EXTRACTED_READER_CHAPTERS] capitoli,
+     * cancellando i meno usati di recente (LRU su lastModified, rinfrescato a ogni apertura).
+     * Le pagine estratte servono solo alla lettura corrente e alle riletture ravvicinate:
+     * il .cbz in libreria resta la copia primaria e riaprire un capitolo evitto costa solo
+     * una nuova estrazione. Senza tetto la cache duplicava per sempre ogni capitolo letto.
+     */
+    private fun evictOldReaderPageCaches(cacheRoot: File, justExtracted: File) {
+        cacheRoot.listFiles()
+            ?.filter { it.isDirectory && it != justExtracted }
+            .orEmpty()
+            .sortedByDescending { it.lastModified() }
+            .drop((MAX_EXTRACTED_READER_CHAPTERS - 1).coerceAtLeast(0))
+            .forEach { it.deleteRecursively() }
     }
 
     private fun backfillMetadata(series: DownloadedSeries) {
@@ -796,5 +809,9 @@ class LibraryRepository(
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"
         private const val CACHE_TTL_MS = 5_000L
+
+        // Massimo di capitoli con le pagine estratte tenuti in cache (LRU): copre il
+        // capitolo in lettura e le riletture recenti senza duplicare l'intera libreria.
+        private const val MAX_EXTRACTED_READER_CHAPTERS = 10
     }
 }

@@ -10,9 +10,9 @@ import kotlinx.serialization.json.Json
  * codifica/decodifica tollerante e logica di merge/replace. Speculare alla parte pura di
  * [FavoriteUpdatesStore]. Tutto top-level così è testabile su JVM senza Robolectric.
  *
- * Cosa NON entra nel backup (v1): i **progressi di lettura** (posizione pagina, capitoli letti)
- * vivono in un altro file di prefs e in `series.json`, legati ai file `.cbz` scaricati che non
- * fanno parte del backup. Il campo è riservato per una versione futura senza rompere il formato.
+ * La **memoria di lettura** ([ReadChapterMemory]) entra nel backup come campo additivo con
+ * default (le versioni precedenti la ignorano in lettura, schema invariato). Restano fuori le
+ * **posizioni di pagina** per-file: legate ai `.cbz` scaricati, che nel backup non ci sono.
  * Volutamente esclusi anche i **segreti** del parental control (PIN hash/salt) e lo stato del
  * tutorial: il restore non li tocca mai.
  */
@@ -28,7 +28,101 @@ data class MangaBackup(
     val favoriteDescriptions: Map<String, String> = emptyMap(),
     val recentSearches: List<String> = emptyList(),
     val settings: SettingsBackup = SettingsBackup(),
+    val readingMemory: Map<String, ReadingMemoryBackupEntry> = emptyMap(),
+    val readingDiary: Map<String, ReadingDiaryBackupEntry> = emptyMap(),
 )
+
+/** Forma nel backup di un record della memoria di lettura; combacia con `ReadingMemoryStore`. */
+@Serializable
+data class ReadingMemoryBackupEntry(
+    val seriesKey: String = "",
+    val seriesTitle: String = "",
+    val chapterLabel: String = "",
+    val pagesRead: Int = 0,
+    val pageCount: Int? = null,
+    val isRead: Boolean = false,
+    val lastReadAtMillis: Long = 0L,
+    val sourceId: String = "",
+)
+
+fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryBackupEntry(
+    seriesKey = seriesKey,
+    seriesTitle = seriesTitle,
+    chapterLabel = chapterLabel,
+    pagesRead = pagesRead,
+    pageCount = pageCount,
+    isRead = isRead,
+    lastReadAtMillis = lastReadAtMillis,
+    sourceId = sourceId,
+)
+
+fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChapterMemory =
+    ReadChapterMemory(
+        seriesKey = seriesKey.ifBlank { seriesKeyOf(relativePath) },
+        seriesTitle = seriesTitle,
+        chapterLabel = chapterLabel,
+        pagesRead = pagesRead.coerceAtLeast(0),
+        pageCount = pageCount?.takeIf { it > 0 },
+        isRead = isRead,
+        lastReadAtMillis = lastReadAtMillis.coerceAtLeast(0L),
+        sourceId = sourceId,
+    )
+
+/** Forma nel backup di un giorno del diario di lettura; combacia con `ReadingDiaryStore`. */
+@Serializable
+data class ReadingDiaryBackupEntry(
+    val chaptersRead: Int = 0,
+    val pagesRead: Int = 0,
+)
+
+fun ReadingDayStats.toBackupEntry(): ReadingDiaryBackupEntry =
+    ReadingDiaryBackupEntry(chaptersRead = chaptersRead, pagesRead = pagesRead)
+
+fun ReadingDiaryBackupEntry.toReadingDayStats(): ReadingDayStats = ReadingDayStats(
+    chaptersRead = chaptersRead.coerceAtLeast(0),
+    pagesRead = pagesRead.coerceAtLeast(0),
+)
+
+/** MERGE del diario: per giorno tiene il massimo, così un backup vecchio non regredisce nulla. */
+fun mergeReadingDiary(
+    current: Map<String, ReadingDayStats>,
+    incoming: Map<String, ReadingDiaryBackupEntry>,
+): Map<String, ReadingDayStats> {
+    if (incoming.isEmpty()) return current
+    val merged = current.toMutableMap()
+    for ((dayKey, entry) in incoming) {
+        if (diaryDayOf(dayKey) == null) continue
+        val stats = entry.toReadingDayStats()
+        val existing = merged[dayKey]
+        merged[dayKey] = if (existing == null) {
+            stats
+        } else {
+            ReadingDayStats(
+                chaptersRead = maxOf(existing.chaptersRead, stats.chaptersRead),
+                pagesRead = maxOf(existing.pagesRead, stats.pagesRead),
+            )
+        }
+    }
+    return merged
+}
+
+/**
+ * MERGE della memoria di lettura: per capitolo applica il merge monotono di
+ * [ReadChapterMemory.mergedWith], così reimportare un backup vecchio non fa regredire i numeri.
+ */
+fun mergeReadingMemory(
+    current: Map<String, ReadChapterMemory>,
+    incoming: Map<String, ReadingMemoryBackupEntry>,
+): Map<String, ReadChapterMemory> {
+    if (incoming.isEmpty()) return current
+    val merged = current.toMutableMap()
+    for ((relativePath, entry) in incoming) {
+        if (relativePath.isBlank()) continue
+        val record = entry.toReadChapterMemory(relativePath)
+        merged[relativePath] = merged[relativePath]?.mergedWith(record) ?: record
+    }
+    return merged
+}
 
 /** Forma su disco di un preferito nel backup; combacia con `FavoritesStore`. */
 @Serializable
@@ -49,7 +143,6 @@ data class FavoriteBackupEntry(
 data class SettingsBackup(
     val searchScope: String = SearchScope.ITA.name,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
-    val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -73,6 +166,10 @@ data class SettingsBackup(
     val favoriteNewChapterNotificationsEnabled: Boolean = false,
     val favoriteSort: String = FavoriteSort.DATE_ADDED.name,
     val librarySort: String = LibrarySort.TITLE_ASC.name,
+    val homeBlockOrder: List<String> = emptyList(),
+    val hiddenHomeBlocks: List<String> = emptyList(),
+    val cardDensity: String = CardDensity.NORMAL.name,
+    val showHomeTab: Boolean = true,
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -84,6 +181,19 @@ private val backupJson = Json {
 }
 
 fun encodeBackup(backup: MangaBackup): String = backupJson.encodeToString(backup)
+
+/**
+ * Codifica il solo payload portabile delle impostazioni. Lo stesso DTO è usato sia nel
+ * backup v1 sia nella persistenza ordinaria, così mapping e valori di default non divergono.
+ */
+fun encodeSettingsBackup(settings: SettingsBackup): String = backupJson.encodeToString(settings)
+
+/** Decodifica tollerante del payload impostazioni locale; JSON malformato → null. */
+fun decodeSettingsBackup(raw: String): SettingsBackup? = try {
+    backupJson.decodeFromString<SettingsBackup>(raw)
+} catch (_: Exception) {
+    null
+}
 
 /** Decodifica tollerante: JSON malformato o schema più recente del corrente → null. */
 fun decodeBackup(raw: String): MangaBackup? {
@@ -98,7 +208,6 @@ fun decodeBackup(raw: String): MangaBackup? {
 fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     searchScope = searchScope.name,
     searchSourceId = searchSourceId,
-    discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters,
     autoDownloadBatchSize = autoDownloadBatchSize,
@@ -122,6 +231,10 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = favoriteSort.name,
     librarySort = librarySort.name,
+    homeBlockOrder = homeBlockOrder.map { it.name },
+    hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
+    cardDensity = cardDensity.name,
+    showHomeTab = showHomeTab,
 )
 
 /**
@@ -145,7 +258,6 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
             }
         },
     searchSourceId = MangaSourceCatalog.resolveSourceId(searchSourceId),
-    discoveryEnabled = discoveryEnabled,
     autoDownloadEnabled = autoDownloadEnabled,
     autoDownloadTriggerChapters = autoDownloadTriggerChapters.coerceAtLeast(1),
     autoDownloadBatchSize = autoDownloadBatchSize.coerceAtLeast(1),
@@ -169,6 +281,12 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     favoriteNewChapterNotificationsEnabled = favoriteNewChapterNotificationsEnabled,
     favoriteSort = runCatching { FavoriteSort.valueOf(favoriteSort) }.getOrDefault(current.favoriteSort),
     librarySort = runCatching { LibrarySort.valueOf(librarySort) }.getOrDefault(current.librarySort),
+    homeBlockOrder = reconcileHomeBlocks(
+        homeBlockOrder.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() },
+    ),
+    hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
+    cardDensity = runCatching { CardDensity.valueOf(cardDensity) }.getOrDefault(current.cardDensity),
+    showHomeTab = showHomeTab,
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =

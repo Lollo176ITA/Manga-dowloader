@@ -168,16 +168,14 @@ fun FavoritesScreen(
                     ) {
                         items(
                             displayed,
-                            key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
+                            key = { it.identityKey() },
                         ) { favorite ->
                             FavoriteCard(
                                 favorite = favorite,
                                 onClick = { onSelect(favorite) },
                                 onLongClick = { actionsFor = favorite },
                                 onMoreActions = { actionsFor = favorite },
-                                readingState = readingStateByKey[
-                                    MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl),
-                                ],
+                                readingState = readingStateByKey[favorite.identityKey()],
                             )
                         }
                     }

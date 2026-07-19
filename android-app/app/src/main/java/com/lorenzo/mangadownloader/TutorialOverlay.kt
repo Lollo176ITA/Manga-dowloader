@@ -67,9 +67,6 @@ val LocalTutorialAnchor = compositionLocalOf<(TutorialAnchor) -> Modifier> { { M
 @Composable
 fun TutorialOverlay(
     state: MangaUiState,
-    onWelcomeStart: () -> Unit,
-    onWelcomeSkip: () -> Unit,
-    onWelcomeDismiss: () -> Unit,
     onFallbackCompleted: () -> Unit,
     onAdvancePhase: (from: TutorialPhase, to: TutorialPhase) -> Unit,
     onTargetTap: (TutorialAnchor) -> Unit,
@@ -142,13 +139,8 @@ fun TutorialOverlay(
 
     InteractivePhaseObservers(state = state, onAdvancePhase = onAdvancePhase)
 
-    if (phase == TutorialPhase.Welcome) {
-        WelcomeTutorialDialog(
-            onSkip = onWelcomeSkip,
-            onStart = onWelcomeStart,
-            onDismiss = onWelcomeDismiss,
-        )
-    }
+    // La fase Welcome è ora gestita da una card discreta nella Home ([HomeOnboardingCard]),
+    // non più da un popup: qui non si mostra nulla per Welcome.
     if (phase == TutorialPhase.Preloading) {
         PreloadingTutorialDialog()
     }
@@ -377,39 +369,6 @@ private fun InteractivePhaseObservers(
             onAdvancePhase(TutorialPhase.InReader, TutorialPhase.AwaitingOverflow)
         }
     }
-}
-
-@Composable
-private fun WelcomeTutorialDialog(
-    onSkip: () -> Unit,
-    onStart: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    // Tap fuori/back = chiusura morbida (il tour si ripropone al prossimo avvio):
-    // solo il bottone "Salta" segna il tutorial come completato per sempre.
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.extraLarge,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.School,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        },
-        title = { Text("Benvenuto in Manga Downloader") },
-        text = {
-            Text(
-                "Questo tour ti mostra le funzionalita principali dell'app, guidandoti passo passo. "
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onStart) { Text("Inizia") }
-        },
-        dismissButton = {
-            TextButton(onClick = onSkip) { Text("Salta") }
-        },
-    )
 }
 
 @Composable

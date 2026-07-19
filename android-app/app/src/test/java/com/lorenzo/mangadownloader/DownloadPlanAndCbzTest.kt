@@ -2,10 +2,14 @@ package com.lorenzo.mangadownloader
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigDecimal
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -14,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -114,10 +119,17 @@ class DownloadPlanAndCbzTest {
     // ---- downloadChapterAsCbz ----
 
     @Test
-    fun downloadChapterAsCbz_writesCbzWithOnePageEntryPerImage() {
+    fun downloadChapterAsCbz_archivesNormalPagesByteForByteInDownloadOrderWithoutRecompression() {
+        val firstPng = pngBytes(width = 8, height = 8, color = Color.rgb(32, 64, 128))
+        val secondPng = pngBytes(width = 9, height = 7, color = Color.rgb(96, 48, 16))
         val source = testSource(
             pageUrls = listOf("https://img.test/1.png", "https://img.test/2.png"),
-            networkClient = fakeImageClient(FAKE_PNG),
+            networkClient = fakeImageClient(
+                mapOf(
+                    "/1.png" to firstPng,
+                    "/2.png" to secondPng,
+                ),
+            ),
         )
         val outputDir = freshOutputDir()
         val chapter = chapter("1")
@@ -130,12 +142,127 @@ class DownloadPlanAndCbzTest {
         val cbz = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
         assertTrue(cbz.exists())
         ZipFile(cbz).use { zip ->
-            val names = zip.entries().toList().map { it.name }.sorted()
-            assertEquals(listOf("001.png", "002.png"), names)
+            val entries = zip.entries().toList()
+            assertEquals(listOf("001.png", "002.png"), entries.map(ZipEntry::getName))
+            entries.zip(listOf(firstPng, secondPng)).forEach { (entry, expectedBytes) ->
+                // Le immagini sono già compresse: DEFLATED a livello zero evita una seconda
+                // compressione e non richiede il prepass CRC necessario per le entry STORED.
+                assertEquals(ZipEntry.DEFLATED, entry.method)
+                assertTrue(entry.compressedSize >= entry.size)
+                zip.getInputStream(entry).use { input ->
+                    assertArrayEquals(expectedBytes, input.readBytes())
+                }
+            }
         }
         // Nessun residuo temporaneo dopo la finalizzazione.
         assertFalse(File(outputDir, ".${cbz.nameWithoutExtension}_pages").exists())
         assertFalse(File(outputDir, "${cbz.name}.part").exists())
+    }
+
+    @Test
+    fun downloadChapterAsCbz_splitsTallPageAndReportsOriginalPageProgress() {
+        val source = testSource(
+            pageUrls = listOf("https://img.test/tall.png"),
+            networkClient = fakeImageClient(
+                pngBytes(width = 8, height = TallPageNormalizationMinHeightPx),
+            ),
+        )
+        val outputDir = freshOutputDir()
+        val chapter = chapter("1")
+        val progress = mutableListOf<Pair<Int, Int>>()
+
+        val result = runBlocking {
+            source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { completed, total ->
+                progress += completed to total
+            }
+        }
+
+        assertEquals(DownloadResult.DOWNLOADED, result)
+        assertEquals(listOf(1 to 1), progress)
+        val cbz = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
+        ZipFile(cbz).use { zip ->
+            val names = zip.entries().toList().map { it.name }
+            assertEquals(
+                listOf("001__part_0001.png", "001__part_0002.png"),
+                names,
+            )
+        }
+        assertFalse(File(outputDir, ".${cbz.nameWithoutExtension}_pages").exists())
+        assertFalse(File(outputDir, "${cbz.name}.part").exists())
+    }
+
+    @Test
+    fun downloadChapterAsCbz_reportsDownloadCompletionBeforeImageProcessing() {
+        val image = pngBytes(width = 8, height = 8)
+        val source = testSource(
+            pageUrls = listOf("https://img.test/1.png", "https://img.test/2.png"),
+            networkClient = fakeImageClient(image),
+        )
+        val events = mutableListOf<String>()
+
+        runBlocking {
+            source.downloadChapterAsCbz(
+                chapter = chapter("1"),
+                outputDir = freshOutputDir(),
+                pageConcurrency = 1,
+                onProcessingProgress = { completed, total ->
+                    events += "processing:$completed/$total"
+                },
+                onPageProgress = { completed, total ->
+                    events += "download:$completed/$total"
+                },
+            )
+        }
+
+        assertEquals(
+            listOf(
+                "download:1/2",
+                "download:2/2",
+                "processing:0/2",
+                "processing:1/2",
+                "processing:2/2",
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun downloadChapterAsCbz_doesNotNormalizeVyMangaPages() {
+        val original = pngBytes(width = 8, height = TallPageNormalizationMinHeightPx)
+        val source = testSource(
+            sourceId = MangaSourceIds.VYMANGA,
+            pageUrls = listOf("https://img.test/tall.png"),
+            networkClient = fakeImageClient(original),
+        )
+        val outputDir = freshOutputDir()
+        val chapter = chapter("1")
+        val downloadProgress = mutableListOf<Pair<Int, Int>>()
+        val processingProgress = mutableListOf<Pair<Int, Int>>()
+
+        runBlocking {
+            source.downloadChapterAsCbz(
+                chapter = chapter,
+                outputDir = outputDir,
+                pageConcurrency = 1,
+                onProcessingProgress = { completed, total ->
+                    processingProgress += completed to total
+                },
+                onPageProgress = { completed, total ->
+                    downloadProgress += completed to total
+                },
+            )
+        }
+
+        assertEquals(listOf(1 to 1), downloadProgress)
+        assertTrue(processingProgress.isEmpty())
+        val cbz = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
+        ZipFile(cbz).use { zip ->
+            val entries = zip.entries().toList()
+            assertEquals(listOf("001.png"), entries.map { it.name })
+            zip.getInputStream(entries.single()).use { input ->
+                assertArrayEquals(original, input.readBytes())
+            }
+        }
     }
 
     @Test
@@ -154,6 +281,27 @@ class DownloadPlanAndCbzTest {
         }
 
         assertEquals(DownloadResult.SKIPPED_EXISTING, result)
+    }
+
+    @Test
+    fun downloadChapterAsCbz_cleansTemporaryFilesWhenPageDownloadFails() {
+        val source = testSource(
+            pageUrls = listOf("https://img.test/1.png"),
+            networkClient = failingClient(),
+        )
+        val outputDir = freshOutputDir()
+        val chapter = chapter("1")
+        val outputFile = File(outputDir, DownloadStorage.buildChapterFileName(chapter))
+
+        assertThrows(AssertionError::class.java) {
+            runBlocking {
+                source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { _, _ -> }
+            }
+        }
+
+        assertFalse(outputFile.exists())
+        assertFalse(File(outputDir, ".${outputFile.nameWithoutExtension}_pages").exists())
+        assertFalse(File(outputDir, "${outputFile.name}.part").exists())
     }
 
     // ---- spazio su disco ----
@@ -204,6 +352,7 @@ class DownloadPlanAndCbzTest {
     )
 
     private fun testSource(
+        sourceId: String = MangaSourceIds.MANGAPILL,
         chapters: List<ChapterEntry> = emptyList(),
         canonical: String? = MANGA_URL,
         pageUrls: List<String> = emptyList(),
@@ -211,19 +360,34 @@ class DownloadPlanAndCbzTest {
         freeSpace: Long = Long.MAX_VALUE,
     ): TestMangaSource {
         val details = MangaDetails(
-            sourceId = MangaSourceIds.MANGAPILL,
+            sourceId = sourceId,
             title = SERIES_TITLE,
             coverUrl = null,
             mangaUrl = MANGA_URL,
             chapters = chapters,
         )
-        return TestMangaSource(application, networkClient, details, canonical, pageUrls, freeSpace)
+        return TestMangaSource(
+            application,
+            networkClient,
+            details,
+            canonical,
+            pageUrls,
+            freeSpace,
+            sourceId,
+        )
     }
 
-    private fun fakeImageClient(bytes: ByteArray) = MangaNetworkClient(
+    private fun fakeImageClient(bytes: ByteArray) = fakeImageClient(
+        mapOf("*" to bytes),
+    )
+
+    private fun fakeImageClient(bytesByPath: Map<String, ByteArray>) = MangaNetworkClient(
         OkHttpClient.Builder()
             .addInterceptor(
                 Interceptor { chain ->
+                    val bytes = bytesByPath[chain.request().url.encodedPath]
+                        ?: bytesByPath["*"]
+                        ?: error("Nessuna risposta finta per ${chain.request().url.encodedPath}")
                     Response.Builder()
                         .request(chain.request())
                         .protocol(Protocol.HTTP_1_1)
@@ -235,6 +399,24 @@ class DownloadPlanAndCbzTest {
             )
             .build(),
     )
+
+    private fun pngBytes(
+        width: Int,
+        height: Int,
+        color: Int = Color.rgb(32, 64, 128),
+    ): ByteArray {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(color)
+        }
+        return try {
+            ByteArrayOutputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+                output.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
 
     private fun failingClient() = MangaNetworkClient(
         OkHttpClient.Builder()
@@ -251,9 +433,10 @@ class DownloadPlanAndCbzTest {
         private val canonical: String?,
         private val pageUrls: List<String>,
         private val freeSpace: Long,
+        sourceId: String,
     ) : BaseMangaSource(context, networkClient) {
         override val descriptor =
-            MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Test", "T", MangaSourceLanguage.ENG)
+            MangaSourceDescriptor(sourceId, "Test", "T", MangaSourceLanguage.ENG)
         override val invalidChapterUrlMessage = "Invalid test URL"
         override fun canHandleUrl(url: String) = canonical != null
         override fun searchManga(query: String): List<MangaSearchResult> = emptyList()
@@ -266,6 +449,5 @@ class DownloadPlanAndCbzTest {
     private companion object {
         const val MANGA_URL = "https://mangapill.com/manga/42/test-series"
         const val SERIES_TITLE = "Test Series"
-        val FAKE_PNG = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
     }
 }

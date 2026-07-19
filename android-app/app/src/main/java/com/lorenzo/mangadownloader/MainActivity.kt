@@ -1,20 +1,17 @@
 package com.lorenzo.mangadownloader
 
 import android.Manifest
-import android.app.Activity
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -28,37 +25,30 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -125,11 +115,16 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
         themeMode = state.settings.themeMode,
         useDynamicColor = state.settings.useDynamicColor,
     ) {
-        MangaDownloaderAppContent(state = state, viewModel = viewModel)
+        // Densità globale delle card (impostazione stile tema): fornita qui alla radice,
+        // le card condivise la leggono via LocalCardDensity senza parametri da infilare.
+        CompositionLocalProvider(LocalCardDensity provides state.settings.cardDensity) {
+            MangaDownloaderAppContent(state = state, viewModel = viewModel)
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@SuppressLint("InlinedApi") // POST_NOTIFICATIONS è inlined e ogni uso è protetto dal check API 33.
 @Composable
 private fun MangaDownloaderAppContent(
     state: MangaUiState,
@@ -138,27 +133,15 @@ private fun MangaDownloaderAppContent(
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val appContext = remember(context) { context.applicationContext }
-    val workManager = remember { WorkManager.getInstance(context) }
-    val workInfos by workManager.getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE_WORK_NAME)
-        .observeAsState(emptyList())
-    val activeWorkInfos = remember(workInfos) { workInfos.filter { it.isActiveDownload() } }
-    val runningOrQueuedWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
-        ?: activeWorkInfos.firstOrNull()
-    val latestDone = runningOrQueuedWork?.progress?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1) ?: -1
-    val terminalWorkKey = remember(workInfos) {
-        workInfos
-            .filter { it.isTerminalDownload() }
-            .map { "${it.id}:${it.state}" }
-            .sorted()
-            .joinToString("|")
-    }
-    val downloadStatuses = remember(activeWorkInfos) { buildSeriesDownloadStatuses(activeWorkInfos) }
     // Etichette di lettura automatiche dei preferiti, derivate dalla libreria scaricata.
     val favoriteReadingStates = remember(state.favorites, state.library) {
         favoriteReadingStatesByKey(state.favorites, state.library)
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val downloadWorkUiState = rememberDownloadWorkUiState(context, viewModel, snackbarHostState)
+    val workManager = downloadWorkUiState.manager
+    val downloadStatuses = downloadWorkUiState.statuses
     val scope = rememberCoroutineScope()
     // Conserva lo stato salvabile (posizione di scroll in testa) di ogni schermata quando
     // viene smontata navigando altrove, e lo ripristina al ritorno. Vive qui, alla radice
@@ -167,39 +150,6 @@ private fun MangaDownloaderAppContent(
     var lastCrashReport by remember {
         mutableStateOf(CrashReporter.readLastCrash(appContext))
     }
-    var lastForcedChapterProgressKey by remember { mutableStateOf<String?>(null) }
-    var lastForcedTerminalWorkKey by remember { mutableStateOf("") }
-
-    // Refresh the library only on coarse, infrequent transitions: when a chapter
-    // completes (latestDone changes), when a worker terminates, or when the set
-    // of active downloads grows/shrinks. Chapter completion and terminal work
-    // bypass the TTL cache so newly written files are visible immediately.
-    LaunchedEffect(
-        runningOrQueuedWork?.id,
-        runningOrQueuedWork?.state,
-        latestDone,
-        terminalWorkKey,
-        activeWorkInfos.size,
-    ) {
-        val chapterProgressKey = runningOrQueuedWork
-            ?.id
-            ?.takeIf { latestDone > 0 }
-            ?.let { "$it:$latestDone" }
-        val chapterCompleted = chapterProgressKey != null &&
-            chapterProgressKey != lastForcedChapterProgressKey
-        val workerTerminated = terminalWorkKey.isNotBlank() &&
-            terminalWorkKey != lastForcedTerminalWorkKey
-
-        if (chapterCompleted) {
-            lastForcedChapterProgressKey = chapterProgressKey
-        }
-        if (workerTerminated) {
-            lastForcedTerminalWorkKey = terminalWorkKey
-        }
-
-        viewModel.refreshLibrary(forceRefresh = chapterCompleted || workerTerminated)
-    }
-
     LaunchedEffect(state.errorMessage) {
         val message = state.errorMessage ?: return@LaunchedEffect
         // Dove il retry è naturale (fetch dei dettagli fallito) la snackbar offre "Riprova",
@@ -213,53 +163,6 @@ private fun MangaDownloaderAppContent(
             viewModel.dismissError()
             if (result == SnackbarResult.ActionPerformed && retryResult != null) {
                 viewModel.selectManga(retryResult)
-            }
-        }
-    }
-
-    // Download FALLITI (non i CANCELLED, che sono stop volontari): prima sparivano in silenzio.
-    // Mostriamo l'errore con "Riprova" che ri-accoda lo stesso intervallo dai dati del work.
-    // I fallimenti già presenti all'avvio fanno da baseline (niente snackbar per vecchi errori).
-    val handledFailureIds = remember { mutableStateOf<Set<String>>(emptySet()) }
-    var failuresInitialized by remember { mutableStateOf(false) }
-    LaunchedEffect(workInfos) {
-        val failed = workInfos.filter { it.state == WorkInfo.State.FAILED }
-        if (!failuresInitialized) {
-            handledFailureIds.value = failed.map { it.id.toString() }.toSet()
-            failuresInitialized = true
-            return@LaunchedEffect
-        }
-        val fresh = failed.filter { it.id.toString() !in handledFailureIds.value }
-        if (fresh.isEmpty()) return@LaunchedEffect
-        handledFailureIds.value = handledFailureIds.value + fresh.map { it.id.toString() }
-
-        val workInfo = fresh.last()
-        val data = workInfo.progress
-        val output = workInfo.outputData
-        fun field(key: String) = output.getString(key)?.takeIf { it.isNotBlank() }
-            ?: data.getString(key)?.takeIf { it.isNotBlank() }
-        fun tagValue(prefix: String) =
-            workInfo.tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)?.takeIf { it.isNotBlank() }
-
-        val title = field(DownloadWorker.PROGRESS_SERIES_TITLE) ?: tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX)
-        val message = field(DownloadWorker.PROGRESS_MESSAGE) ?: "errore sconosciuto"
-        val firstUrl = field(DownloadWorker.PROGRESS_FIRST_URL)
-        val label = title?.let { "Download di $it non riuscito" } ?: "Download non riuscito"
-        scope.launch {
-            val result = snackbarHostState.showAutoDismissSnackbar(
-                message = "$label: $message",
-                actionLabel = if (firstUrl != null) "Riprova" else null,
-            )
-            if (result == SnackbarResult.ActionPerformed && firstUrl != null) {
-                DownloadWorker.enqueue(
-                    context = appContext,
-                    firstUrl = firstUrl,
-                    lastUrl = field(DownloadWorker.PROGRESS_LAST_URL),
-                    sourceId = field(DownloadWorker.PROGRESS_SOURCE_ID) ?: tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX),
-                    seriesTitle = title,
-                    mangaUrl = field(DownloadWorker.PROGRESS_MANGA_URL) ?: tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
-                    coverUrl = tagValue(DownloadWorker.TAG_COVER_URL_PREFIX),
-                )
             }
         }
     }
@@ -369,65 +272,6 @@ private fun MangaDownloaderAppContent(
         viewModel.checkForAppUpdate()
     }
 
-    // Blocca l'app in verticale di default. Solo se l'utente attiva esplicitamente
-    // il flag nelle impostazioni consentiamo la rotazione (a rischio impaginazione).
-    LaunchedEffect(activity, state.settings.allowLandscapeRotation) {
-        activity?.requestedOrientation = if (state.settings.allowLandscapeRotation) {
-            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
-    }
-
-    LaunchedEffect(state.biometricPromptRequest?.requestId) {
-        val request = state.biometricPromptRequest ?: return@LaunchedEffect
-        val hostActivity = activity
-        if (hostActivity == null) {
-            viewModel.cancelBiometricAuthentication(
-                request.requestId,
-                "Biometria non disponibile su questo dispositivo",
-            )
-            return@LaunchedEffect
-        }
-
-        val prompt = BiometricPrompt(
-            hostActivity,
-            ContextCompat.getMainExecutor(hostActivity),
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    viewModel.onBiometricAuthenticationSucceeded(request.requestId)
-                }
-
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    when (errorCode) {
-                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
-                            viewModel.usePinInsteadOfBiometric(request.requestId)
-                        }
-                        BiometricPrompt.ERROR_USER_CANCELED,
-                        BiometricPrompt.ERROR_CANCELED -> {
-                            viewModel.cancelBiometricAuthentication(request.requestId)
-                        }
-                        else -> {
-                            viewModel.cancelBiometricAuthentication(
-                                request.requestId,
-                                errString.toString(),
-                            )
-                        }
-                    }
-                }
-            },
-        )
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(request.title)
-            .setSubtitle(request.subtitle)
-            .setAllowedAuthenticators(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK)
-            .setNegativeButtonText("Usa PIN")
-            .build()
-
-        prompt.authenticate(promptInfo)
-    }
-
     // Senza POST_NOTIFICATIONS (Android 13+) il worker non può promuoversi a foreground
     // service: i download lunghi vengono fermati dal sistema (~10 minuti) e ripresi solo a
     // singhiozzo sotto Doze. Richiediamo il permesso nel momento in cui serve davvero
@@ -497,12 +341,10 @@ private fun MangaDownloaderAppContent(
     }
 
     val visibleTabs = state.visibleTabs()
-    // pageCount letto live dal pager (la lambda persiste): rememberUpdatedState evita di
-    // catturare un conteggio stantio quando la tab Scopri viene attivata/disattivata.
-    val visibleTabCount by rememberUpdatedState(visibleTabs.size)
     val pagerState = rememberPagerState(
         initialPage = state.tabPageIndex(state.currentTab),
-        pageCount = { visibleTabCount },
+        // Il set di tab è fisso (Home·Cerca·Preferiti·Libreria): il conteggio è costante.
+        pageCount = { visibleTabs.size },
     )
     val showPager = state.currentScreen() == Screen.Tabs
     val visiblePagerTab = when {
@@ -515,8 +357,15 @@ private fun MangaDownloaderAppContent(
     // Quando si arriva sulla tab Preferiti (dove è visibile il badge "Aggiornamenti"), rilegge
     // il feed così il conteggio riflette gli eventi scritti dal worker mentre l'app era aperta.
     LaunchedEffect(visiblePagerTab) {
-        if (visiblePagerTab == AppTab.FAVORITES) {
-            viewModel.refreshUpdatesFeed()
+        when (visiblePagerTab) {
+            AppTab.FAVORITES -> viewModel.refreshUpdatesFeed()
+            AppTab.HOME -> {
+                // La Home mostra ripresa lettura e novità: entrambe vanno rinfrescate quando
+                // diventa visibile (la libreria si ri-scansiona solo entrando in Libreria).
+                viewModel.refreshLibrary()
+                viewModel.refreshUpdatesFeed()
+            }
+            else -> {}
         }
     }
 
@@ -529,37 +378,31 @@ private fun MangaDownloaderAppContent(
     // invariato passando a capitolo successivo/precedente.
     var isReaderFullscreen by remember(state.readerChapter != null) { mutableStateOf(false) }
 
+    // Modalità modifica della Home: vive qui (non in HomeScreen) perché la top bar la comanda.
+    var homeEditMode by rememberSaveable { mutableStateOf(false) }
+
+    // Nascondere la tab Home chiude la modalità modifica: al ritorno la Home riparte normale.
+    LaunchedEffect(state.settings.showHomeTab) {
+        if (!state.settings.showHomeTab) homeEditMode = false
+    }
+
     // Vero schermo intero: quando il reader è in fullscreen nascondiamo anche le barre
     // di sistema (status + navigation), così la pagina occupa davvero tutto lo schermo.
     // Si esce con un tap (toggle) o con lo swipe dal bordo, che le ripristina da solo.
-    val view = LocalView.current
-    val readerImmersive = state.readerChapter != null && isReaderFullscreen
-    LaunchedEffect(readerImmersive, view) {
-        if (view.isInEditMode) return@LaunchedEffect
-        val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
-        val controller = WindowCompat.getInsetsController(window, view)
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (readerImmersive) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
     // Durante la lettura i tocchi sono rari (pagine lunghe, tavole dense): senza questo
     // flag il timeout di sistema spegne lo schermo a metà pagina. Attivo solo a reader
     // aperto (e con l'impostazione dedicata accesa); onDispose lo ripulisce sempre.
-    val keepScreenOn = state.readerChapter != null && state.settings.keepScreenOnEnabled
-    DisposableEffect(keepScreenOn, view) {
-        val window = (view.context as? Activity)?.window
-        if (keepScreenOn && window != null && !view.isInEditMode) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-        onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    AppSystemEffects(
+        activity = activity,
+        allowLandscapeRotation = state.settings.allowLandscapeRotation,
+        biometricRequest = state.biometricPromptRequest,
+        readerOpen = state.readerChapter != null,
+        readerFullscreen = isReaderFullscreen,
+        keepReaderScreenOn = state.settings.keepScreenOnEnabled,
+        onBiometricSucceeded = viewModel::onBiometricAuthenticationSucceeded,
+        onUsePinInstead = viewModel::usePinInsteadOfBiometric,
+        onBiometricCancelled = viewModel::cancelBiometricAuthentication,
+    )
 
     // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
     // trasforma il vicolo cieco in un passo successivo chiaro. Rispetta il lock parentale.
@@ -608,9 +451,6 @@ private fun MangaDownloaderAppContent(
 
     TutorialOverlay(
         state = state,
-        onWelcomeStart = viewModel::onTutorialWelcomeStart,
-        onWelcomeSkip = viewModel::onTutorialWelcomeSkip,
-        onWelcomeDismiss = viewModel::dismissTutorialWelcome,
         onFallbackCompleted = {
             viewModel.onTutorialFallbackCompleted()
             // A tour appena concluso il valore delle notifiche è chiaro: è il momento
@@ -671,12 +511,15 @@ private fun MangaDownloaderAppContent(
                     visibleTab = visiblePagerTab,
                     onBack = viewModel::handleBack,
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
+                    onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
                     onOpenSettings = viewModel::openSettings,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
+                    homeEditMode = homeEditMode,
+                    onToggleHomeEdit = { homeEditMode = !homeEditMode },
                 )
             }
         },
@@ -684,8 +527,8 @@ private fun MangaDownloaderAppContent(
             if (showPager) {
                 AppBottomBar(
                     currentTab = visiblePagerTab,
-                    showDiscovery = state.settings.discoveryEnabled,
                     favoritesBadgeCount = unseenCount(state.favoriteUpdates),
+                    showHomeTab = state.settings.showHomeTab,
                     onSelect = { tab ->
                         viewModel.selectTab(tab)
                         val requiresSearchUnlock = tab == AppTab.SEARCH &&
@@ -746,6 +589,33 @@ private fun MangaDownloaderAppContent(
                     onBrowse = goToSearchTab,
                 )
             }
+            Screen.History -> {
+                HistoryScreen(
+                    memory = state.readingMemory,
+                    library = state.library,
+                    padding = innerPadding,
+                    onOpenChapter = viewModel::openReader,
+                )
+            }
+            Screen.Stats -> {
+                StatsScreen(
+                    state = state,
+                    padding = innerPadding,
+                    onOpenSeries = viewModel::selectDownloadedSeries,
+                )
+            }
+            Screen.DiscoverGenre -> {
+                DiscoverGenreScreen(
+                    discovery = state.discovery,
+                    padding = innerPadding,
+                    onPick = viewModel::onPickAniListManga,
+                    onShowInfo = viewModel::showDiscoveryInfo,
+                    onDismissInfo = viewModel::dismissDiscoveryInfo,
+                    onRetry = {
+                        state.discovery.selectedGenre?.let(viewModel::loadDiscoverGenre)
+                    },
+                )
+            }
             Screen.Backup -> {
                 BackupScreen(
                     padding = innerPadding,
@@ -788,8 +658,9 @@ private fun MangaDownloaderAppContent(
                     isAniListConnecting = state.aniList.isConnecting,
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
+                    onSelectCardDensity = viewModel::setCardDensity,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onToggleDiscovery = viewModel::setDiscoveryEnabled,
+                    onRestartTutorial = viewModel::restartTutorial,
                     onConnectAniList = {
                         scope.launch {
                             if (!AniListAuth.isConfigured()) {
@@ -819,6 +690,7 @@ private fun MangaDownloaderAppContent(
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
+                    onToggleShowHomeTab = viewModel::setShowHomeTab,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
@@ -897,14 +769,31 @@ private fun MangaDownloaderAppContent(
                     userScrollEnabled = showPager,
                 ) { page ->
                     when (visibleTabs.getOrElse(page) { AppTab.SEARCH }) {
-                        AppTab.DISCOVERY -> DiscoveryScreen(
+                        AppTab.HOME -> HomeScreen(
                             state = state,
+                            editMode = homeEditMode,
                             padding = innerPadding,
-                            onLoad = viewModel::loadDiscovery,
-                            onSelectGenre = viewModel::selectDiscoveryGenre,
-                            onPick = viewModel::onPickAniListManga,
-                            onShowInfo = viewModel::showDiscoveryInfo,
-                            onDismissInfo = viewModel::dismissDiscoveryInfo,
+                            onResume = viewModel::openReader,
+                            onOpenUpdate = viewModel::openMangaFromUpdate,
+                            onOpenAllUpdates = viewModel::openUpdates,
+                            onOpenHistory = viewModel::openHistory,
+                            onOpenStats = viewModel::openStats,
+                            onPickDiscover = viewModel::onPickAniListManga,
+                            onShowDiscoverInfo = viewModel::showDiscoveryInfo,
+                            onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
+                            onLoadDiscover = viewModel::loadDiscovery,
+                            onLoadRecommendations = viewModel::loadRecommendations,
+                            onOpenGenre = viewModel::openDiscoverGenre,
+                            onSearchFirst = goToSearchTab,
+                            onStartTutorial = {
+                                viewModel.onTutorialWelcomeStart()
+                                // Il tour interattivo parte dalla tab Cerca (primo spotlight sulla
+                                // barra di ricerca): portaci l'utente, rispettando il lock parentale.
+                                goToSearchTab()
+                            },
+                            onDismissTutorial = viewModel::onTutorialWelcomeSkip,
+                            onMoveBlock = viewModel::moveHomeBlock,
+                            onSetBlockHidden = viewModel::setHomeBlockHidden,
                         )
                         AppTab.SEARCH -> SearchScreen(
                             state = state,
@@ -930,14 +819,7 @@ private fun MangaDownloaderAppContent(
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,
                             onSelect = { favorite ->
-                                viewModel.selectManga(
-                                    MangaSearchResult(
-                                        sourceId = favorite.sourceId,
-                                        title = favorite.title,
-                                        mangaUrl = favorite.mangaUrl,
-                                        coverUrl = favorite.coverUrl,
-                                    ),
-                                )
+                                viewModel.selectManga(favorite.toSearchResult())
                             },
                             onBrowse = goToSearchTab,
                             onSelectSort = viewModel::setFavoriteSort,
@@ -1080,18 +962,6 @@ private fun MangaDownloaderAppContent(
         }
 }
 
-private fun WorkInfo.isActiveDownload(): Boolean {
-    return state == WorkInfo.State.RUNNING ||
-        state == WorkInfo.State.ENQUEUED ||
-        state == WorkInfo.State.BLOCKED
-}
-
-private fun WorkInfo.isTerminalDownload(): Boolean {
-    return state == WorkInfo.State.SUCCEEDED ||
-        state == WorkInfo.State.FAILED ||
-        state == WorkInfo.State.CANCELLED
-}
-
 private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
     if (!enabled) return 0f
     return (1f - brightness.coerceIn(0f, 1f)) * ReaderPrivacyMaxDimAlpha
@@ -1109,7 +979,7 @@ private const val SnackbarWithActionTimeoutMs = 4_000L
  * è [SnackbarResult.Dismissed], come per uno swipe. Senza azione, comportamento
  * standard (Short).
  */
-private suspend fun SnackbarHostState.showAutoDismissSnackbar(
+internal suspend fun SnackbarHostState.showAutoDismissSnackbar(
     message: String,
     actionLabel: String? = null,
 ): SnackbarResult {

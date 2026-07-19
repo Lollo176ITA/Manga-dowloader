@@ -7,7 +7,10 @@ import androidx.biometric.BiometricManager
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import coil3.imageLoader
 import java.io.File
+import java.io.IOException
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -25,16 +28,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class AppTab {
-    DISCOVERY,
+    HOME,
     SEARCH,
     FAVORITES,
     LIBRARY,
 }
 
 /**
- * Stato della tab "Scopri" (AniList). AniList fornisce solo metadati: le tre sezioni a caroselli
- * ([trending]/[topRated]/[newest]) e la ricerca per [selectedGenre] mostrano [AniListManga], che
- * NON sono scaricabili direttamente — il tap fa il "ponte" verso le fonti reali (vedi
+ * Stato del blocco "Scopri" nella Home (AniList). AniList fornisce solo metadati: le tre sezioni
+ * a caroselli ([trending]/[topRated]/[newest]) mostrano [AniListManga], che NON sono scaricabili
+ * direttamente — il tap fa il "ponte" verso le fonti reali (vedi
  * [MangaViewModel.onPickAniListManga]). [info] è il manga di cui mostrare la trama nel dialog.
  */
 data class DiscoveryUiState(
@@ -44,11 +47,24 @@ data class DiscoveryUiState(
     val isLoadingSections: Boolean = false,
     val sectionsError: String? = null,
     val loaded: Boolean = false,
-    val selectedGenre: String? = null,
+    val info: AniListManga? = null,
+    // Pagina "esplora per genere": genere aperto, risultati e stato di caricamento.
+    val selectedGenre: DiscoverGenre? = null,
     val genreResults: List<AniListManga> = emptyList(),
     val isLoadingGenre: Boolean = false,
     val genreError: String? = null,
-    val info: AniListManga? = null,
+)
+
+/**
+ * Stato del blocco Home "Consigliati per te": raccomandazioni della community AniList a partire
+ * da preferiti e letture dell'utente (vedi [MangaViewModel.loadRecommendations]). Come per la
+ * Scopri, sono solo metadati: il tap fa il ponte verso le fonti reali.
+ */
+data class RecommendationsUiState(
+    val items: List<AniListManga> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val loaded: Boolean = false,
 )
 
 /**
@@ -104,7 +120,6 @@ data class AppSettings(
     // persistito da versioni precedenti viene riportato alla lingua della fonte in lettura.
     val searchScope: SearchScope = SearchScope.ITA,
     val searchSourceId: String = MangaSourceIds.DEFAULT,
-    val discoveryEnabled: Boolean = false,
     val autoDownloadEnabled: Boolean = false,
     val autoDownloadTriggerChapters: Int = 3,
     val autoDownloadBatchSize: Int = 3,
@@ -135,6 +150,13 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
+    // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
+    val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
+    val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
+    // Densità globale delle card (come il tema): guida dimensioni e varianti compatte.
+    val cardDensity: CardDensity = CardDensity.NORMAL,
+    // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
+    val showHomeTab: Boolean = true,
 )
 
 enum class ParentalAction {
@@ -204,7 +226,7 @@ data class TutorialUiState(
 )
 
 data class MangaUiState(
-    val currentTab: AppTab = AppTab.SEARCH,
+    val currentTab: AppTab = AppTab.HOME,
     val pendingSearchAccessReturnTab: AppTab? = null,
     val query: String = "",
     val favoritesQuery: String = "",
@@ -212,6 +234,7 @@ data class MangaUiState(
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
     val discovery: DiscoveryUiState = DiscoveryUiState(),
+    val recommendations: RecommendationsUiState = RecommendationsUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
@@ -229,6 +252,11 @@ data class MangaUiState(
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
     val library: List<DownloadedSeries> = emptyList(),
+    // Memoria di lettura persistente (statistiche/cronologia): sopravvive all'eliminazione
+    // dei download. Fonte di verità su disco: ReadingMemoryStore.
+    val readingMemory: Map<String, ReadChapterMemory> = emptyMap(),
+    // Diario giornaliero (capitoli/pagine per data): andamento, streak, heatmap, record.
+    val readingDiary: Map<String, ReadingDayStats> = emptyMap(),
     val isLoadingLibrary: Boolean = false,
     val selectedDownloadedSeries: DownloadedSeries? = null,
     val readerChapter: ReaderChapter? = null,
@@ -248,6 +276,8 @@ data class MangaUiState(
     val showChangelog: Boolean = false,
     val showFeedback: Boolean = false,
     val showUpdates: Boolean = false,
+    val showHistory: Boolean = false,
+    val showStats: Boolean = false,
     val aniList: AniListUiState = AniListUiState(),
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
     val settings: AppSettings = AppSettings(),
@@ -258,11 +288,7 @@ data class MangaUiState(
     val biometricPromptRequest: ParentalBiometricPromptRequest? = null,
     val tutorialState: TutorialUiState = TutorialUiState(),
     val errorMessage: String? = null,
-) {
-    /** Ricerca aggregata su più fonti (Tutte o per lingua), invece della fonte singola. */
-    val aggregatedSearchActive: Boolean
-        get() = settings.searchScope != SearchScope.SOURCE
-}
+)
 
 private fun AppSettings.shouldStartTutorial(favorites: List<FavoriteManga>): Boolean {
     return !tutorialCompleted && favorites.isEmpty()
@@ -295,6 +321,10 @@ class MangaViewModel internal constructor(
     private val streamingCacheRepository = StreamingReaderCacheRepository(
         context = application,
         networkClient = MangaNetworkClient(SharedHttpClient.get(application)),
+        // Le pagine dello streaming reader vengono già scaricate da Coil per mostrarle: se
+        // sono nella sua disk-cache le copiamo invece di riscaricarle, così una pagina letta
+        // non viaggia sulla rete due volte solo per finire in cache offline.
+        reusablePageCopier = { url, target -> copyCoilCachedPage(application, url, target) },
     )
     private val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
     private val settingsStore = SettingsStore(prefs)
@@ -304,12 +334,16 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
+    private val readingMemoryStore = ReadingMemoryStore(prefs)
+    private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
         favoriteDescriptionsStore = favoriteDescriptionsStore,
         recentSearchesStore = recentSearchesStore,
         settingsStore = settingsStore,
+        readingMemoryStore = readingMemoryStore,
+        readingDiaryStore = readingDiaryStore,
         appVersionName = BuildConfig.VERSION_NAME,
     )
 
@@ -324,18 +358,26 @@ class MangaViewModel internal constructor(
     private val initialFavorites = favoritesStore.read()
     private val initialSettings = settingsStore.read()
     private val initialFavoriteSeen = favoriteUpdatesStore.read()
+    private val initialReadingMemory = readingMemoryStore.read()
+    private val initialReadingDiary = readingDiaryStore.read()
+
+    // Ultimi memoria/diario di lettura scritti su disco: persistono solo sui cambi reali
+    // (il seed restituisce la stessa istanza quando non c'è nulla di nuovo).
+    private var lastPersistedReadingMemory = initialReadingMemory
+    private var lastPersistedReadingDiary = initialReadingDiary
 
     private val _state = MutableStateFlow(
         MangaUiState(
-            // Parental → Libreria (Cerca bloccato). Se la vetrina Scopri è attiva e non c'è il
-            // tutorial in partenza, atterra lì. Altrimenti → Cerca.
+            // Home è il centro dell'app e la tab d'avvio; il controllo parentale continua a
+            // forzare l'atterraggio su Libreria (Cerca resta dietro il PIN).
             currentTab = when {
                 initialSettings.parentalControlEnabled -> AppTab.LIBRARY
-                initialSettings.discoveryEnabled &&
-                    !initialSettings.shouldStartTutorial(initialFavorites) -> AppTab.DISCOVERY
-                else -> AppTab.SEARCH
+                !initialSettings.showHomeTab -> AppTab.SEARCH
+                else -> AppTab.HOME
             },
             recentSearches = recentSearchesStore.read(),
+            readingMemory = initialReadingMemory,
+            readingDiary = initialReadingDiary,
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
             favoriteSeenStates = initialFavoriteSeen,
@@ -362,7 +404,8 @@ class MangaViewModel internal constructor(
 
     private var searchJob: Job? = null
     private var discoveryJob: Job? = null
-    private var discoveryGenreJob: Job? = null
+    private var recommendationsJob: Job? = null
+    private var genreJob: Job? = null
     private var detailJob: Job? = null
     private var infoJob: Job? = null
     private var libraryJob: Job? = null
@@ -399,46 +442,21 @@ class MangaViewModel internal constructor(
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { Triple(it.query.trim(), it.settings.searchSourceId, it.settings.searchScope) }
+                .map { it.query.trim() to it.settings.searchScope }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (q, sourceId, scope) ->
-                    if (scope != SearchScope.SOURCE) {
-                        // Ambito aggregato (Tutte o per lingua): parte con qualunque query non vuota.
-                        if (q.isNotEmpty()) {
-                            runAggregatedSearch(q)
-                        } else {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(results = emptyList(), isSearching = false, searchError = null)
-                            }
-                        }
-                        return@collect
-                    }
-                    val searchConfig = MangaSourceCatalog.searchConfig(sourceId)
-                    when {
-                        q.isEmpty() && searchConfig.showAllOnEmptyQuery -> runSearch("")
-                        q.isEmpty() -> {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(
-                                    results = emptyList(),
-                                    isSearching = false,
-                                    searchError = null,
-                                    errorMessage = null,
-                                )
-                            }
-                        }
-                        q.length >= searchConfig.minQueryLength -> runSearch(q)
-                        else -> {
-                            searchJob?.cancel()
-                            updateState {
-                                copy(
-                                    results = emptyList(),
-                                    isSearching = false,
-                                    searchError = null,
-                                )
-                            }
+                .collect { (query, _) ->
+                    if (query.isNotEmpty()) {
+                        runAggregatedSearch(query)
+                    } else {
+                        searchJob?.cancel()
+                        updateState {
+                            copy(
+                                results = emptyList(),
+                                isSearching = false,
+                                searchError = null,
+                                errorMessage = null,
+                            )
                         }
                     }
                 }
@@ -450,17 +468,7 @@ class MangaViewModel internal constructor(
     }
 
     fun submitSearch() {
-        val q = _state.value.query.trim()
-        if (_state.value.aggregatedSearchActive) {
-            if (q.isNotEmpty()) runAggregatedSearch(q)
-            return
-        }
-        val searchConfig = MangaSourceCatalog.searchConfig(_state.value.settings.searchSourceId)
-        if (q.isEmpty() && searchConfig.showAllOnEmptyQuery) {
-            runSearch("")
-        } else if (q.length >= searchConfig.minQueryLength) {
-            runSearch(q)
-        }
+        _state.value.query.trim().takeIf(String::isNotEmpty)?.let(::runAggregatedSearch)
     }
 
     fun selectTab(tab: AppTab) {
@@ -558,60 +566,22 @@ class MangaViewModel internal constructor(
         updateState { copy(showSettings = true) }
     }
 
-    fun selectSearchSource(sourceId: String) {
-        val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId)
-        val query = _state.value.query.trim()
-        val searchConfig = MangaSourceCatalog.searchConfig(resolvedSourceId)
-        // Scegliere una fonte singola esce dall'ambito aggregato (Tutte/lingua).
-        updateSettings {
-            it.copy(searchScope = SearchScope.SOURCE, searchSourceId = resolvedSourceId)
-        }
-        updateState { copy(errorMessage = null) }
-        when {
-            query.isEmpty() && searchConfig.showAllOnEmptyQuery -> {
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = true,
-                    )
-                }
-            }
-            query.length >= searchConfig.minQueryLength -> {
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = true,
-                    )
-                }
-            }
-            else -> {
-                searchJob?.cancel()
-                updateState {
-                    copy(
-                        results = emptyList(),
-                        isSearching = false,
-                    )
-                }
-            }
-        }
-    }
-
     /**
      * Chip "Tutte" (o CTA "Cerca su tutte le fonti" a zero risultati): attiva la ricerca
      * aggregata su ogni fonte. Il rilancio della query corrente lo fa [observeQueryChanges],
      * che osserva anche `settings.searchScope`.
      */
     fun selectAllSourcesSearch() {
-        setAggregatedSearchScope(SearchScope.ALL)
+        setSearchScope(SearchScope.ALL)
     }
 
     /** Chip lingua ("Italiano"/"English"): ricerca aggregata sulle fonti di quella lingua. */
     fun selectLanguageSearch(language: MangaSourceLanguage) {
-        setAggregatedSearchScope(SearchScope.forLanguage(language))
+        setSearchScope(SearchScope.forLanguage(language))
     }
 
-    private fun setAggregatedSearchScope(scope: SearchScope) {
-        require(scope != SearchScope.SOURCE) { "Per la fonte singola usare selectSearchSource" }
+    private fun setSearchScope(scope: SearchScope) {
+        require(scope != SearchScope.SOURCE) { "SOURCE è riservato alla migrazione dei dati legacy" }
         if (_state.value.settings.searchScope == scope) return
         val query = _state.value.query.trim()
         updateSettings { it.copy(searchScope = scope) }
@@ -700,6 +670,10 @@ class MangaViewModel internal constructor(
             if (clearFeed) {
                 favoriteUpdatesFeedStore.write(emptyList())
             }
+            // Il BackupManager ha già persistito memoria e diario ripristinati: allinea le
+            // baseline per non riscriverli identici al prossimo confronto.
+            lastPersistedReadingMemory = result.readingMemory
+            lastPersistedReadingDiary = result.readingDiary
             updateState {
                 copy(
                     favorites = result.favorites,
@@ -709,6 +683,8 @@ class MangaViewModel internal constructor(
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
                     recentSearches = result.recentSearches,
                     settings = result.settings,
+                    readingMemory = result.readingMemory,
+                    readingDiary = result.readingDiary,
                     errorMessage = restoreMessage(result),
                 )
             }
@@ -755,6 +731,24 @@ class MangaViewModel internal constructor(
      */
     fun refreshUpdatesFeed() {
         updateState { copy(favoriteUpdates = favoriteUpdatesFeedStore.read()) }
+    }
+
+    /** Apre la pagina Cronologia (dal "Vedi tutto" del blocco Letti di recente). */
+    fun openHistory() {
+        updateState { copy(showHistory = true) }
+    }
+
+    fun closeHistory() {
+        updateState { copy(showHistory = false) }
+    }
+
+    /** Apre la pagina Statistiche (dal "Vedi tutto" del blocco Statistiche). */
+    fun openStats() {
+        updateState { copy(showStats = true) }
+    }
+
+    fun closeStats() {
+        updateState { copy(showStats = false) }
     }
 
     /** Marca tutti gli aggiornamenti come visti, persistendo (azzera il badge). */
@@ -830,14 +824,7 @@ class MangaViewModel internal constructor(
      */
     fun openMangaFromUpdate(event: FavoriteUpdateEvent) {
         markUpdateSeen(event)
-        selectManga(
-            MangaSearchResult(
-                sourceId = event.sourceId,
-                title = event.title,
-                mangaUrl = event.mangaUrl,
-                coverUrl = event.coverUrl,
-            ),
-        )
+        selectManga(event.toSearchResult())
     }
 
     fun setParentalControlEnabled(enabled: Boolean) {
@@ -955,8 +942,10 @@ class MangaViewModel internal constructor(
                     copy(
                         currentTab = if (
                             setupState.completionAction == null &&
-                            currentTab == AppTab.SEARCH
+                            (currentTab == AppTab.SEARCH || currentTab == AppTab.HOME)
                         ) {
+                            // Attivando il parental si atterra su Libreria: Home e Cerca
+                            // mostrano/portano a contenuti online che il parental limita.
                             AppTab.LIBRARY
                         } else {
                             currentTab
@@ -1082,14 +1071,6 @@ class MangaViewModel internal constructor(
         }
     }
 
-    fun setDiscoveryEnabled(enabled: Boolean) {
-        updateSettings { it.copy(discoveryEnabled = enabled) }
-        // Se disattivata mentre era la tab corrente, evita di restare su una pagina che sparisce.
-        if (!enabled && _state.value.currentTab == AppTab.DISCOVERY) {
-            updateState { copy(currentTab = AppTab.SEARCH) }
-        }
-    }
-
     fun setAutoDownloadEnabled(enabled: Boolean) {
         updateSettings { it.copy(autoDownloadEnabled = enabled) }
     }
@@ -1199,16 +1180,7 @@ class MangaViewModel internal constructor(
         markTutorialCompleted()
     }
 
-    /**
-     * Tap fuori dal dialogo di benvenuto (o back): chiude il tour SENZA segnarlo completato,
-     * così un mis-tap non brucia l'onboarding — si ripresenta al prossimo avvio. Lo skip
-     * definitivo resta solo sul bottone "Salta".
-     */
-    fun dismissTutorialWelcome() {
-        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
-        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
-    }
-
+    /** Chiude il percorso di fallback del tutorial, segnandolo come completato (permanente). */
     fun onTutorialFallbackCompleted() {
         markTutorialCompleted()
     }
@@ -1232,7 +1204,9 @@ class MangaViewModel internal constructor(
     private fun runTutorialPreload() {
         viewModelScope.launch {
             try {
-                val sourceId = _state.value.settings.searchSourceId
+                // Fonte deterministica: `searchSourceId` sopravvive soltanto per migrare i dati
+                // delle versioni che permettevano la ricerca su una singola fonte.
+                val sourceId = MangaSourceIds.DEFAULT
                 val source = sourceRegistry.requireById(sourceId)
                 val results = withContext(Dispatchers.IO) { source.searchManga("One Piece") }
                 val match = results.firstOrNull { it.title.contains("One Piece", ignoreCase = true) }
@@ -1321,14 +1295,7 @@ class MangaViewModel internal constructor(
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
-        toggleFavorite(
-            FavoriteManga(
-                sourceId = result.sourceId,
-                title = result.title,
-                mangaUrl = result.mangaUrl,
-                coverUrl = result.coverUrl,
-            ),
-        )
+        toggleFavorite(result.toFavoriteManga())
     }
 
     fun selectManga(result: MangaSearchResult) {
@@ -1342,13 +1309,7 @@ class MangaViewModel internal constructor(
                 isLoadingDetails = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = readChapterIds,
-                selected = MangaDetails(
-                    sourceId = result.sourceId,
-                    title = result.title,
-                    coverUrl = result.coverUrl,
-                    mangaUrl = result.mangaUrl,
-                    chapters = emptyList(),
-                ),
+                selected = result.toDetailsStub(),
             )
         }
         detailJob = viewModelScope.launch {
@@ -1517,14 +1478,17 @@ class MangaViewModel internal constructor(
 
     fun toggleFavoriteSelectedManga() {
         val selected = _state.value.selected ?: return
-        toggleFavorite(
-            FavoriteManga(
-                sourceId = selected.sourceId,
-                title = selected.title,
-                mangaUrl = selected.mangaUrl,
-                coverUrl = selected.coverUrl,
-            ),
-        )
+        toggleFavorite(selected.toFavoriteManga())
+    }
+
+    /**
+     * Stella nella schermata di una serie scaricata: magari il manga è stato scaricato senza
+     * ricordarsi di metterlo tra i preferiti. No-op se la serie non ha un URL d'origine
+     * (identità del preferito) — in quel caso la stella non viene proprio mostrata.
+     */
+    fun toggleFavoriteSelectedSeries() {
+        val favorite = _state.value.selectedDownloadedSeries?.toFavoriteManga() ?: return
+        toggleFavorite(favorite)
     }
 
     fun refreshLibrary(forceRefresh: Boolean = false) {
@@ -1534,6 +1498,7 @@ class MangaViewModel internal constructor(
             try {
                 val snapshot = scanLibrarySnapshot(forceRefresh)
                 updateState { withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -1553,9 +1518,11 @@ class MangaViewModel internal constructor(
                 selectedDownloadedSeries = series,
                 currentTab = AppTab.LIBRARY,
                 // Chiude eventuali overlay sopra: aprendo la serie dalla Gestione memoria
-                // (raggiunta dalle Impostazioni) si deve atterrare sulla schermata serie.
+                // (dalle Impostazioni) o dalla classifica della pagina Statistiche si deve
+                // atterrare sulla schermata serie.
                 showStorageManager = false,
                 showSettings = false,
+                showStats = false,
                 errorMessage = null,
             )
         }
@@ -1619,6 +1586,13 @@ class MangaViewModel internal constructor(
             ?: 0
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
         val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
+        val readerSourceId = sequenceOf(_state.value.selectedDownloadedSeries)
+            .plus(_state.value.library.asSequence())
+            .filterNotNull()
+            .firstOrNull { series ->
+                series.chapters.any { it.relativePath == chapter.relativePath }
+            }
+            ?.sourceId
 
         updateState {
             copy(
@@ -1643,7 +1617,7 @@ class MangaViewModel internal constructor(
                 libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
                 updateState {
                     copy(
-                        readerPages = pages.map(ReaderPage::Local),
+                        readerPages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
@@ -1693,7 +1667,8 @@ class MangaViewModel internal constructor(
             mangaUrl = streamingChapter.mangaUrl,
             chapterUrl = streamingChapter.chapter.url,
         )
-        val savedPageIndex = libraryRepository.readerPagePosition(readerChapter.relativePath)?.pageIndex ?: 0
+        val savedPagePosition = libraryRepository.readerPagePosition(readerChapter.relativePath)
+        val savedPageIndex = savedPagePosition?.pageIndex ?: 0
         val seriesKey = seriesKeyForStreaming(streamingChapter.sourceId, streamingChapter.mangaUrl)
         updateState {
             copy(
@@ -1716,23 +1691,15 @@ class MangaViewModel internal constructor(
                     streamingCacheRepository.getCachedChapter(cacheKey)
                 }
                 if (cached != null) {
-                    val restored = savedPageIndex.coerceIn(0, cached.pages.lastIndex.coerceAtLeast(0))
+                    val restored = cached.restoreReaderPageIndex(savedPagePosition)
                     libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, cached.pages.size)
                     updateState {
-                        if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                            this
-                        } else {
-                            val currentReaderChapter = this.readerChapter
-                            copy(
-                                readerChapter = currentReaderChapter.copy(
-                                    readerPageIndex = restored,
-                                    readerPageCount = cached.pages.size,
-                                ),
-                                readerPages = cached.pages.map(ReaderPage::Local),
-                                readerInitialPageIndex = restored,
-                                isLoadingReader = false,
-                            ).withStreamingReaderAdjacency(streamingChapter)
-                        }
+                        withStreamingReaderPayload(
+                            expectedRelativePath = readerChapter.relativePath,
+                            streamingChapter = streamingChapter,
+                            pages = cached.toReaderPages(),
+                            restoredPageIndex = restored,
+                        )
                     }
                     return@launch
                 }
@@ -1749,25 +1716,18 @@ class MangaViewModel internal constructor(
                 val restored = savedPageIndex.coerceIn(0, pageUrls.lastIndex.coerceAtLeast(0))
                 libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, pageUrls.size)
                 updateState {
-                    if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                        this
-                    } else {
-                        val currentReaderChapter = this.readerChapter
-                        copy(
-                            readerChapter = currentReaderChapter.copy(
-                                readerPageIndex = restored,
-                                readerPageCount = pageUrls.size,
-                            ),
-                            readerPages = pageUrls.map { url ->
+                    withStreamingReaderPayload(
+                        expectedRelativePath = readerChapter.relativePath,
+                        streamingChapter = streamingChapter,
+                        pages = pageUrls.map { url ->
                                 ReaderPage.Remote(
                                     url = url,
                                     referer = streamingChapter.chapter.url,
+                                    sourceId = streamingChapter.sourceId,
                                 )
-                            },
-                            readerInitialPageIndex = restored,
-                            isLoadingReader = false,
-                        ).withStreamingReaderAdjacency(streamingChapter)
-                    }
+                        },
+                        restoredPageIndex = restored,
+                    )
                 }
 
                 streamingCacheJob = viewModelScope.launch {
@@ -1780,16 +1740,29 @@ class MangaViewModel internal constructor(
                                 referer = streamingChapter.chapter.url,
                             )
                         }
-                        updateState {
-                            if (this.readerChapter?.relativePath != readerChapter.relativePath) {
-                                this
-                            } else {
-                                val currentReaderChapter = this.readerChapter
-                                copy(
-                                    readerChapter = currentReaderChapter.copy(readerPageCount = completed.pages.size),
-                                    readerPages = completed.pages.map(ReaderPage::Local),
-                                    isLoadingReader = false,
-                                ).withStreamingReaderAdjacency(streamingChapter)
+                        val currentOriginalPage = _state.value.readerChapter
+                            ?.takeIf { it.relativePath == readerChapter.relativePath }
+                            ?.readerPageIndex
+                        if (currentOriginalPage != null) {
+                            val mappedPageIndex = completed
+                                .readerPageIndexForOriginalPage(currentOriginalPage)
+                                ?.coerceIn(0, completed.pages.lastIndex.coerceAtLeast(0))
+                                ?: currentOriginalPage.coerceIn(
+                                    0,
+                                    completed.pages.lastIndex.coerceAtLeast(0),
+                                )
+                            libraryRepository.saveReaderPagePosition(
+                                readerChapter.relativePath,
+                                mappedPageIndex,
+                                completed.pages.size,
+                            )
+                            updateState {
+                                withStreamingReaderPayload(
+                                    expectedRelativePath = readerChapter.relativePath,
+                                    streamingChapter = streamingChapter,
+                                    pages = completed.toReaderPages(),
+                                    restoredPageIndex = mappedPageIndex,
+                                )
                             }
                         }
                     } catch (e: CancellationException) {
@@ -1869,6 +1842,13 @@ class MangaViewModel internal constructor(
                 }
             }
         }
+
+        recordReaderProgressInMemory(
+            chapter = chapter,
+            pagesSeen = nextPageIndex + 1,
+            pageCount = safePageCount,
+            newlyRead = newlyRead,
+        )
 
         if (newlyRead) {
             maybeSyncAniListOnChapterRead(chapter)
@@ -1952,6 +1932,7 @@ class MangaViewModel internal constructor(
                 }
                 val snapshot = scanLibrarySnapshot()
                 updateState { withLibrarySnapshot(snapshot) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1963,6 +1944,9 @@ class MangaViewModel internal constructor(
     fun closeReader() {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        // Consolida su disco le pagine avanzate durante la sessione di lettura (la scrittura
+        // per-swipe è deliberatamente rimandata, vedi recordReaderProgressInMemory).
+        persistReadingMemoryIfChanged()
         updateState { clearedReaderState() }
     }
 
@@ -1984,6 +1968,9 @@ class MangaViewModel internal constructor(
             Screen.Changelog -> closeChangelog()
             Screen.Settings -> closeSettings()
             Screen.Updates -> closeUpdates()
+            Screen.History -> closeHistory()
+            Screen.Stats -> closeStats()
+            Screen.DiscoverGenre -> closeDiscoverGenre()
             Screen.Detail -> clearSelection()
             Screen.DownloadedSeries -> clearDownloadedSelection()
             Screen.Tabs -> Unit
@@ -2001,6 +1988,8 @@ class MangaViewModel internal constructor(
         } else {
             libraryRepository.markChapterUnread(chapter)
         }
+        // Prima del refresh: il seed dello snapshot deve vedere la memoria già aggiornata.
+        recordChaptersMarkedInMemory(listOf(chapter), read)
         refreshLibraryAfterReadChange()
     }
 
@@ -2011,15 +2000,17 @@ class MangaViewModel internal constructor(
         if (index < 0) {
             return
         }
-        libraryRepository.markChaptersRead(
-            series.chapters.take(index + 1).filterNot { it.isRead },
-        )
+        val toMark = series.chapters.take(index + 1).filterNot { it.isRead }
+        libraryRepository.markChaptersRead(toMark)
+        recordChaptersMarkedInMemory(toMark, read = true)
         refreshLibraryAfterReadChange()
     }
 
     /** Voce del menu serie in libreria: tutti i capitoli scaricati segnati come letti. */
     fun markAllChaptersRead(series: DownloadedSeries) {
-        libraryRepository.markChaptersRead(series.chapters.filterNot { it.isRead })
+        val toMark = series.chapters.filterNot { it.isRead }
+        libraryRepository.markChaptersRead(toMark)
+        recordChaptersMarkedInMemory(toMark, read = true)
         refreshLibraryAfterReadChange()
     }
 
@@ -2030,6 +2021,7 @@ class MangaViewModel internal constructor(
             try {
                 val snapshot = scanLibrarySnapshot()
                 updateState { withLibrarySnapshot(snapshot) }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -2040,31 +2032,8 @@ class MangaViewModel internal constructor(
 
     fun deleteDownloadedChapter(chapter: DownloadedChapter) {
         val series = _state.value.selectedDownloadedSeries ?: return
-
-        libraryJob?.cancel()
-        streamingCacheJob?.cancel()
-        smartCleanupJob?.cancel()
-        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
-        libraryJob = viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteChapters(series, listOf(chapter))
-                }
-                val snapshot = scanLibrarySnapshot()
-                updateState {
-                    withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                updateState {
-                    copy(
-                        isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione capitolo",
-                    )
-                }
-            }
+        mutateLibrary(fallbackErrorMessage = "Errore eliminazione capitolo") {
+            libraryRepository.deleteChapters(series, listOf(chapter))
         }
     }
 
@@ -2080,59 +2049,48 @@ class MangaViewModel internal constructor(
         val readChapters = series.chapters.filter { it.isRead }
         if (readChapters.isEmpty()) return
 
-        libraryJob?.cancel()
-        streamingCacheJob?.cancel()
-        smartCleanupJob?.cancel()
-        updateState { copy(isLoadingLibrary = true, errorMessage = null) }
-        libraryJob = viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteChapters(series, readChapters)
-                }
-                val snapshot = scanLibrarySnapshot()
-                updateState {
-                    withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                updateState {
-                    copy(
-                        isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione capitoli letti",
-                    )
-                }
-            }
+        mutateLibrary(fallbackErrorMessage = "Errore eliminazione capitoli letti") {
+            libraryRepository.deleteChapters(series, readChapters)
         }
     }
 
     fun deleteDownloadedSeries(series: DownloadedSeries? = _state.value.selectedDownloadedSeries) {
         val targetSeries = series ?: return
 
+        mutateLibrary(
+            fallbackErrorMessage = "Errore eliminazione manga",
+            clearReader = true,
+        ) {
+            libraryRepository.deleteSeries(targetSeries)
+        }
+    }
+
+    private fun mutateLibrary(
+        fallbackErrorMessage: String,
+        clearReader: Boolean = false,
+        mutation: suspend () -> Unit,
+    ) {
         libraryJob?.cancel()
-        readerJob?.cancel()
+        if (clearReader) readerJob?.cancel()
         streamingCacheJob?.cancel()
         smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteSeries(targetSeries)
-                }
+                withContext(Dispatchers.IO) { mutation() }
                 val snapshot = scanLibrarySnapshot()
                 updateState {
-                    clearedReaderState()
-                        .withLibrarySnapshot(snapshot)
-                        .copy(isLoadingLibrary = false)
+                    val baseState = if (clearReader) clearedReaderState() else this
+                    baseState.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
                 }
+                persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
                 updateState {
                     copy(
                         isLoadingLibrary = false,
-                        errorMessage = exc.message ?: "Errore eliminazione manga",
+                        errorMessage = exc.message ?: fallbackErrorMessage,
                     )
                 }
             }
@@ -2263,33 +2221,6 @@ class MangaViewModel internal constructor(
         }
     }
 
-    private fun runSearch(q: String) {
-        searchJob?.cancel()
-        updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
-        searchJob = viewModelScope.launch {
-            try {
-                val results = withContext(Dispatchers.IO) {
-                    sourceRegistry.requireById(_state.value.settings.searchSourceId).searchManga(q)
-                }
-                updateState { copy(results = results, isSearching = false) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                // L'errore vive nello stato della schermata: con risultati vuoti la tab Cerca
-                // mostra "Ricerca non riuscita" + Riprova. Se invece a schermo ci sono ancora
-                // i risultati precedenti (refresh fallito), il segnale passa dalla snackbar.
-                val friendly = userFacingErrorMessage(exc, "Errore di ricerca")
-                updateState {
-                    copy(
-                        isSearching = false,
-                        searchError = friendly,
-                        errorMessage = if (results.isNotEmpty()) friendly else errorMessage,
-                    )
-                }
-            }
-        }
-    }
-
     /**
      * Ricerca aggregata sulle fonti dello scope attivo: tutte (chip "Tutte" o ponte
      * AniList→fonti della tab Scopri) o solo quelle di una lingua (chip "Italiano"/"English").
@@ -2385,55 +2316,137 @@ class MangaViewModel internal constructor(
         }
     }
 
-    /** Filtra per genere (o azzera il filtro con `null`), caricando i più popolari del genere. */
-    fun selectDiscoveryGenre(genre: String?) {
-        discoveryGenreJob?.cancel()
-        if (genre == null) {
+    /**
+     * Carica il blocco Home "Consigliati per te". Idempotente per sessione (come la Scopri):
+     * semi = titoli di preferiti e serie lette; ogni seme viene risolto in un media AniList via
+     * ricerca, poi un'unica query prende le raccomandazioni della community, aggregate e
+     * ripulite da ciò che l'utente ha già. Nessun seme → blocco vuoto (la Home lo nasconde).
+     */
+    fun loadRecommendations(forceRefresh: Boolean = false) {
+        val state = _state.value
+        if (state.settings.parentalControlEnabled) return
+        val current = state.recommendations
+        if (!forceRefresh && (current.loaded || current.isLoading)) {
+            return
+        }
+        val seeds = selectRecommendationSeeds(state.favorites, state.readingMemory)
+        if (seeds.isEmpty()) {
             updateState {
-                copy(
-                    discovery = discovery.copy(
-                        selectedGenre = null,
-                        genreResults = emptyList(),
-                        isLoadingGenre = false,
-                        genreError = null,
-                    ),
-                )
+                copy(recommendations = recommendations.copy(items = emptyList(), loaded = true))
             }
             return
         }
-        updateState {
-            copy(
-                discovery = discovery.copy(
-                    selectedGenre = genre,
-                    genreResults = emptyList(),
-                    isLoadingGenre = true,
-                    genreError = null,
-                ),
-            )
+        val excludeTitles = buildSet {
+            state.favorites.forEach { add(normalizedRecommendationTitle(it.title)) }
+            state.library.forEach { add(normalizedRecommendationTitle(it.title)) }
+            state.readingMemory.values.forEach { add(normalizedRecommendationTitle(it.seriesTitle)) }
         }
-        discoveryGenreJob = viewModelScope.launch {
+        recommendationsJob?.cancel()
+        updateState { copy(recommendations = recommendations.copy(isLoading = true, error = null)) }
+        recommendationsJob = viewModelScope.launch {
             try {
-                val results = withContext(Dispatchers.IO) {
-                    aniListClient.fetchMedia(AniListSort.POPULAR, genre = genre)
+                val items = withContext(Dispatchers.IO) {
+                    // Un seme che non matcha (titolo oscuro, refuso) non deve far fallire il
+                    // blocco; se però falliscono TUTTE le ricerche è un problema reale (rete)
+                    // e va mostrato il "Riprova".
+                    val lookups = coroutineScope {
+                        seeds.map { title ->
+                            async {
+                                runCatching {
+                                    aniListClient.searchManga(title, perPage = 5)
+                                        .let { results ->
+                                            results.firstOrNull { it.format != "NOVEL" }
+                                                ?: results.firstOrNull()
+                                        }?.id
+                                }
+                            }
+                        }.map { it.await() }
+                    }
+                    if (lookups.isNotEmpty() && lookups.all { it.isFailure }) {
+                        throw lookups.first().exceptionOrNull() ?: IOException("Ricerca AniList non riuscita")
+                    }
+                    val seedIds = lookups.mapNotNull { it.getOrNull() }.distinct()
+                    if (seedIds.isEmpty()) {
+                        emptyList()
+                    } else {
+                        aggregateRecommendations(
+                            recommendations = aniListClient.fetchRecommendations(seedIds),
+                            excludeIds = seedIds.toSet(),
+                            excludeTitles = excludeTitles,
+                        )
+                    }
                 }
                 updateState {
-                    // Scarta i risultati se nel frattempo il genere selezionato è cambiato.
-                    if (discovery.selectedGenre != genre) this
-                    else copy(discovery = discovery.copy(genreResults = results, isLoadingGenre = false))
+                    copy(
+                        recommendations = recommendations.copy(
+                            items = items,
+                            isLoading = false,
+                            loaded = true,
+                            error = null,
+                        ),
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
                 updateState {
-                    if (discovery.selectedGenre != genre) this
-                    else copy(
-                        discovery = discovery.copy(
-                            isLoadingGenre = false,
-                            genreError = exc.message ?: "Errore caricamento genere",
+                    copy(
+                        recommendations = recommendations.copy(
+                            isLoading = false,
+                            error = exc.message ?: "Errore caricamento consigli",
                         ),
                     )
                 }
             }
+        }
+    }
+
+    /** Apre la pagina del genere e ne avvia il caricamento. */
+    fun openDiscoverGenre(genre: DiscoverGenre) {
+        updateState {
+            copy(discovery = discovery.copy(selectedGenre = genre, genreResults = emptyList(), genreError = null))
+        }
+        loadDiscoverGenre(genre)
+    }
+
+    /** Fetch dei popolari del genere; pubblico per il "Riprova" della pagina. */
+    fun loadDiscoverGenre(genre: DiscoverGenre) {
+        genreJob?.cancel()
+        updateState { copy(discovery = discovery.copy(isLoadingGenre = true, genreError = null)) }
+        genreJob = viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    aniListClient.fetchMedia(AniListSort.POPULAR, genre = genre.apiGenre, perPage = 50)
+                }
+                updateState {
+                    copy(discovery = discovery.copy(genreResults = results, isLoadingGenre = false))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (exc: Exception) {
+                updateState {
+                    copy(
+                        discovery = discovery.copy(
+                            isLoadingGenre = false,
+                            genreError = exc.message ?: "Errore di caricamento",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeDiscoverGenre() {
+        genreJob?.cancel()
+        updateState {
+            copy(
+                discovery = discovery.copy(
+                    selectedGenre = null,
+                    genreResults = emptyList(),
+                    isLoadingGenre = false,
+                    genreError = null,
+                ),
+            )
         }
     }
 
@@ -2452,7 +2465,13 @@ class MangaViewModel internal constructor(
                 isSearching = true,
                 searchError = null,
                 errorMessage = null,
-                discovery = discovery.copy(info = null),
+                discovery = discovery.copy(
+                    info = null,
+                    selectedGenre = null,
+                    genreResults = emptyList(),
+                    isLoadingGenre = false,
+                    genreError = null,
+                ),
             )
         }
         selectTab(AppTab.SEARCH)
@@ -2592,21 +2611,157 @@ class MangaViewModel internal constructor(
     }
 
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
+        // Memoria di lettura: assorbe i progressi dello snapshot (seed monotono, che è anche
+        // la migrazione per chi aveva già letture) e reidrata il "letto" sulle serie
+        // eliminate e riscaricate. La scrittura su disco la fa il chiamante
+        // (persistReadingMemoryIfChanged) fuori dalla lambda di updateState.
+        val seededMemory = seedReadingMemory(readingMemory, snapshot)
+        val rehydrated = snapshot.map { it.withReadingMemoryApplied(seededMemory) }
+
         val selectedDirectory = selectedDownloadedSeries?.directory?.absolutePath
-        val updatedSelected = snapshot.firstOrNull { it.directory.absolutePath == selectedDirectory }
+        val updatedSelected = rehydrated.firstOrNull { it.directory.absolutePath == selectedDirectory }
         val readerPath = readerChapter?.downloadedChapter?.relativePath
         val updatedReader = readerPath?.let { path ->
             updatedSelected?.chapters?.firstOrNull { it.relativePath == path }
-                ?: snapshot.asSequence()
+                ?: rehydrated.asSequence()
                     .flatMap { it.chapters.asSequence() }
                     .firstOrNull { it.relativePath == path }
         }
 
         return copy(
-            library = snapshot,
+            library = rehydrated,
+            readingMemory = seededMemory,
             selectedDownloadedSeries = updatedSelected,
             readerChapter = updatedReader?.toReaderChapter() ?: readerChapter,
         ).withReaderAdjacency(updatedReader?.relativePath ?: readerPath)
+    }
+
+    /** Scrive memoria e diario di lettura su disco solo se diversi dagli ultimi persistiti. */
+    private fun persistReadingMemoryIfChanged() {
+        val memory = _state.value.readingMemory
+        if (memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory) {
+            readingMemoryStore.persist(memory)
+            lastPersistedReadingMemory = memory
+        }
+        val diary = _state.value.readingDiary
+        if (diary !== lastPersistedReadingDiary && diary != lastPersistedReadingDiary) {
+            readingDiaryStore.persist(diary)
+            lastPersistedReadingDiary = diary
+        }
+    }
+
+    /** La serie che possiede [seriesKey] (nome cartella), se ancora in libreria. */
+    private fun seriesForKey(seriesKey: String): DownloadedSeries? {
+        val state = _state.value
+        return state.selectedDownloadedSeries?.takeIf { it.directory.name == seriesKey }
+            ?: state.library.firstOrNull { it.directory.name == seriesKey }
+    }
+
+    /**
+     * Registra nella memoria di lettura persistente l'avanzamento del reader (merge monotono:
+     * i numeri non regrediscono). Vale per scaricati e streaming: le statistiche contano anche
+     * le letture online e sopravvivono all'eliminazione dei download.
+     */
+    private fun recordReaderProgressInMemory(
+        chapter: ReaderChapter,
+        pagesSeen: Int,
+        pageCount: Int,
+        newlyRead: Boolean,
+    ) {
+        val streaming = chapter.streamingChapter
+        val seriesKey: String
+        val seriesTitle: String
+        val sourceId: String
+        if (streaming != null) {
+            seriesKey = seriesKeyForStreaming(streaming.sourceId, streaming.mangaUrl)
+            seriesTitle = streaming.mangaTitle
+            sourceId = streaming.sourceId
+        } else {
+            seriesKey = seriesKeyOf(chapter.relativePath)
+            val series = seriesForKey(seriesKey)
+            seriesTitle = series?.title ?: seriesKey
+            sourceId = series?.sourceId.orEmpty()
+        }
+        val now = System.currentTimeMillis()
+        val record = ReadChapterMemory(
+            seriesKey = seriesKey,
+            seriesTitle = seriesTitle,
+            chapterLabel = chapter.title.ifBlank {
+                chapter.downloadedChapter?.displayLabel().orEmpty()
+            },
+            pagesRead = pagesSeen,
+            pageCount = pageCount,
+            isRead = chapter.isRead || newlyRead,
+            lastReadAtMillis = now,
+            sourceId = sourceId,
+        )
+        val current = _state.value.readingMemory[chapter.relativePath]
+        val next = current?.mergedWith(record) ?: record
+        if (next == current) return
+
+        // Diario giornaliero: registra i delta reali di questa sessione (pagine avanzate,
+        // capitolo appena finito), mai i valori assoluti — le riletture non gonfiano i numeri.
+        val dayKey = diaryDayKey(now)
+        val chaptersDelta = if (next.isRead && current?.isRead != true && newlyRead) 1 else 0
+        val pagesDelta = (next.pagesRead - (current?.pagesRead ?: 0)).coerceAtLeast(0)
+        updateState {
+            copy(
+                readingMemory = readingMemory + (chapter.relativePath to next),
+                readingDiary = pruneReadingDiary(
+                    readingDiary.withReadingActivity(dayKey, chaptersDelta, pagesDelta),
+                    today = LocalDate.now(),
+                ),
+            )
+        }
+        // Su disco solo ai passaggi significativi (nuovo record, capitolo completato): la
+        // posizione per-pagina è già durevole nelle prefs del reader e riserializzare
+        // l'intera mappa a ogni swipe crescerebbe col totale dei capitoli mai letti.
+        // Il resto viene scritto alla chiusura del reader e a ogni snapshot libreria.
+        if (current == null || next.isRead != current.isRead) {
+            persistReadingMemoryIfChanged()
+        }
+    }
+
+    /**
+     * Allinea la memoria di lettura a un letto/non letto deciso a mano (long-press, "fino a
+     * qui", "tutti letti"). Override esplicito, non merge: "non letto" deve poter regredire.
+     * Nessun timestamp nuovo: il letto a mano non entra nella cronologia "Letti di recente";
+     * il "non letto" azzera anche pagine e timestamp, come il reset del progresso su disco.
+     */
+    private fun recordChaptersMarkedInMemory(chapters: List<DownloadedChapter>, read: Boolean) {
+        val first = chapters.firstOrNull() ?: return
+        val state = _state.value
+        // Tutti i capitoli di una chiamata appartengono alla stessa serie: risolve una volta.
+        val seriesKey = seriesKeyOf(first.relativePath)
+        val series = seriesForKey(seriesKey)
+        val updates = mutableMapOf<String, ReadChapterMemory>()
+        for (chapter in chapters) {
+            val existing = state.readingMemory[chapter.relativePath]
+            val base = existing ?: ReadChapterMemory(
+                seriesKey = seriesKeyOf(chapter.relativePath),
+                seriesTitle = series?.title ?: seriesKeyOf(chapter.relativePath),
+                chapterLabel = chapter.displayLabel(),
+                pagesRead = 0,
+                pageCount = chapter.readerPageCount,
+                isRead = false,
+                lastReadAtMillis = chapter.lastReadAtMillis ?: 0L,
+                sourceId = series?.sourceId.orEmpty(),
+            )
+            val next = if (read) {
+                base.copy(
+                    isRead = true,
+                    pagesRead = maxOf(base.pagesRead, base.pageCount ?: chapter.readerPageCount ?: 0),
+                )
+            } else {
+                base.copy(isRead = false, pagesRead = 0, lastReadAtMillis = 0L)
+            }
+            if (next != existing) {
+                updates[chapter.relativePath] = next
+            }
+        }
+        if (updates.isEmpty()) return
+        updateState { copy(readingMemory = readingMemory + updates) }
+        persistReadingMemoryIfChanged()
     }
 
     /**
@@ -2715,6 +2870,27 @@ class MangaViewModel internal constructor(
                 .getOrNull(currentIndex + 1)
                 ?.toStreamingReaderChapter(),
         )
+    }
+
+    /** Applica pagine cache/remoto solo se il reader richiesto è ancora quello visibile. */
+    private fun MangaUiState.withStreamingReaderPayload(
+        expectedRelativePath: String,
+        streamingChapter: StreamingReaderChapter,
+        pages: List<ReaderPage>,
+        restoredPageIndex: Int? = null,
+    ): MangaUiState {
+        val currentChapter = readerChapter
+            ?.takeIf { it.relativePath == expectedRelativePath }
+            ?: return this
+        return copy(
+            readerChapter = currentChapter.copy(
+                readerPageIndex = restoredPageIndex ?: currentChapter.readerPageIndex,
+                readerPageCount = pages.size,
+            ),
+            readerPages = pages,
+            readerInitialPageIndex = restoredPageIndex ?: readerInitialPageIndex,
+            isLoadingReader = false,
+        ).withStreamingReaderAdjacency(streamingChapter)
     }
 
     fun clearRecentSearches() {
@@ -3086,6 +3262,64 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * Sposta un blocco Home su/giù rispetto ai soli blocchi VISIBILI e persiste. Sotto controllo
+     * parentale il blocco Scopri è nascosto dalla vista: lo scambio salta quel blocco così le
+     * frecce agiscono sull'ordine che l'utente vede davvero (niente tap "morti").
+     */
+    fun moveHomeBlock(block: HomeBlock, up: Boolean) = updateSettings { settings ->
+        val order = reconcileHomeBlocks(settings.homeBlockOrder)
+        settings.copy(
+            homeBlockOrder = moveHomeBlockInOrder(order, block, up) { candidate ->
+                candidate == HomeBlock.DISCOVER && settings.parentalControlEnabled
+            },
+        )
+    }
+
+    /** Nasconde/mostra un blocco Home e persiste. */
+    fun setHomeBlockHidden(block: HomeBlock, hidden: Boolean) = updateSettings {
+        val hiddenSet = if (hidden) it.hiddenHomeBlocks + block else it.hiddenHomeBlocks - block
+        it.copy(hiddenHomeBlocks = hiddenSet)
+    }
+
+    /** Densità globale delle card (Grande/Normale/Compatta), come il tema. */
+    fun setCardDensity(density: CardDensity) = updateSettings {
+        it.copy(cardDensity = density)
+    }
+
+    /**
+     * Mostra/nasconde la tab Home. Spegnendola mentre si è sulla Home si atterra su Cerca
+     * (o Libreria sotto parental control, dove Cerca è dietro il PIN) senza passare da
+     * [selectTab], che scatenerebbe lo sblocco.
+     */
+    fun setShowHomeTab(enabled: Boolean) {
+        updateSettings { it.copy(showHomeTab = enabled) }
+        if (!enabled && _state.value.currentTab == AppTab.HOME) {
+            val fallback = if (_state.value.settings.parentalControlEnabled) {
+                AppTab.LIBRARY
+            } else {
+                AppTab.SEARCH
+            }
+            updateState { copy(currentTab = fallback) }
+        }
+    }
+
+    /**
+     * Rilancia il tutorial dall'inizio (usato da "Rivedi il tutorial" in Impostazioni). Riporta
+     * anche su HOME: la card di benvenuto vive nella Home, quindi senza cambiare tab l'azione
+     * sarebbe un no-op dalle altre schermate.
+     */
+    fun restartTutorial() {
+        updateSettings { it.copy(tutorialCompleted = false, showHomeTab = true) }
+        updateState {
+            copy(
+                showSettings = false,
+                currentTab = AppTab.HOME,
+                tutorialState = TutorialUiState(phase = TutorialPhase.Welcome),
+            )
+        }
+    }
+
     private fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val current = _state.value.settings
         val updated = transform(current)
@@ -3121,5 +3355,33 @@ class MangaViewModel internal constructor(
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
         private const val READ_NOW_CHAPTER_COUNT = 3
+    }
+}
+
+/**
+ * Copia su [target] i byte dell'immagine [url] dalla disk-cache di Coil, se presente (Coil
+ * l'ha scaricata per mostrarla nel reader in streaming). Ritorna true se ha copiato. La
+ * chiave della cache di Coil, con `ImageRequest.data(url)` senza diskCacheKey custom, è
+ * l'URL grezzo. La copia avviene mentre lo snapshot è aperto, perché Coil può poi
+ * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
+ */
+@OptIn(coil3.annotation.ExperimentalCoilApi::class)
+private fun copyCoilCachedPage(context: Context, url: String, target: File): Boolean {
+    return try {
+        val diskCache = context.imageLoader.diskCache ?: return false
+        diskCache.openSnapshot(url)?.use { snapshot ->
+            val source = snapshot.data.toFile()
+            if (source.isFile && source.length() > 0L) {
+                target.outputStream().buffered().use { output ->
+                    source.inputStream().buffered().use { it.copyTo(output) }
+                }
+                true
+            } else {
+                false
+            }
+        } ?: false
+    } catch (_: Exception) {
+        target.delete()
+        false
     }
 }

@@ -1,10 +1,6 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
-import androidx.core.content.edit
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Persistenza su disco delle trame (descrizioni) dei manga **preferiti**, per `identityKey`.
@@ -17,24 +13,11 @@ import kotlinx.serialization.json.Json
  */
 class FavoriteDescriptionsStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
-    fun read(): Map<String, String> {
-        val raw = prefs.getString(KEY_FAVORITE_DESCRIPTIONS_JSON, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyMap()
-        }
-        return try {
-            json.decodeFromString<Map<String, String>>(raw)
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
+    fun read(): Map<String, String> =
+        prefs.readJson(KEY_FAVORITE_DESCRIPTIONS_JSON, emptyMap())
 
     fun write(descriptions: Map<String, String>) {
-        prefs.edit {
-            putString(KEY_FAVORITE_DESCRIPTIONS_JSON, json.encodeToString(descriptions))
-        }
+        prefs.writeJson(KEY_FAVORITE_DESCRIPTIONS_JSON, descriptions)
     }
 
     private companion object {

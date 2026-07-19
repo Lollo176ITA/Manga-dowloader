@@ -151,6 +151,50 @@ class ScreenTest {
         assertEquals(cap1, cap2)
     }
 
+    @Test
+    fun showHistory_isHistoryScreen_andBelowReader() {
+        val state = MangaUiState(showHistory = true)
+        assertEquals(Screen.History, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        // Il reader aperto dalla cronologia sta sopra.
+        assertEquals(
+            Screen.Reader,
+            state.copy(
+                readerChapter = ReaderChapter(title = "Cap 1", relativePath = "s/1.cbz"),
+            ).currentScreen(),
+        )
+    }
+
+    @Test
+    fun showStats_isStatsScreen_andBelowOverlays() {
+        val state = MangaUiState(showStats = true)
+        assertEquals(Screen.Stats, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        // Le impostazioni (e gli altri overlay) stanno sopra la pagina Statistiche.
+        assertEquals(
+            Screen.Settings,
+            state.copy(showSettings = true).currentScreen(),
+        )
+    }
+
+    @Test
+    fun visibleTabs_withHomeDisabled_excludesHomeAndReindexes() {
+        val state = MangaUiState(settings = AppSettings(showHomeTab = false))
+        assertEquals(listOf(AppTab.SEARCH, AppTab.FAVORITES, AppTab.LIBRARY), state.visibleTabs())
+        assertEquals(0, state.tabPageIndex(AppTab.SEARCH))
+        assertEquals(0, state.tabPageIndex(AppTab.HOME)) // non visibile → coerce a 0
+    }
+
+    @Test
+    fun selectedGenre_isDiscoverGenreScreen_withPerGenreSaveableKey() {
+        val state = MangaUiState(
+            discovery = DiscoveryUiState(selectedGenre = DiscoverGenre.FANTASY),
+        )
+        assertEquals(Screen.DiscoverGenre, state.currentScreen())
+        assertTrue(state.canHandleBack())
+        assertEquals("DiscoverGenre:Fantasy", state.saveableScreenKey())
+    }
+
     private fun details(mangaUrl: String = "https://mangapill.com/manga/1") = MangaDetails(
         sourceId = MangaSourceIds.MANGAPILL,
         title = "X",

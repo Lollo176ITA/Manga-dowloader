@@ -181,6 +181,28 @@ fun ThemeModeContent(
     }
 }
 
+/** Densità globale delle card (poster e righe manga in tutta l'app), stile selettore tema. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CardDensityContent(
+    currentDensity: CardDensity,
+    onSelectDensity: (CardDensity) -> Unit,
+) {
+    Column {
+        SettingsSubheader("Dimensione card home")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            CardDensity.entries.forEachIndexed { index, density ->
+                SegmentedButton(
+                    selected = currentDensity == density,
+                    onClick = { onSelectDensity(density) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CardDensity.entries.size),
+                    label = { Text(density.label) },
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingModeContent(
@@ -256,6 +278,19 @@ fun KeepScreenOnContent(
     SettingRow(
         title = "Mantieni schermo acceso",
         description = "Durante la lettura lo schermo non si spegne da solo.",
+        checked = enabled,
+        onCheckedChange = onToggle,
+    )
+}
+
+@Composable
+fun ShowHomeTabContent(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    SettingRow(
+        title = "Mostra la tab Home",
+        description = "Se disattivata, l'app si apre sulla Ricerca.",
         checked = enabled,
         onCheckedChange = onToggle,
     )
@@ -465,17 +500,29 @@ fun ReportProblemContent(
     }
 }
 
+/** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
 @Composable
-fun DiscoveryContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Scopri (AniList)",
-        description = "Mostra la scheda Scopri per esplorare tendenze e generi da AniList",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
+fun RestartTutorialContent(onRestart: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onRestart),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Rivedi il tutorial",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "Riavvia il tour guidato che mostra le funzioni principali dell'app",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 /**

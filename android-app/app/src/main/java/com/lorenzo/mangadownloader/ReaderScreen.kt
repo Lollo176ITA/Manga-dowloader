@@ -37,7 +37,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -70,6 +70,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -87,9 +89,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
-import coil.imageLoader
-import coil.request.ImageRequest
+import coil3.compose.SubcomposeAsyncImage
+import coil3.imageLoader
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.ImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
@@ -366,8 +370,8 @@ private fun VerticalReader(
     val listState = rememberLazyListState()
     // Pagina attualmente in vista e pagina più avanzata raggiunta nel capitolo: la
     // differenza tra le due pilota il pulsante "riprendi" (torna dove ero arrivato).
-    var currentPageIndex by remember(chapterKey) { mutableStateOf(0) }
-    var furthestPageIndex by remember(chapterKey) { mutableStateOf(0) }
+    var currentPageIndex by remember(chapterKey) { mutableIntStateOf(0) }
+    var furthestPageIndex by remember(chapterKey) { mutableIntStateOf(0) }
     val zoomFlingDecay = remember { exponentialDecay<Float>() }
     val readerScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
@@ -669,31 +673,40 @@ private fun VerticalReader(
                     translationY = readerOffsetY
                 },
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(pageSpacing),
+            verticalArrangement = Arrangement.Top,
         ) {
             item("reader-nav-top") {
-                ReaderChapterNavigationRow(
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
+                Box(modifier = Modifier.padding(bottom = pageSpacing)) {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
             }
-            items(pages, key = { it.stableKey }) { page ->
+            itemsIndexed(pages, key = { _, page -> page.stableKey }) { index, page ->
+                val previousGroup = pages.getOrNull(index - 1)?.persistedTallPageGroupKey()
+                val currentGroup = page.persistedTallPageGroupKey()
+                val continuesTallPage = currentGroup != null && currentGroup == previousGroup
                 ReaderPageImage(
                     page = page,
                     contentDescription = chapter.title,
                     contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (index > 0 && !continuesTallPage) pageSpacing else 0.dp),
                 )
             }
             item("reader-nav-bottom") {
-                ReaderChapterNavigationRow(
-                    previousChapter = previousChapter,
-                    nextChapter = nextChapter,
-                    onOpenPrevious = onOpenPrevious,
-                    onOpenNext = onOpenNext,
-                )
+                Box(modifier = Modifier.padding(top = pageSpacing)) {
+                    ReaderChapterNavigationRow(
+                        previousChapter = previousChapter,
+                        nextChapter = nextChapter,
+                        onOpenPrevious = onOpenPrevious,
+                        onOpenNext = onOpenNext,
+                    )
+                }
             }
         }
 
@@ -744,7 +757,7 @@ private fun PagedReader(
     // Pagina più avanzata raggiunta nel capitolo: pilota il pulsante "riprendi"
     // quando si torna indietro di qualche pagina.
     var furthestPageIndex by remember(chapterKey) {
-        mutableStateOf(initialPageIndex.coerceIn(0, pages.lastIndex))
+        mutableIntStateOf(initialPageIndex.coerceIn(0, pages.lastIndex))
     }
     val resumeScope = rememberCoroutineScope()
 
@@ -1018,7 +1031,13 @@ private fun ZoomablePage(
  * di fallimento, una card "Tocca per riprovare" — così una pagina remota fallita non
  * collassa ad altezza zero sparendo dal flusso verticale, né resta schermata nera muta
  * in modalità a pagine. Il retry incrementa un contatore che entra nella richiesta Coil
- * come parametro: la chiave nuova forza un vero nuovo tentativo di rete.
+ * come parametro: la chiave nuova forza un vero nuovo tentativo di rete. Per le pagine
+ * locali con origine remota nota, il retry riscarica la pagina invece di rileggere il
+ * file rotto (vedi [readerImageRequest]).
+ *
+ * Prima di mostrare la card, un fallimento passa dal recupero "striscia webtoon"
+ * ([decodeTallReaderPageChunks]): le pagine più alte del limite texture della GPU
+ * non sono decodificabili intere, ma spezzate a blocchi si mostrano senza problemi.
  */
 @Composable
 private fun ReaderPageImage(
@@ -1028,7 +1047,27 @@ private fun ReaderPageImage(
     modifier: Modifier = Modifier,
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
+    var tallPageChunks by remember(page.stableKey) { mutableStateOf<List<ImageBitmap>?>(null) }
     val context = LocalContext.current
+
+    val chunks = tallPageChunks
+    if (chunks != null) {
+        DisposableEffect(chunks) {
+            onDispose {
+                chunks.forEach { chunk ->
+                    val bitmap = chunk.asAndroidBitmap()
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+            }
+        }
+        TallReaderPageStrip(
+            chunks = chunks,
+            contentDescription = contentDescription,
+            modifier = modifier,
+        )
+        return
+    }
+
     val model = remember(page.stableKey, retryAttempt) {
         readerImageRequest(context, page, retryAttempt)
     }
@@ -1048,35 +1087,49 @@ private fun ReaderPageImage(
             }
         },
         error = {
+            // Tentativo di recupero a blocchi (una volta per caricamento fallito):
+            // finché è in corso mostra lo spinner, la card compare solo se anche
+            // questo non produce nulla.
+            var tallAttemptDone by remember(page.stableKey, retryAttempt) { mutableStateOf(false) }
+            LaunchedEffect(page.stableKey, retryAttempt) {
+                if (!tallAttemptDone) {
+                    tallPageChunks = decodeTallReaderPageChunks(context, page)
+                    tallAttemptDone = true
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = ReaderPagePlaceholderMinHeight),
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    onClick = { retryAttempt++ },
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                if (!tallAttemptDone) {
+                    AppLoadingIndicator()
+                } else {
+                    Surface(
+                        onClick = { retryAttempt++ },
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = MaterialTheme.shapes.large,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.BrokenImage,
-                            contentDescription = null,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Pagina non caricata",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            text = "Tocca per riprovare",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BrokenImage,
+                                contentDescription = null,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Pagina non caricata",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = "Tocca per riprovare",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
@@ -1089,6 +1142,10 @@ private fun ReaderPageImage(
  * (streaming) portano il Referer della loro fonte, così l'hotlink protection dei
  * vari siti non blocca le immagini (prima ricevevano un Referer mangapill fisso).
  * [retryAttempt] > 0 entra nella cache key per distinguere il retry dalla richiesta fallita.
+ *
+ * Recupero pagine locali: una pagina locale col file sparito/vuoto, o che ha già fallito
+ * un caricamento (retry richiesto), viene richiesta dal suo URL d'origine quando lo
+ * conosciamo — rileggere lo stesso file rotto non la farebbe mai ricomparire.
  */
 private fun readerImageRequest(
     context: Context,
@@ -1097,11 +1154,26 @@ private fun readerImageRequest(
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
     when (page) {
-        is ReaderPage.Local -> builder.data(page.file)
-        is ReaderPage.Remote -> builder.data(page.url).setHeader("Referer", page.referer)
+        is ReaderPage.Local -> {
+            val remote = page.remote
+            if (
+                remote != null &&
+                page.remoteSegmentIndex == null &&
+                (retryAttempt > 0 || page.isFileBroken)
+            ) {
+                builder
+                    .data(remote.url)
+                    .httpHeaders(NetworkHeaders.Builder().set("Referer", remote.referer).build())
+            } else {
+                builder.data(page.file)
+            }
+        }
+        is ReaderPage.Remote -> builder
+            .data(page.url)
+            .httpHeaders(NetworkHeaders.Builder().set("Referer", page.referer).build())
     }
     if (retryAttempt > 0) {
-        builder.setParameter("retry", retryAttempt)
+        builder.memoryCacheKeyExtra("retry", retryAttempt.toString())
     }
     return builder.build()
 }

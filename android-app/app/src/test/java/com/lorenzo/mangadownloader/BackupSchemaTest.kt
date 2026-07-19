@@ -48,6 +48,19 @@ class BackupSchemaTest {
     }
 
     @Test
+    fun settingsCodec_roundTripsWithoutChangingBackupSchema() {
+        val settings = SettingsBackup(
+            autoDownloadEnabled = true,
+            readerBrightness = 0.25f,
+            themeMode = ThemeMode.DARK.name,
+            hiddenHomeBlocks = listOf(HomeBlock.DISCOVER.name),
+        )
+        assertEquals(settings, decodeSettingsBackup(encodeSettingsBackup(settings)))
+        assertNull(decodeSettingsBackup("{broken"))
+        assertEquals(BACKUP_SCHEMA_VERSION, decodeBackup(encodeBackup(sampleBackup()))?.schemaVersion)
+    }
+
+    @Test
     fun settings_toBackupThenApplyTo_isIdentityForDefaults() {
         assertEquals(AppSettings(), AppSettings().toBackup().applyTo(AppSettings()))
     }
@@ -121,6 +134,16 @@ class BackupSchemaTest {
         val withPin = SettingsBackup(parentalControlEnabled = true)
             .applyTo(AppSettings(parentalPinConfigured = true))
         assertTrue(withPin.parentalControlEnabled)
+    }
+
+    @Test
+    fun settingsBackup_roundTripsShowHomeTab_andOldPayloadDefaultsTrue() {
+        val disabled = AppSettings(showHomeTab = false).toBackup()
+        assertEquals(false, disabled.showHomeTab)
+        assertEquals(false, disabled.applyTo(AppSettings()).showHomeTab)
+        // Payload senza il campo (backup di versioni vecchie) → default true.
+        val old = decodeSettingsBackup("""{"searchScope":"ITA"}""")
+        assertEquals(true, old?.showHomeTab)
     }
 
     @Test

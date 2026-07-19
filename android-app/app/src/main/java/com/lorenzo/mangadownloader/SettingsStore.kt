@@ -12,122 +12,85 @@ import androidx.core.content.edit
 class SettingsStore(private val prefs: SharedPreferences) {
 
     fun read(): AppSettings {
-        val searchSourceId = MangaSourceCatalog.resolveSourceId(
-            prefs.getString(KEY_SEARCH_SOURCE_ID, null),
-        )
-        val storedSearchScope = runCatching {
-            SearchScope.valueOf(
-                prefs.getString(KEY_SEARCH_SCOPE, SearchScope.ITA.name) ?: SearchScope.ITA.name,
-            )
-        }.getOrDefault(SearchScope.ITA)
-        return AppSettings(
-            // Le chip per fonte singola non esistono più: uno scope SOURCE persistito da
-            // versioni precedenti torna alla lingua della fonte che era selezionata.
-            searchScope = if (storedSearchScope == SearchScope.SOURCE) {
-                SearchScope.forLanguage(MangaSourceCatalog.languageOf(searchSourceId))
-            } else {
-                storedSearchScope
-            },
-            searchSourceId = searchSourceId,
-            discoveryEnabled = prefs.getBoolean(KEY_DISCOVERY_ENABLED, false),
-            autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
-            autoDownloadTriggerChapters = prefs
-                .getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3)
-                .coerceAtLeast(1),
-            autoDownloadBatchSize = prefs
-                .getInt(KEY_AUTO_DOWNLOAD_BATCH, 3)
-                .coerceAtLeast(1),
-            smartCleanupEnabled = prefs.getBoolean(KEY_SMART_CLEANUP_ENABLED, false),
-            smartCleanupKeepPreviousChapters = prefs
-                .getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3)
-                .coerceAtLeast(0),
-            streamingReaderEnabled = prefs.getBoolean(KEY_STREAMING_READER_ENABLED, false),
-            parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
+        val localSettings = AppSettings(
             parentalPinConfigured = prefs.getBoolean(KEY_PARENTAL_PIN_CONFIGURED, false),
-            parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
             parentalPinSalt = prefs.getString(KEY_PARENTAL_PIN_SALT, null),
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
-            labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
-            downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
-            highResImages = prefs.getBoolean(KEY_HIGH_RES_IMAGES, false),
-            privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
-            readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f).coerceIn(0f, 1f),
-            readingMode = runCatching {
-                ReadingMode.valueOf(
-                    prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name) ?: ReadingMode.VERTICAL.name,
-                )
-            }.getOrDefault(ReadingMode.VERTICAL),
-            readerPageSpacingDp = prefs
-                .getInt(KEY_READER_PAGE_SPACING, DEFAULT_READER_PAGE_SPACING_DP)
-                .coerceIn(0, MAX_READER_PAGE_SPACING_DP),
-            doubleTapZoomEnabled = prefs.getBoolean(KEY_DOUBLE_TAP_ZOOM, false),
-            keepScreenOnEnabled = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
-            allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
-            themeMode = runCatching {
-                ThemeMode.valueOf(
-                    prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name) ?: ThemeMode.AUTO.name,
-                )
-            }.getOrDefault(ThemeMode.AUTO),
-            useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
             tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
-            favoriteNewChapterNotificationsEnabled = prefs.getBoolean(KEY_FAVORITE_NOTIFICATIONS, false),
-            favoriteSort = runCatching {
-                FavoriteSort.valueOf(
-                    prefs.getString(KEY_FAVORITE_SORT, FavoriteSort.DATE_ADDED.name)
-                        ?: FavoriteSort.DATE_ADDED.name,
-                )
-            }.getOrDefault(FavoriteSort.DATE_ADDED),
-            librarySort = runCatching {
-                LibrarySort.valueOf(
-                    prefs.getString(KEY_LIBRARY_SORT, LibrarySort.TITLE_ASC.name)
-                        ?: LibrarySort.TITLE_ASC.name,
-                )
-            }.getOrDefault(LibrarySort.TITLE_ASC),
             aniListSyncEnabled = prefs.getBoolean(KEY_ANILIST_SYNC_ENABLED, true),
         )
+        val storedJson = prefs.getString(KEY_SETTINGS_JSON, null)
+        val portableSettings = storedJson
+            ?.takeIf(String::isNotBlank)
+            ?.let(::decodeSettingsBackup)
+            ?: readLegacySettings().also { legacy ->
+                // Prima lettura dopo l'aggiornamento (o JSON locale corrotto): importa le
+                // vecchie chiavi e riscrive un payload valido. Le vecchie chiavi restano per
+                // consentire un ulteriore recupero se il JSON venisse danneggiato.
+                prefs.edit { putString(KEY_SETTINGS_JSON, encodeSettingsBackup(legacy)) }
+            }
+        return portableSettings.applyTo(localSettings)
     }
+
+    /**
+     * Importa le chiavi usate fino alla migrazione al payload JSON. Non applica coercizioni:
+     * passare sempre il risultato a [SettingsBackup.applyTo], unica normalizzazione condivisa.
+     */
+    private fun readLegacySettings(): SettingsBackup = SettingsBackup(
+        searchScope = prefs.getString(KEY_SEARCH_SCOPE, SearchScope.ITA.name) ?: SearchScope.ITA.name,
+        searchSourceId = prefs.getString(KEY_SEARCH_SOURCE_ID, MangaSourceIds.DEFAULT)
+            ?: MangaSourceIds.DEFAULT,
+        autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
+        autoDownloadTriggerChapters = prefs.getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3),
+        autoDownloadBatchSize = prefs.getInt(KEY_AUTO_DOWNLOAD_BATCH, 3),
+        smartCleanupEnabled = prefs.getBoolean(KEY_SMART_CLEANUP_ENABLED, false),
+        smartCleanupKeepPreviousChapters = prefs.getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3),
+        streamingReaderEnabled = prefs.getBoolean(KEY_STREAMING_READER_ENABLED, false),
+        parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
+        parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
+        labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
+        downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
+        highResImages = prefs.getBoolean(KEY_HIGH_RES_IMAGES, false),
+        privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
+        readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f),
+        readingMode = prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name)
+            ?: ReadingMode.VERTICAL.name,
+        readerPageSpacingDp = prefs.getInt(KEY_READER_PAGE_SPACING, DEFAULT_READER_PAGE_SPACING_DP),
+        doubleTapZoomEnabled = prefs.getBoolean(KEY_DOUBLE_TAP_ZOOM, false),
+        keepScreenOnEnabled = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
+        allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
+        themeMode = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name) ?: ThemeMode.AUTO.name,
+        useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
+        favoriteNewChapterNotificationsEnabled = prefs.getBoolean(KEY_FAVORITE_NOTIFICATIONS, false),
+        favoriteSort = prefs.getString(KEY_FAVORITE_SORT, FavoriteSort.DATE_ADDED.name)
+            ?: FavoriteSort.DATE_ADDED.name,
+        librarySort = prefs.getString(KEY_LIBRARY_SORT, LibrarySort.TITLE_ASC.name)
+            ?: LibrarySort.TITLE_ASC.name,
+        homeBlockOrder = readLegacyHomeBlocks(KEY_HOME_BLOCK_ORDER).map { it.name },
+        hiddenHomeBlocks = readLegacyHomeBlocks(KEY_HOME_HIDDEN_BLOCKS).map { it.name },
+    )
 
     fun persist(settings: AppSettings) {
         prefs.edit {
-            putString(KEY_SEARCH_SCOPE, settings.searchScope.name)
-            putString(KEY_SEARCH_SOURCE_ID, settings.searchSourceId)
-            putBoolean(KEY_DISCOVERY_ENABLED, settings.discoveryEnabled)
-            putBoolean(KEY_AUTO_DOWNLOAD_ENABLED, settings.autoDownloadEnabled)
-            putInt(KEY_AUTO_DOWNLOAD_TRIGGER, settings.autoDownloadTriggerChapters)
-            putInt(KEY_AUTO_DOWNLOAD_BATCH, settings.autoDownloadBatchSize)
-            putBoolean(KEY_SMART_CLEANUP_ENABLED, settings.smartCleanupEnabled)
-            putInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, settings.smartCleanupKeepPreviousChapters)
-            putBoolean(KEY_STREAMING_READER_ENABLED, settings.streamingReaderEnabled)
-            putBoolean(KEY_PARENTAL_CONTROL_ENABLED, settings.parentalControlEnabled)
+            putString(KEY_SETTINGS_JSON, encodeSettingsBackup(settings.toBackup()))
             putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
-            putBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, settings.parentalBiometricEnabled)
             putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
             putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
-            putBoolean(KEY_LABS_ENABLED, settings.labsEnabled)
-            putBoolean(KEY_DOWNLOAD_DEV_UPDATES, settings.downloadDevUpdates)
-            putBoolean(KEY_HIGH_RES_IMAGES, settings.highResImages)
-            putBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, settings.privacyBrightnessEnabled)
-            putFloat(KEY_READER_BRIGHTNESS, settings.readerBrightness.coerceIn(0f, 1f))
-            putString(KEY_READING_MODE, settings.readingMode.name)
-            putInt(KEY_READER_PAGE_SPACING, settings.readerPageSpacingDp)
-            putBoolean(KEY_DOUBLE_TAP_ZOOM, settings.doubleTapZoomEnabled)
-            putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOnEnabled)
-            putBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, settings.allowLandscapeRotation)
-            putString(KEY_THEME_MODE, settings.themeMode.name)
-            putBoolean(KEY_USE_DYNAMIC_COLOR, settings.useDynamicColor)
             putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
-            putBoolean(KEY_FAVORITE_NOTIFICATIONS, settings.favoriteNewChapterNotificationsEnabled)
-            putString(KEY_FAVORITE_SORT, settings.favoriteSort.name)
-            putString(KEY_LIBRARY_SORT, settings.librarySort.name)
             putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
         }
     }
 
+    /** Decodifica tollerante: JSON invalido → lista vuota; nomi ignoti scartati. */
+    private fun readLegacyHomeBlocks(key: String): List<HomeBlock> =
+        prefs.readJson<List<String>>(key, emptyList())
+            .mapNotNull { name -> runCatching { HomeBlock.valueOf(name) }.getOrNull() }
+
     companion object {
         const val PREFS_NAME = "manga_downloader_prefs"
+        const val KEY_SETTINGS_JSON = "settings_json_v1"
         const val KEY_SEARCH_SCOPE = "search_scope"
         const val KEY_SEARCH_SOURCE_ID = "search_source_id"
-        const val KEY_DISCOVERY_ENABLED = "discovery_enabled"
         const val KEY_AUTO_DOWNLOAD_ENABLED = "auto_download_enabled"
         const val KEY_AUTO_DOWNLOAD_TRIGGER = "auto_download_trigger"
         const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
@@ -156,5 +119,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_FAVORITE_SORT = "favorite_sort"
         const val KEY_LIBRARY_SORT = "library_sort"
         const val KEY_ANILIST_SYNC_ENABLED = "anilist_sync_enabled"
+        const val KEY_HOME_BLOCK_ORDER = "home_block_order"
+        const val KEY_HOME_HIDDEN_BLOCKS = "home_hidden_blocks"
     }
 }

@@ -1,11 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Persistenza dei preferiti su [SharedPreferences] (serializzazione tipizzata `@Serializable`,
@@ -14,15 +10,9 @@ import kotlinx.serialization.json.Json
  */
 class FavoritesStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     fun read(): List<FavoriteManga> {
-        val raw = prefs.getString(KEY_FAVORITES_JSON, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyList()
-        }
-        return try {
-            json.decodeFromString<List<FavoriteEntryJson>>(raw).mapNotNull { entry ->
+        return prefs.readJson<List<FavoriteEntryJson>>(KEY_FAVORITES_JSON, emptyList())
+            .mapNotNull { entry ->
                 val title = entry.title.trim()
                 val mangaUrl = entry.mangaUrl.trim()
                 if (title.isBlank() || mangaUrl.isBlank()) {
@@ -37,9 +27,6 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                     )
                 }
             }
-        } catch (_: Exception) {
-            emptyList()
-        }
     }
 
     fun persist(favorites: List<FavoriteManga>) {
@@ -52,9 +39,7 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                 addedAt = it.addedAt,
             )
         }
-        prefs.edit {
-            putString(KEY_FAVORITES_JSON, json.encodeToString(payload))
-        }
+        prefs.writeJson(KEY_FAVORITES_JSON, payload)
     }
 
     /** Forma su disco di un preferito; i campi combaciano col formato storico. */

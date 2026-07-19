@@ -1,15 +1,11 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Un evento "è uscito un nuovo capitolo di un preferito", registrato dal [FavoriteUpdatesWorker]
@@ -102,8 +98,6 @@ fun groupEventsByDay(
  */
 class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     fun read(): List<FavoriteUpdateEvent> = synchronized(LOCK) { readLocked() }
 
     fun write(events: List<FavoriteUpdateEvent>) {
@@ -124,22 +118,11 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
         updated
     }
 
-    private fun readLocked(): List<FavoriteUpdateEvent> {
-        val raw = prefs.getString(KEY_FAVORITE_UPDATES_FEED_JSON, null).orEmpty()
-        if (raw.isBlank()) {
-            return emptyList()
-        }
-        return try {
-            json.decodeFromString<List<FavoriteUpdateEvent>>(raw)
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    private fun readLocked(): List<FavoriteUpdateEvent> =
+        prefs.readJson(KEY_FAVORITE_UPDATES_FEED_JSON, emptyList())
 
     private fun writeLocked(events: List<FavoriteUpdateEvent>) {
-        prefs.edit {
-            putString(KEY_FAVORITE_UPDATES_FEED_JSON, json.encodeToString(events))
-        }
+        prefs.writeJson(KEY_FAVORITE_UPDATES_FEED_JSON, events)
     }
 
     private companion object {

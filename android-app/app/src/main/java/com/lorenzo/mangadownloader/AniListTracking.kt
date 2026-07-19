@@ -4,8 +4,6 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import java.util.Locale
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 /**
  * Dominio del **tracking AniList**: l'utente collega il proprio account (OAuth implicit grant,
@@ -140,8 +138,6 @@ object AniListAuth {
  */
 class AniListStore(private val prefs: SharedPreferences) {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     fun readToken(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
 
     fun readViewer(): AniListViewer? {
@@ -174,25 +170,19 @@ class AniListStore(private val prefs: SharedPreferences) {
     }
 
     fun readTrackings(): Map<String, AniListTracking> {
-        val raw = prefs.getString(KEY_TRACKINGS_JSON, null).orEmpty()
-        if (raw.isBlank()) return emptyMap()
-        return try {
-            json.decodeFromString<Map<String, TrackingJson>>(raw)
-                .filterValues { it.mediaId > 0 }
-                .mapValues { (_, entry) ->
-                    AniListTracking(
-                        mediaId = entry.mediaId,
-                        title = entry.title,
-                        totalChapters = entry.totalChapters,
-                        status = aniListStatusFromText(entry.status),
-                        progress = entry.progress,
-                        score = entry.score,
-                        pendingProgress = entry.pendingProgress,
-                    )
-                }
-        } catch (_: Exception) {
-            emptyMap()
-        }
+        return prefs.readJson<Map<String, TrackingJson>>(KEY_TRACKINGS_JSON, emptyMap())
+            .filterValues { it.mediaId > 0 }
+            .mapValues { (_, entry) ->
+                AniListTracking(
+                    mediaId = entry.mediaId,
+                    title = entry.title,
+                    totalChapters = entry.totalChapters,
+                    status = aniListStatusFromText(entry.status),
+                    progress = entry.progress,
+                    score = entry.score,
+                    pendingProgress = entry.pendingProgress,
+                )
+            }
     }
 
     fun persistTrackings(trackings: Map<String, AniListTracking>) {
@@ -207,9 +197,7 @@ class AniListStore(private val prefs: SharedPreferences) {
                 pendingProgress = tracking.pendingProgress,
             )
         }
-        prefs.edit {
-            putString(KEY_TRACKINGS_JSON, json.encodeToString(payload))
-        }
+        prefs.writeJson(KEY_TRACKINGS_JSON, payload)
     }
 
     /** Forma su disco di un legame serie→media. */

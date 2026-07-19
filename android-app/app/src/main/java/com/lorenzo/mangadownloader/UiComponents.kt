@@ -86,7 +86,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 
 /**
  * Colori standard delle card "contenitore" dell'app (sfondo `surfaceContainerHigh`).
@@ -351,6 +351,7 @@ fun SeriesHeader(
     }
 }
 
+/** Card di un risultato di ricerca: [MangaPosterCard] con info, stella e badge fonte. */
 @Composable
 fun ResultCard(
     result: MangaSearchResult,
@@ -360,55 +361,16 @@ fun ResultCard(
     onShowInfo: () -> Unit,
     sourceLabel: String? = null,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = appCardColors(),
-    ) {
-        Column {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                CoverImage(
-                    model = result.coverUrl,
-                    title = result.title,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(2f / 3f)
-                        .clip(MaterialTheme.shapes.extraLarge),
-                )
-                InfoBadge(
-                    onClick = onShowInfo,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp),
-                )
-                FavoriteToggleBadge(
-                    isFavorite = isFavorite,
-                    onClick = onToggleFavorite,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp),
-                )
-                if (sourceLabel != null) {
-                    SourceBadge(
-                        label = sourceLabel,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(6.dp),
-                    )
-                }
-            }
-            Text(
-                text = result.title,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+    MangaPosterCard(
+        coverModel = result.coverUrl,
+        title = result.title,
+        onClick = onClick,
+        topStartBadge = { InfoBadge(onClick = onShowInfo) },
+        topEndBadge = {
+            FavoriteToggleBadge(isFavorite = isFavorite, onClick = onToggleFavorite)
+        },
+        bottomStartBadge = sourceLabel?.let { label -> { SourceBadge(label = label) } },
+    )
 }
 
 /**
@@ -434,7 +396,7 @@ fun SourceBadge(
 }
 
 @Composable
-private fun InfoBadge(
+internal fun InfoBadge(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -494,7 +456,7 @@ fun FavoriteToggleBadge(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/** Card di un preferito: [MangaPosterCard] con menu azioni e icona dello stato di lettura. */
 @Composable
 fun FavoriteCard(
     favorite: FavoriteManga,
@@ -503,81 +465,46 @@ fun FavoriteCard(
     onMoreActions: (() -> Unit)? = null,
     readingState: FavoriteReadingState? = null,
 ) {
-    val clickModifier = if (onLongClick != null) {
-        Modifier.combinedClickable(
-            onClick = onClick,
-            onClickLabel = "Apri",
-            onLongClick = onLongClick,
-            onLongClickLabel = "Altre azioni",
-        )
-    } else {
-        Modifier.clickable(onClick = onClick, onClickLabel = "Apri")
-    }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(clickModifier),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = appCardColors(),
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                CoverImage(
-                    model = favorite.coverUrl,
-                    title = favorite.title,
+    MangaPosterCard(
+        coverModel = favorite.coverUrl,
+        title = favorite.title,
+        onClick = onClick,
+        onClickLabel = "Apri",
+        onLongClick = onLongClick,
+        onLongClickLabel = "Altre azioni",
+        topEndBadge = onMoreActions?.let { actions ->
+            {
+                IconButton(
+                    onClick = actions,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(2f / 3f)
-                        .clip(MaterialTheme.shapes.large),
-                )
-                if (onMoreActions != null) {
-                    IconButton(
-                        onClick = onMoreActions,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(2.dp)
-                            .size(32.dp)
-                            .background(
-                                color = Color.Black.copy(alpha = 0.45f),
-                                shape = CircleShape,
-                            ),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Altre azioni",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                        .size(32.dp)
+                        .background(
+                            color = Color.Black.copy(alpha = 0.45f),
+                            shape = CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Altre azioni",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 40.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = favorite.title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                // Icona di stato lettura al posto della stella: qui sono tutti preferiti,
-                // l'informazione utile è a che punto sei ("Da iniziare/In lettura/Completato").
-                val state = readingState ?: FavoriteReadingState.TO_START
-                Icon(
-                    imageVector = state.icon(),
-                    contentDescription = state.label,
-                    tint = state.iconTint(),
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-    }
+        },
+        titleTrailing = {
+            Spacer(modifier = Modifier.width(6.dp))
+            // Icona di stato lettura al posto della stella: qui sono tutti preferiti,
+            // l'informazione utile è a che punto sei ("Da iniziare/In lettura/Completato").
+            val state = readingState ?: FavoriteReadingState.TO_START
+            Icon(
+                imageVector = state.icon(),
+                contentDescription = state.label,
+                tint = state.iconTint(),
+                modifier = Modifier.size(16.dp),
+            )
+        },
+    )
 }
 
 /**

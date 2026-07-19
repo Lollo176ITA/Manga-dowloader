@@ -1,0 +1,335 @@
+package com.lorenzo.mangadownloader
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
+
+/**
+ * Pagina Statistiche (dal "Vedi tutto" del blocco Home): il quadro completo delle letture.
+ * Tutto è derivato da memoria ([ReadChapterMemory]) e diario ([ReadingDayStats]) persistenti,
+ * quindi i numeri non calano eliminando i download. Stateless: consuma lo stato e delega.
+ */
+@Composable
+fun StatsScreen(
+    state: MangaUiState,
+    padding: PaddingValues,
+    onOpenSeries: (DownloadedSeries) -> Unit,
+) {
+    val today = remember { LocalDate.now() }
+    val memory = state.readingMemory
+    val diary = state.readingDiary
+    val stats = remember(state.library, state.favorites, memory) {
+        computeHomeStats(state.library, state.favorites.size, memory)
+    }
+    val week = remember(diary) { diaryTotalsBetween(diary, today.minusDays(6), today) }
+    val month = remember(diary) { diaryTotalsBetween(diary, today.withDayOfMonth(1), today) }
+    val streak = remember(diary) { currentReadingStreak(diary, today) }
+    val longestStreak = remember(diary) { longestReadingStreak(diary) }
+    val bestDay = remember(diary) { bestReadingDay(diary) }
+    val lastWeek = remember(diary) { lastDiaryDays(diary, days = 7, today = today) }
+    val topSeries = remember(memory, state.library) { topReadSeries(memory, state.library) }
+
+    if (stats.isEmpty() && diary.isEmpty()) {
+        EmptyState(
+            icon = Icons.Filled.BarChart,
+            title = "Ancora nessun numero",
+            description = "Leggi qualche capitolo e qui troverai statistiche, andamento e record.",
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item(key = "summary") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatsTile(formatStatNumber(stats.chaptersRead), "Capitoli letti", Modifier.weight(1f))
+                    StatsTile(formatStatNumber(stats.pagesRead), "Pagine lette", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatsTile(formatStatNumber(stats.seriesReadCount), "Serie lette", Modifier.weight(1f))
+                    StatsTile(formatStatNumber(stats.seriesCount), "Serie in libreria", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatsTile(
+                        value = formatStatNumber(streak),
+                        label = if (streak == 1) "Giorno di fila" else "Giorni di fila",
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatsTile(formatStatNumber(stats.favoritesCount), "Preferiti", Modifier.weight(1f))
+                }
+            }
+        }
+
+        item(key = "week-header") { StatsSectionTitle("Questa settimana") }
+        item(key = "week") {
+            StatsCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    PeriodSummary(
+                        label = "Ultimi 7 giorni",
+                        stats = week,
+                        modifier = Modifier.weight(1f),
+                    )
+                    PeriodSummary(
+                        label = "Questo mese",
+                        stats = month,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                WeekBarChart(days = lastWeek)
+            }
+        }
+
+        if (bestDay != null || longestStreak > 0) {
+            item(key = "records-header") { StatsSectionTitle("Record personali") }
+            item(key = "records") {
+                StatsCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        bestDay?.let { (day, dayStats) ->
+                            RecordRow(
+                                label = "Giornata migliore",
+                                value = "${chapterCountLabel(dayStats.chaptersRead)} · ${day.italianDate()}",
+                            )
+                        }
+                        if (longestStreak > 0) {
+                            RecordRow(
+                                label = "Streak più lungo",
+                                value = if (longestStreak == 1) "1 giorno" else "$longestStreak giorni",
+                            )
+                        }
+                        diary.maxByOrNull { it.value.pagesRead }
+                            ?.takeIf { it.value.pagesRead > 0 }
+                            ?.let { (dayKey, dayStats) ->
+                                RecordRow(
+                                    label = "Più pagine in un giorno",
+                                    value = "${formatStatNumber(dayStats.pagesRead)} pagine" +
+                                        (diaryDayOf(dayKey)?.let { " · ${it.italianDate()}" } ?: ""),
+                                )
+                            }
+                    }
+                }
+            }
+        }
+
+        if (topSeries.isNotEmpty()) {
+            item(key = "top-header") { StatsSectionTitle("Serie più lette") }
+            item(key = "top") {
+                // Le righe sono già card ([MangaRowCard]): niente contenitore [StatsCard] esterno.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    topSeries.forEachIndexed { index, entry ->
+                        MangaRowCard(
+                            coverModel = entry.series?.coverFile,
+                            title = entry.title,
+                            subtitle = chapterCountLabel(entry.chaptersRead),
+                            onClick = entry.series?.let { series -> { onOpenSeries(series) } },
+                            onClickLabel = "Apri la serie",
+                            leading = {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(18.dp),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+    }
+}
+
+private fun chapterCountLabel(count: Int): String =
+    if (count == 1) "1 capitolo" else "${formatStatNumber(count)} capitoli"
+
+private fun LocalDate.italianDate(): String =
+    format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ITALIAN))
+
+@Composable
+private fun StatsSectionTitle(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .semantics { heading() },
+    )
+}
+
+@Composable
+private fun StatsCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), content = content)
+    }
+}
+
+@Composable
+private fun StatsTile(value: String, label: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PeriodSummary(label: String, stats: ReadingDayStats, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = chapterCountLabel(stats.chaptersRead),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "${formatStatNumber(stats.pagesRead)} pagine",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Barre degli ultimi 7 giorni (capitoli; con soli avanzamenti pagina la barra è minima). */
+@Composable
+fun WeekBarChart(
+    days: List<Pair<LocalDate, ReadingDayStats>>,
+    modifier: Modifier = Modifier,
+    barMaxHeight: Int = 64,
+) {
+    val maxChapters = days.maxOfOrNull { it.second.chaptersRead } ?: 0
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        days.forEach { (day, stats) ->
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (stats.chaptersRead > 0) {
+                    Text(
+                        text = "${stats.chaptersRead}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                }
+                val height = when {
+                    stats.chaptersRead > 0 && maxChapters > 0 ->
+                        (barMaxHeight * stats.chaptersRead / maxChapters).coerceAtLeast(8)
+                    stats.hasActivity -> 6
+                    else -> 3
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(height.dp)
+                        .clip(MaterialTheme.shapes.extraSmall)
+                        .background(
+                            if (stats.hasActivity) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.ITALIAN),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}

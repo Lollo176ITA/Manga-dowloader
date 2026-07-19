@@ -35,6 +35,8 @@ class BackupManagerTest {
         favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs()),
         recentSearchesStore = RecentSearchesStore(prefs()),
         settingsStore = SettingsStore(prefs()),
+        readingMemoryStore = ReadingMemoryStore(prefs()),
+        readingDiaryStore = ReadingDiaryStore(prefs()),
         appVersionName = "1.9.0",
     )
 
@@ -78,14 +80,14 @@ class BackupManagerTest {
         val backup = MangaBackup(
             favorites = listOf(FavoriteBackupEntry("mangapill", "B", "https://mangapill.com/manga/2", null)),
             recentSearches = listOf("nuovo"),
-            settings = AppSettings(highResImages = false, discoveryEnabled = true).toBackup(),
+            settings = AppSettings(themeMode = ThemeMode.DARK).toBackup(),
         )
         val result = manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
 
         assertEquals(BackupRestoreMode.REPLACE, result?.mode)
         assertEquals(listOf("B"), FavoritesStore(prefs()).read().map { it.title })
         assertEquals(listOf("nuovo"), RecentSearchesStore(prefs()).read())
-        assertTrue(SettingsStore(prefs()).read().discoveryEnabled)
+        assertEquals(ThemeMode.DARK, SettingsStore(prefs()).read().themeMode)
     }
 
     @Test
@@ -109,5 +111,103 @@ class BackupManagerTest {
         val result = manager().restore("garbage".byteInputStream(), BackupRestoreMode.MERGE)
         assertNull(result)
         assertEquals(listOf("A"), FavoritesStore(prefs()).read().map { it.title })
+    }
+
+    @Test
+    fun backup_roundTripsReadingMemory() {
+        val record = ReadChapterMemory(
+            seriesKey = "Berserk",
+            seriesTitle = "Berserk",
+            chapterLabel = "Capitolo 1",
+            pagesRead = 20,
+            pageCount = 20,
+            isRead = true,
+            lastReadAtMillis = 1_000L,
+        )
+        ReadingMemoryStore(prefs()).persist(mapOf("Berserk/chapter_1.cbz" to record))
+
+        val backup = manager().buildBackup(nowMs = 1L)
+        assertEquals(20, backup.readingMemory["Berserk/chapter_1.cbz"]?.pagesRead)
+
+        prefs().edit().clear().commit()
+        manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
+        assertEquals(mapOf("Berserk/chapter_1.cbz" to record), ReadingMemoryStore(prefs()).read())
+    }
+
+    @Test
+    fun backup_roundTripsReadingDiary_withMonotoneMerge() {
+        ReadingDiaryStore(prefs()).persist(
+            mapOf("2026-07-15" to ReadingDayStats(chaptersRead = 2, pagesRead = 30)),
+        )
+        val backup = manager().buildBackup(nowMs = 1L)
+        assertEquals(2, backup.readingDiary["2026-07-15"]?.chaptersRead)
+
+        // Restore di un backup più vecchio: per giorno vince il massimo, mai regressioni.
+        val older = MangaBackup(
+            readingDiary = mapOf(
+                "2026-07-15" to ReadingDiaryBackupEntry(chaptersRead = 1, pagesRead = 99),
+                "2026-07-10" to ReadingDiaryBackupEntry(chaptersRead = 5, pagesRead = 50),
+            ),
+        )
+        manager().restore(encodeBackup(older).byteInputStream(), BackupRestoreMode.REPLACE)
+        val restored = ReadingDiaryStore(prefs()).read()
+        assertEquals(ReadingDayStats(2, 99), restored["2026-07-15"])
+        assertEquals(ReadingDayStats(5, 50), restored["2026-07-10"])
+    }
+
+    @Test
+    fun restore_mergeReadingMemoryIsMonotone() {
+        ReadingMemoryStore(prefs()).persist(
+            mapOf(
+                "S/c1.cbz" to ReadChapterMemory("S", "S", "Capitolo 1", 10, 20, false, 5_000L),
+            ),
+        )
+        val backup = MangaBackup(
+            readingMemory = mapOf(
+                "S/c1.cbz" to ReadingMemoryBackupEntry("S", "S", "Capitolo 1", 20, 20, true, 1_000L),
+                "S/c2.cbz" to ReadingMemoryBackupEntry("S", "S", "Capitolo 2", 3, 30, false, 2_000L),
+            ),
+        )
+        manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.MERGE)
+
+        val restored = ReadingMemoryStore(prefs()).read()
+        // Merge monotono: pagine/letto al massimo, timestamp più recente vince.
+        assertEquals(20, restored["S/c1.cbz"]?.pagesRead)
+        assertEquals(true, restored["S/c1.cbz"]?.isRead)
+        assertEquals(5_000L, restored["S/c1.cbz"]?.lastReadAtMillis)
+        assertEquals(3, restored["S/c2.cbz"]?.pagesRead)
+    }
+
+    @Test
+    fun backup_roundTripsHomeBlockConfig() {
+        SettingsStore(prefs()).persist(
+            AppSettings(
+                homeBlockOrder = listOf(
+                    HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
+                    HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY,
+                ),
+                hiddenHomeBlocks = setOf(HomeBlock.DISCOVER),
+            ),
+        )
+        val backup = manager().buildBackup(nowMs = 1L)
+        assertEquals(
+            listOf(
+                "DISCOVER", "RESUME", "FAVORITE_UPDATES",
+                "RECOMMENDED", "STATS", "HISTORY",
+            ),
+            backup.settings.homeBlockOrder,
+        )
+
+        prefs().edit().clear().commit()
+        manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
+        val restored = SettingsStore(prefs()).read()
+        assertEquals(
+            listOf(
+                HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
+                HomeBlock.RECOMMENDED, HomeBlock.STATS, HomeBlock.HISTORY,
+            ),
+            restored.homeBlockOrder,
+        )
+        assertEquals(setOf(HomeBlock.DISCOVER), restored.hiddenHomeBlocks)
     }
 }

@@ -1,0 +1,11 @@
+{
+  "title": "Capitolo 7",
+  "sourceId": "mangapill",
+  "mangaUrl": "https://mangapill.com/manga/7/example",
+  "chapterUrl": "https://mangapill.com/chapters/7/example-chapter-7",
+  "referer": "https://mangapill.com/chapters/7/example-chapter-7",
+  "lastAccessAtMs": 1700000000000,
+  "pageUrls": [" https://cdn.example/1.jpg ", "", "https://cdn.example/2.jpg"],
+  "pages": [" 001.jpg ", "", "002.jpg"],
+  "futureField": "ignored"
+}

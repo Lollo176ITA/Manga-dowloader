@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import java.io.IOException
+import java.io.OutputStream
 import java.net.URI
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,28 +23,13 @@ class MangaNetworkClient(
         url: String,
         headers: Map<String, String> = emptyMap(),
     ): String {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header(
-                "Accept",
-                headers["Accept"] ?: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            )
-            .header("Accept-Language", headers["Accept-Language"] ?: "it,en;q=0.8")
-            .apply {
-                headers.forEach { (name, value) ->
-                    if (name != "Accept" && name != "Accept-Language") {
-                        header(name, value)
-                    }
-                }
-            }
-            .build()
-
-        executeWithConnectionRetry(request).use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} su $url")
-            }
-            return response.body.string()
+        val request = buildRequest(
+            url = url,
+            defaultHeaders = DEFAULT_DOCUMENT_HEADERS,
+            headers = headers,
+        )
+        return executeSuccessful(request, "su $url") { response ->
+            response.body.string()
         }
     }
 
@@ -52,27 +38,62 @@ class MangaNetworkClient(
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
     ): ByteArray {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .apply {
-                referer?.trim()
-                    ?.takeIf(String::isNotBlank)
-                    ?.let { header("Referer", it) }
-                headers.forEach { (name, value) -> header(name, value) }
-            }
-            .build()
+        val request = buildRequest(url, referer, headers = headers)
+        return executeSuccessful(request, "scaricando $url") { response ->
+            response.body.bytes()
+        }
+    }
 
-        executeWithConnectionRetry(request).use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} scaricando $url")
-            }
-            return response.body.bytes()
+    /**
+     * Scarica [url] scrivendo il corpo della risposta direttamente su [sink] a blocchi, senza
+     * mai materializzare l'intera immagine in memoria (a differenza di [fetchBytes]). Usato
+     * dalla cache dello streaming reader, dove tenere in RAM un capitolo intero causava picchi
+     * di heap. Sincrono: chiamato da thread IO. Non chiude [sink] (lo gestisce il chiamante).
+     */
+    fun fetchToStream(
+        url: String,
+        sink: OutputStream,
+        referer: String? = null,
+        headers: Map<String, String> = emptyMap(),
+    ) {
+        val request = buildRequest(url, referer, headers = headers)
+        executeSuccessful(request, "scaricando $url") { response ->
+            response.body.byteStream().use { it.copyTo(sink) }
         }
     }
 
     fun absolutize(baseUrl: String, value: String): String {
         return URI(baseUrl).resolve(value).toString()
+    }
+
+    private fun buildRequest(
+        url: String,
+        referer: String? = null,
+        defaultHeaders: Map<String, String> = emptyMap(),
+        headers: Map<String, String> = emptyMap(),
+    ): Request = Request.Builder()
+        .url(url)
+        .header("User-Agent", USER_AGENT)
+        .apply {
+            referer?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let { header("Referer", it) }
+            defaultHeaders.forEach { (name, value) ->
+                if (name !in headers) header(name, value)
+            }
+            headers.forEach { (name, value) -> header(name, value) }
+        }
+        .build()
+
+    private inline fun <T> executeSuccessful(
+        request: Request,
+        errorContext: String,
+        readBody: (Response) -> T,
+    ): T = executeWithConnectionRetry(request).use { response ->
+        if (!response.isSuccessful) {
+            throw IOException("HTTP ${response.code} $errorContext")
+        }
+        readBody(response)
     }
 
     /**
@@ -103,6 +124,11 @@ class MangaNetworkClient(
     companion object {
         private const val MAX_ATTEMPTS = 3
         private const val RETRY_BACKOFF_MS = 400L
+
+        private val DEFAULT_DOCUMENT_HEADERS = mapOf(
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language" to "it,en;q=0.8",
+        )
 
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +

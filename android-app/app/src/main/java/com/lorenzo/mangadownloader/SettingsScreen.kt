@@ -29,7 +29,8 @@ fun SettingsScreen(
     padding: PaddingValues,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
-    onToggleDiscovery: (Boolean) -> Unit,
+    onSelectCardDensity: (CardDensity) -> Unit,
+    onRestartTutorial: () -> Unit,
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
     onToggleAniListSync: (Boolean) -> Unit,
@@ -43,6 +44,7 @@ fun SettingsScreen(
     onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
+    onToggleShowHomeTab: (Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -75,6 +77,11 @@ fun SettingsScreen(
                 onToggleDynamicColor = onToggleDynamicColor,
             )
             SettingsDivider()
+            CardDensityContent(
+                currentDensity = settings.cardDensity,
+                onSelectDensity = onSelectCardDensity,
+            )
+            SettingsDivider()
             ReadingModeContent(
                 currentMode = settings.readingMode,
                 onSelectMode = onSelectReadingMode,
@@ -93,6 +100,11 @@ fun SettingsScreen(
             KeepScreenOnContent(
                 enabled = settings.keepScreenOnEnabled,
                 onToggle = onToggleKeepScreenOn,
+            )
+            SettingsDivider()
+            ShowHomeTabContent(
+                enabled = settings.showHomeTab,
+                onToggle = onToggleShowHomeTab,
             )
         }
 
@@ -122,10 +134,7 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
         }
 
         SettingsSection(title = "App", icon = Icons.Default.Settings) {
-            DiscoveryContent(
-                enabled = settings.discoveryEnabled,
-                onToggle = onToggleDiscovery,
-            )
+            RestartTutorialContent(onRestart = onRestartTutorial)
             SettingsDivider()
             AniListAccountContent(
                 viewerName = aniListViewerName,

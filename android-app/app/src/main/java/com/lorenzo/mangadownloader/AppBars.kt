@@ -11,13 +11,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -47,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,12 +58,15 @@ fun AppTopBar(
     visibleTab: AppTab,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onToggleFavoriteSeries: () -> Unit,
     onOpenSettings: () -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
     unseenUpdatesCount: Int,
     onOpenUpdates: () -> Unit,
     onMarkAllUpdatesSeen: () -> Unit,
+    homeEditMode: Boolean = false,
+    onToggleHomeEdit: () -> Unit = {},
 ) {
     val anchorFor = LocalTutorialAnchor.current
     val readerChapter = state.readerChapter
@@ -77,11 +83,20 @@ fun AppTopBar(
         Screen.Changelog -> "Novità"
         Screen.Settings -> "Impostazioni"
         Screen.Updates -> "Aggiornamenti"
+        Screen.Stats -> "Statistiche"
+        Screen.History -> "Cronologia"
+        Screen.DiscoverGenre -> state.discovery.selectedGenre?.label ?: "Scopri"
         Screen.Reader -> readerChapter?.title ?: "Manga Downloader"
         Screen.Detail -> selectedManga?.title ?: "Manga Downloader"
         Screen.DownloadedSeries -> selectedSeries?.title ?: "Manga Downloader"
         Screen.Tabs -> when (visibleTab) {
-            AppTab.DISCOVERY -> "Scopri"
+            // Il saluto è ricalcolato a ogni ricomposizione: non resta stantio oltre i confini
+            // orari mentre l'app è in foreground (stesso criterio del vecchio HomeHeader).
+            AppTab.HOME -> if (homeEditMode) {
+                "Modifica Home"
+            } else {
+                homeGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+            }
             AppTab.SEARCH -> "Cerca"
             AppTab.FAVORITES -> "Preferiti"
             AppTab.LIBRARY -> "Libreria"
@@ -161,6 +176,20 @@ fun AppTopBar(
                 )
             }
 
+            // Stella anche sulla serie scaricata: magari il manga è stato scaricato senza
+            // metterlo tra i preferiti. Solo con un URL d'origine (l'identità del preferito).
+            val seriesMangaUrl = selectedSeries?.mangaUrl?.takeIf { it.isNotBlank() }
+            if (screen == Screen.DownloadedSeries && selectedSeries != null && seriesMangaUrl != null) {
+                val isSeriesFavorite = MangaSourceCatalog.identityKey(
+                    selectedSeries.sourceId,
+                    seriesMangaUrl,
+                ) in state.favoriteMangaKeys
+                FavoriteToggleAction(
+                    isFavorite = isSeriesFavorite,
+                    onToggle = onToggleFavoriteSeries,
+                )
+            }
+
             // Nel feed Aggiornamenti: azzera i "non visti" senza dover chiudere la schermata.
             if (screen == Screen.Updates && unseenUpdatesCount > 0) {
                 IconButton(onClick = onMarkAllUpdatesSeen) {
@@ -176,6 +205,16 @@ fun AppTopBar(
                     unseenCount = unseenUpdatesCount,
                     onClick = onOpenUpdates,
                 )
+            }
+
+            // Matita della Home: personalizza i blocchi. In modifica diventa la spunta "Fine".
+            if (screen == Screen.Tabs && visibleTab == AppTab.HOME) {
+                IconButton(onClick = onToggleHomeEdit) {
+                    Icon(
+                        imageVector = if (homeEditMode) Icons.Filled.Done else Icons.Outlined.Edit,
+                        contentDescription = if (homeEditMode) "Fine modifica Home" else "Personalizza la Home",
+                    )
+                }
             }
 
             if (showSettingsAction) {
@@ -338,20 +377,20 @@ private fun FavoriteUpdatesAction(
 @Composable
 fun AppBottomBar(
     currentTab: AppTab,
-    showDiscovery: Boolean,
     onSelect: (AppTab) -> Unit,
     favoritesBadgeCount: Int = 0,
+    showHomeTab: Boolean = true,
 ) {
     val anchorFor = LocalTutorialAnchor.current
     ShortNavigationBar(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        if (showDiscovery) {
+        if (showHomeTab) {
             AppTabEntry(
-                tab = AppTab.DISCOVERY,
-                selected = currentTab == AppTab.DISCOVERY,
-                icon = Icons.Default.Explore,
-                label = "Scopri",
+                tab = AppTab.HOME,
+                selected = currentTab == AppTab.HOME,
+                icon = Icons.Default.Home,
+                label = "Home",
                 onSelect = onSelect,
             )
         }

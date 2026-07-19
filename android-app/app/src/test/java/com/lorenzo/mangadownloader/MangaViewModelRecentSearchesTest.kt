@@ -126,6 +126,9 @@ class MangaViewModelRecentSearchesTest {
     }
 
     private fun search(viewModel: MangaViewModel, query: String) {
+        // L'atterraggio di default ora è Home: la registrazione dei recenti richiede di essere
+        // sulla tab Cerca, quindi la selezioniamo esplicitamente (parental è disattivo nei test).
+        viewModel.selectTab(AppTab.SEARCH)
         viewModel.onQueryChange(query)
         viewModel.selectManga(sampleResult(query))
     }

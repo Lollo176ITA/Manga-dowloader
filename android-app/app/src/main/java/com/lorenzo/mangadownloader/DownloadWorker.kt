@@ -98,7 +98,22 @@ class DownloadWorker(
                                 chapter = chapter,
                                 outputDir = plan.outputDir,
                                 pageConcurrency = PAGE_CONCURRENCY,
-                            ) { pageDone, pageTotal ->
+                                onProcessingProgress = processing@ { processed, pageTotal ->
+                                    val isBoundary = processed == 0 ||
+                                        processed >= pageTotal ||
+                                        processed % PAGE_PROGRESS_STRIDE == 0
+                                    if (!isBoundary) return@processing
+                                    emitStatus(
+                                        mutex = statusMutex,
+                                        sourceId = plan.sourceId,
+                                        seriesTitle = plan.seriesTitle,
+                                        mangaUrl = plan.mangaUrl,
+                                        message = "$chapterLabel: preparazione immagini $processed/$pageTotal",
+                                        doneChapters = completedChapters.get(),
+                                        totalChapters = totalChapters,
+                                    )
+                                },
+                            ) download@ { pageDone, pageTotal ->
                                 // Skip per-page emits except the final one or boundaries:
                                 // a chapter of 50 pages would otherwise produce 50 setProgress
                                 // round-trips, each waking the UI observer.
@@ -112,7 +127,7 @@ class DownloadWorker(
                                     !isBatchBoundary &&
                                     !timedOut
                                 ) {
-                                    return@downloadChapterAsCbz
+                                    return@download
                                 }
                                 lastPageEmitMs.set(now)
                                 emitStatus(

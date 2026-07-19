@@ -78,6 +78,38 @@ class AniListClientTest {
     }
 
     @Test
+    fun parseMediaResponse_leggeNativeESynonyms() {
+        val json = """
+            {"data":{"Page":{"media":[{
+                "id":53390,
+                "title":{"romaji":"Shingeki no Kyojin","english":"Attack on Titan","native":"進撃の巨人"},
+                "synonyms":["L'attacco dei giganti","AoT"],
+                "coverImage":{"large":"https://img/aot.jpg"},
+                "genres":["Action"],"averageScore":84,"description":"...","status":"FINISHED"
+            }]}}}
+        """.trimIndent()
+        val parsed = AniListClient.parseMediaResponse(json).single()
+        assertEquals("進撃の巨人", parsed.titleNative)
+        assertEquals(listOf("L'attacco dei giganti", "AoT"), parsed.synonyms)
+        assertEquals(
+            listOf("Attack on Titan", "Shingeki no Kyojin", "進撃の巨人", "L'attacco dei giganti", "AoT"),
+            parsed.allTitles(),
+        )
+    }
+
+    @Test
+    fun parseMediaResponse_nativeESynonymsAssentiRestanoVuoti() {
+        val json = """
+            {"data":{"Page":{"media":[{
+                "id":1,"title":{"romaji":"X","english":null}
+            }]}}}
+        """.trimIndent()
+        val parsed = AniListClient.parseMediaResponse(json).single()
+        assertNull(parsed.titleNative)
+        assertTrue(parsed.synonyms.isEmpty())
+    }
+
+    @Test
     fun parseMediaResponse_emptyOnErrorResponse() {
         val errorResponse = """{ "errors": [ { "message": "Boom" } ] }"""
         assertTrue(AniListClient.parseMediaResponse(errorResponse).isEmpty())

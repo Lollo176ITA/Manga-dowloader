@@ -451,13 +451,23 @@ class LibraryRepository(
     }
 
     fun streamingReadChapterIds(sourceId: String, mangaUrl: String): Set<String> {
-        return prefs.getStringSet(streamingReadPrefKey(sourceId, mangaUrl), emptySet())
-            ?.toSet()
+        return streamingReadChapterIds(seriesKey = null, sourceId = sourceId, mangaUrl = mangaUrl)
+    }
+
+    /**
+     * Id dei capitoli letti in streaming: unione del set per-serie (chiave canonica, con
+     * chiavi `number:<label>` che sopravvivono al cambio fonte) e del set legacy per-fonte.
+     */
+    fun streamingReadChapterIds(seriesKey: String?, sourceId: String, mangaUrl: String): Set<String> {
+        val legacy = prefs.getStringSet(streamingReadPrefKey(sourceId, mangaUrl), emptySet()).orEmpty()
+        val perSeries = seriesKey
+            ?.let { prefs.getStringSet(streamingReadSeriesPrefKey(it), emptySet()).orEmpty() }
             .orEmpty()
+        return legacy + perSeries
     }
 
     fun streamingReadChapterIds(plan: DownloadPlan): Set<String> {
-        return streamingReadChapterIds(plan.sourceId, plan.mangaUrl)
+        return streamingReadChapterIds(seriesKey = null, sourceId = plan.sourceId, mangaUrl = plan.mangaUrl)
     }
 
     fun markStreamingChapterRead(
@@ -465,12 +475,46 @@ class LibraryRepository(
         mangaUrl: String,
         chapter: ChapterEntry,
     ): String {
+        return markStreamingChapterRead(seriesKey = null, sourceId = sourceId, mangaUrl = mangaUrl, chapter = chapter)
+    }
+
+    /**
+     * Segna un capitolo streaming come letto: scrive l'id stabile nel set legacy per-fonte
+     * e, se c'è una [seriesKey], anche id stabile + chiave `number:<label>` nel set
+     * per-serie, così il progresso segue la serie a prescindere dal server.
+     */
+    fun markStreamingChapterRead(
+        seriesKey: String?,
+        sourceId: String,
+        mangaUrl: String,
+        chapter: ChapterEntry,
+    ): String {
         val chapterId = DownloadStorage.stableChapterId(chapter)
-        val updated = streamingReadChapterIds(sourceId, mangaUrl) + chapterId
+        val numberKey = "number:${DownloadStorage.normalizedChapterLabel(chapter.displayNumber())}"
         prefs.edit {
-            putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
+            val legacyKey = streamingReadPrefKey(sourceId, mangaUrl)
+            putStringSet(legacyKey, prefs.getStringSet(legacyKey, emptySet()).orEmpty() + chapterId)
+            seriesKey?.let { key ->
+                val seriesPrefKey = streamingReadSeriesPrefKey(key)
+                putStringSet(
+                    seriesPrefKey,
+                    prefs.getStringSet(seriesPrefKey, emptySet()).orEmpty() + chapterId + numberKey,
+                )
+            }
         }
         return chapterId
+    }
+
+    /** Sposta il set streaming per-serie da una chiave all'altra (promozione title:→anilist:). */
+    fun migrateStreamingSeriesKey(oldKey: String, newKey: String) {
+        val oldPrefKey = streamingReadSeriesPrefKey(oldKey)
+        val existing = prefs.getStringSet(oldPrefKey, emptySet()).orEmpty()
+        if (existing.isEmpty()) return
+        val newPrefKey = streamingReadSeriesPrefKey(newKey)
+        prefs.edit {
+            putStringSet(newPrefKey, prefs.getStringSet(newPrefKey, emptySet()).orEmpty() + existing)
+            remove(oldPrefKey)
+        }
     }
 
     suspend fun deleteChapters(
@@ -804,6 +848,10 @@ class LibraryRepository(
     private fun readerReadAtPrefKey(relativePath: String): String = "reader_read_at::$relativePath"
     private fun streamingReadPrefKey(sourceId: String, mangaUrl: String): String {
         return "streaming_read::${MangaSourceCatalog.identityKey(sourceId, mangaUrl)}"
+    }
+
+    private fun streamingReadSeriesPrefKey(seriesKey: String): String {
+        return "streaming_read_series::$seriesKey"
     }
 
     companion object {

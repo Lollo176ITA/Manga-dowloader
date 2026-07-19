@@ -53,6 +53,43 @@ class StreamingReadStateTest {
     }
 
     @Test
+    fun progressoStreaming_sopravviveAlCambioFonteTramiteSeriesKeyENumero() {
+        val repository = LibraryRepository(application)
+        val chapterMangapill = chapter("10")
+
+        repository.markStreamingChapterRead(
+            seriesKey = "anilist:53390",
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = MANGA_URL,
+            chapter = chapterMangapill,
+        )
+
+        // Stessa serie letta da un'altra fonte: URL diversi, stesso numero.
+        val ids = repository.streamingReadChapterIds(
+            seriesKey = "anilist:53390",
+            sourceId = MangaSourceIds.VYMANGA,
+            mangaUrl = "https://vymanga.com/manga/x",
+        )
+        assertTrue("number:${DownloadStorage.normalizedChapterLabel("10")}" in ids)
+    }
+
+    @Test
+    fun progressoStreaming_senzaSeriesKeyRestaLegacyPerFonte() {
+        val repository = LibraryRepository(application)
+        val chapter = chapter("5")
+
+        repository.markStreamingChapterRead(
+            seriesKey = null,
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = MANGA_URL,
+            chapter = chapter,
+        )
+
+        val ids = repository.streamingReadChapterIds(null, MangaSourceIds.MANGAPILL, MANGA_URL)
+        assertTrue(chapter.stableId() in ids)
+    }
+
+    @Test
     fun prepareSeriesStorage_mergesStreamingReadIdsIntoDownloadedMetadataAndScan() {
         val readChapter = chapter("1")
         val unreadChapter = chapter("2")

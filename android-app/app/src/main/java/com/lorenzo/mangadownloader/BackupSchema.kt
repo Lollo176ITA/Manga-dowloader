@@ -170,6 +170,7 @@ data class SettingsBackup(
     val hiddenHomeBlocks: List<String> = emptyList(),
     val cardDensity: String = CardDensity.NORMAL.name,
     val showHomeTab: Boolean = true,
+    val disabledSourceIds: List<String> = emptyList(),
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -235,6 +236,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
     cardDensity = cardDensity.name,
     showHomeTab = showHomeTab,
+    disabledSourceIds = disabledSourceIds.toList(),
 )
 
 /**
@@ -287,6 +289,12 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
     cardDensity = runCatching { CardDensity.valueOf(cardDensity) }.getOrDefault(current.cardDensity),
     showHomeTab = showHomeTab,
+    // Id non più in catalogo scartati; un backup che disabilitasse TUTTE le fonti viene
+    // azzerato (deve sempre restare almeno una fonte attiva).
+    disabledSourceIds = disabledSourceIds
+        .filter { id -> MangaSourceCatalog.descriptors.any { it.id == id } }
+        .toSet()
+        .let { ids -> if (ids.size >= MangaSourceCatalog.descriptors.size) emptySet() else ids },
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =

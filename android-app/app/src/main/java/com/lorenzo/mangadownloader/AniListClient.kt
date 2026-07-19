@@ -30,6 +30,9 @@ data class AniListManga(
     val id: Int,
     val titleRomaji: String?,
     val titleEnglish: String?,
+    val titleNative: String? = null,
+    /** Titoli alternativi noti ad AniList (spesso includono il titolo italiano). */
+    val synonyms: List<String> = emptyList(),
     val coverUrl: String?,
     val genres: List<String>,
     val averageScore: Int?,
@@ -48,6 +51,12 @@ data class AniListManga(
 
     /** Titolo da mostrare in UI, con lo stesso ordine di preferenza di [searchTitle]. */
     fun displayTitle(): String = searchTitle() ?: "Senza titolo"
+
+    /** Tutti i titoli noti, in ordine di preferenza, per il matching tra fonti. */
+    fun allTitles(): List<String> =
+        (listOfNotNull(titleEnglish, titleRomaji, titleNative) + synonyms)
+            .map(String::trim)
+            .filter(String::isNotBlank)
 }
 
 /**
@@ -242,7 +251,8 @@ class AniListClient(
               Page(page: 1, perPage: ${'$'}perPage) {
                 media(search: ${'$'}search, type: MANGA) {
                   id
-                  title { romaji english }
+                  title { romaji english native }
+                  synonyms
                   coverImage { large }
                   genres
                   averageScore
@@ -333,6 +343,7 @@ class AniListClient(
             val title = obj["title"]?.jsonObject
             val romaji = title?.get("romaji")?.jsonPrimitive?.contentOrNull?.trim()
             val english = title?.get("english")?.jsonPrimitive?.contentOrNull?.trim()
+            val native = title?.get("native")?.jsonPrimitive?.contentOrNull?.trim()
             if (romaji.isNullOrBlank() && english.isNullOrBlank()) {
                 return null
             }
@@ -340,6 +351,10 @@ class AniListClient(
                 id = id,
                 titleRomaji = romaji?.takeIf(String::isNotBlank),
                 titleEnglish = english?.takeIf(String::isNotBlank),
+                titleNative = native?.takeIf(String::isNotBlank),
+                synonyms = obj["synonyms"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                    ?: emptyList(),
                 coverUrl = obj["coverImage"]?.jsonObject?.get("large")
                     ?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
                 genres = obj["genres"]?.jsonArray

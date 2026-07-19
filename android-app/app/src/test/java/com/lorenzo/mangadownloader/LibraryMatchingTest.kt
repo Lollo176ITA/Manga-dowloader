@@ -46,6 +46,29 @@ class LibraryMatchingTest {
     }
 
     @Test
+    fun matchingDownloadedSeries_matchaTramiteBindingDelLink() {
+        // Scheda aperta su VyManga con titolo diverso; la serie era stata scaricata da
+        // Mangapill: né identità né titolo combaciano, ma i binding del SeriesLink sì.
+        val details = MangaDetails(
+            sourceId = MangaSourceIds.VYMANGA,
+            title = "Titolo VY",
+            coverUrl = null,
+            mangaUrl = "https://vymanga.com/manga/x",
+            chapters = emptyList(),
+        )
+        val downloaded = series(title = "Altro Titolo", mangaUrl = "https://mangapill.com/manga/1")
+        val bindings = listOf(
+            SeriesSourceBinding(MangaSourceIds.MANGAPILL, "https://mangapill.com/manga/1"),
+            SeriesSourceBinding(MangaSourceIds.VYMANGA, "https://vymanga.com/manga/x"),
+        )
+
+        assertEquals(
+            downloaded,
+            LibraryMatching.matchingDownloadedSeries(details, listOf(downloaded), extraBindings = bindings),
+        )
+    }
+
+    @Test
     fun matchingDownloadedSeries_returnsNullWhenNothingMatches() {
         val details = details(mangaUrl = "https://mangapill.com/manga/12345", title = "Berserk")
         val library = listOf(

@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -8,6 +9,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MangaSourcesTest {
+
+    @Test
+    fun descriptorsForScope_escludeLeFontiDisabilitate() {
+        val ids = MangaSourceCatalog
+            .descriptorsForScope(SearchScope.ALL, disabledSourceIds = setOf(MangaSourceIds.VYMANGA))
+            .map { it.id }
+        assertFalse(MangaSourceIds.VYMANGA in ids)
+        assertTrue(MangaSourceIds.MANGAPILL in ids)
+    }
+
+    @Test
+    fun descriptorsForScope_filtroCheSvuotaLoScopeRipiegaSullElencoCompleto() {
+        val ids = MangaSourceCatalog
+            .descriptorsForScope(
+                SearchScope.ITA,
+                disabledSourceIds = setOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD),
+            )
+            .map { it.id }
+        assertEquals(listOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD), ids)
+    }
 
     @Test
     fun mangapillCanonicalSeriesUrl_normalizesChapterUrl() {

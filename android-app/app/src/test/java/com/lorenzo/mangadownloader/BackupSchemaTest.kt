@@ -29,6 +29,25 @@ class BackupSchemaTest {
     }
 
     @Test
+    fun disabledSourceIds_roundTripEScartaIdIgnoti() {
+        val settings = AppSettings(disabledSourceIds = setOf(MangaSourceIds.VYMANGA))
+        val restored = decodeSettingsBackup(encodeSettingsBackup(settings.toBackup()))!!
+            .applyTo(AppSettings())
+        assertEquals(setOf(MangaSourceIds.VYMANGA), restored.disabledSourceIds)
+
+        val tampered = settings.toBackup()
+            .copy(disabledSourceIds = listOf("fonte_inesistente", MangaSourceIds.VYMANGA))
+        assertEquals(setOf(MangaSourceIds.VYMANGA), tampered.applyTo(AppSettings()).disabledSourceIds)
+    }
+
+    @Test
+    fun disabledSourceIds_backupCheDisabilitaTutteLeFontiVieneAzzerato() {
+        val allIds = MangaSourceCatalog.descriptors.map { it.id }
+        val tampered = AppSettings().toBackup().copy(disabledSourceIds = allIds)
+        assertEquals(emptySet<String>(), tampered.applyTo(AppSettings()).disabledSourceIds)
+    }
+
+    @Test
     fun decode_returnsNullOnMalformedJson() {
         assertNull(decodeBackup("{ not json"))
     }

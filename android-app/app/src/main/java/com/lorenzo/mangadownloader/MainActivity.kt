@@ -690,6 +690,7 @@ private fun MangaDownloaderAppContent(
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
+                    onSetSourceEnabled = viewModel::setSourceEnabled,
                     onToggleShowHomeTab = viewModel::setShowHomeTab,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
@@ -721,19 +722,16 @@ private fun MangaDownloaderAppContent(
                 ChangelogScreen(padding = innerPadding)
             }
             Screen.Detail -> if (selectedManga != null) {
-                val downloadedChapterKeys = remember(selectedManga, state.library) {
-                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library)
+                val linkBindings = state.selectedSeriesLink?.sources.orEmpty()
+                val downloadedChapterKeys = remember(selectedManga, state.library, linkBindings) {
+                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library, linkBindings)
                 }
-                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds) {
+                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds, linkBindings) {
                     state.selectedMangaReadChapterIds +
-                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library)
+                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library, linkBindings)
                 }
-                val aniListTracking = remember(selectedManga, state.aniList.trackings) {
-                    MangaSourceCatalog.identityKeyOrNull(
-                        selectedManga.sourceId,
-                        selectedManga.mangaUrl,
-                        selectedManga.title,
-                    )?.let { state.aniList.trackings[it] }
+                val aniListTracking = remember(selectedManga, state.aniList.trackings, state.selectedSeriesKey) {
+                    state.selectedSeriesKey?.let { state.aniList.trackings[it] }
                 }
                 DetailScreen(
                     details = selectedManga,
@@ -743,6 +741,15 @@ private fun MangaDownloaderAppContent(
                     readChapterIds = readChapterIds,
                     streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     autoDownloadEnabled = state.settings.autoDownloadEnabled,
+                    showSourceSelector = state.selectedSeriesLink != null,
+                    sourceOptions = state.sourceOptions,
+                    onOpenSourceMenu = viewModel::loadSourceOptions,
+                    onSwitchSource = viewModel::switchSource,
+                    onSearchOtherSources = viewModel::searchOtherSources,
+                    onUnlinkSource = viewModel::unlinkSource,
+                    otherSourcesSheet = state.otherSourcesSheet,
+                    onPickOtherSource = viewModel::linkSourceToSeries,
+                    onDismissOtherSources = viewModel::dismissOtherSources,
                     showAniListTracking = state.aniList.viewer != null,
                     aniListTracking = aniListTracking,
                     onLinkAniList = viewModel::openAniListMatch,
@@ -801,7 +808,7 @@ private fun MangaDownloaderAppContent(
                             onQueryChange = viewModel::onQueryChange,
                             onClearRecentSearches = viewModel::clearRecentSearches,
                             onRefresh = viewModel::submitSearch,
-                            onSelect = viewModel::selectManga,
+                            onSelectSeries = viewModel::selectSeries,
                             onToggleFavorite = viewModel::toggleFavoriteFromResult,
                             onShowInfo = viewModel::showMangaInfo,
                             onDismissInfo = viewModel::dismissMangaInfo,

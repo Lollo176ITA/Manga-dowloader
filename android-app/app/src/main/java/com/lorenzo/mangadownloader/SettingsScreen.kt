@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
@@ -45,6 +46,7 @@ fun SettingsScreen(
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleShowHomeTab: (Boolean) -> Unit,
+    onSetSourceEnabled: (String, Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -159,6 +161,13 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 onToggleParental = onToggleParentalControl,
                 onRequestChangePin = onRequestChangeParentalPin,
                 onToggleBiometric = onToggleParentalBiometric,
+            )
+        }
+
+        SettingsSection(title = "Fonti", icon = Icons.Default.Language) {
+            SourceTogglesContent(
+                disabledSourceIds = settings.disabledSourceIds,
+                onToggle = onSetSourceEnabled,
             )
         }
 

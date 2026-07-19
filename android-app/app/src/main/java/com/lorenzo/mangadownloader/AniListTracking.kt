@@ -170,7 +170,7 @@ class AniListStore(private val prefs: SharedPreferences) {
     }
 
     fun readTrackings(): Map<String, AniListTracking> {
-        return prefs.readJson<Map<String, TrackingJson>>(KEY_TRACKINGS_JSON, emptyMap())
+        val raw = prefs.readJson<Map<String, TrackingJson>>(KEY_TRACKINGS_JSON, emptyMap())
             .filterValues { it.mediaId > 0 }
             .mapValues { (_, entry) ->
                 AniListTracking(
@@ -183,6 +183,30 @@ class AniListStore(private val prefs: SharedPreferences) {
                     pendingProgress = entry.pendingProgress,
                 )
             }
+        // Migrazione lazy: le chiavi storiche erano identityKey per-fonte (`sourceId::url`);
+        // il mediaId nel valore permette di ri-ancorarle alla SeriesKey canonica.
+        // Duplicati (stessa serie collegata da più fonti): vince il progress più alto.
+        var migratedAny = false
+        val migrated = LinkedHashMap<String, AniListTracking>()
+        raw.forEach { (key, tracking) ->
+            val newKey = if (
+                key.startsWith(SeriesIdentity.ANILIST_PREFIX) ||
+                key.startsWith(SeriesIdentity.TITLE_PREFIX)
+            ) {
+                key
+            } else {
+                migratedAny = true
+                SeriesIdentity.keyForAniList(tracking.mediaId)
+            }
+            val existing = migrated[newKey]
+            if (existing == null || tracking.progress > existing.progress) {
+                migrated[newKey] = tracking
+            }
+        }
+        if (migratedAny) {
+            persistTrackings(migrated)
+        }
+        return migrated
     }
 
     fun persistTrackings(trackings: Map<String, AniListTracking>) {

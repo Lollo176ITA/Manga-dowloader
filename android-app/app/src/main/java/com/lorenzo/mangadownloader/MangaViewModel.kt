@@ -91,6 +91,27 @@ data class AniListMatchUiState(
     val isLinking: Boolean = false,
 )
 
+/**
+ * Voce del selettore fonte nella scheda manga: una fonte collegata alla serie con le info
+ * comparative caricate in lazy (capitoli disponibili, ultimo uscito). [hasError] marca la
+ * singola voce come non raggiungibile senza rompere le altre.
+ */
+data class SourceOptionUi(
+    val sourceId: String,
+    val mangaUrl: String,
+    val chapterCount: Int? = null,
+    val lastChapterLabel: String? = null,
+    val isLoading: Boolean = false,
+    val hasError: Boolean = false,
+)
+
+/** Stato dello sheet "Cerca su altre fonti…" (aggancio manuale di una fonte alla serie). */
+data class OtherSourcesUiState(
+    val isLoading: Boolean = false,
+    val results: List<MangaSearchResult> = emptyList(),
+    val error: String? = null,
+)
+
 data class FavoriteManga(
     val sourceId: String,
     val title: String,
@@ -157,6 +178,8 @@ data class AppSettings(
     val cardDensity: CardDensity = CardDensity.NORMAL,
     // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
     val showHomeTab: Boolean = true,
+    // Fonti escluse da ricerca aggregata e selettore fonte. Vuoto = tutte attive.
+    val disabledSourceIds: Set<String> = emptySet(),
 )
 
 enum class ParentalAction {
@@ -233,10 +256,14 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
+    // Risultati raggruppati per serie (una card per serie): è ciò che la tab Cerca mostra.
+    val groupedResults: List<GroupedSearchResult> = emptyList(),
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val recommendations: RecommendationsUiState = RecommendationsUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
     val favoriteMangaKeys: Set<String> = emptySet(),
+    // Chiavi serie (SeriesKey) dei preferiti: usate dalle card raggruppate della ricerca.
+    val favoriteSeriesKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
@@ -248,6 +275,14 @@ data class MangaUiState(
     // offre "Riprova" che rilancia selectManga senza dover ripetere la ricerca.
     val errorRetrySearchResult: MangaSearchResult? = null,
     val selected: MangaDetails? = null,
+    // Link serie→fonti della scheda aperta (null per percorsi legacy senza link).
+    val selectedSeriesLink: SeriesLink? = null,
+    // SeriesKey canonica della scheda aperta: àncora di tracking AniList e progressi.
+    val selectedSeriesKey: String? = null,
+    // Voci del selettore fonte, popolate in lazy alla prima apertura del menu.
+    val sourceOptions: List<SourceOptionUi> = emptyList(),
+    // Sheet "Cerca su altre fonti…": non-null = visibile.
+    val otherSourcesSheet: OtherSourcesUiState? = null,
     val selectedMangaReadChapterIds: Set<String> = emptySet(),
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
@@ -334,6 +369,7 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
+    private val seriesLinksStore = SeriesLinksStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val backupManager = BackupManager(
@@ -380,6 +416,7 @@ class MangaViewModel internal constructor(
             readingDiary = initialReadingDiary,
             favorites = initialFavorites,
             favoriteMangaKeys = initialFavorites.identityKeys(),
+            favoriteSeriesKeys = favoriteSeriesKeys(initialFavorites),
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
@@ -403,6 +440,14 @@ class MangaViewModel internal constructor(
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+
+    // Media AniList "pinnato" dal ponte Scopri: messo in testa ai candidati del matcher così
+    // il raggruppamento è ancorato al mediaId anche se la ricerca AniList fallisce.
+    private var pendingAniListPick: AniListManga? = null
+
+    /** Cache di sessione dei dettagli per-fonte del selettore, chiave = identityKey. */
+    private val sourceOptionDetailsCache = mutableMapOf<String, MangaDetails>()
+    private var sourceOptionsJob: Job? = null
     private var discoveryJob: Job? = null
     private var recommendationsJob: Job? = null
     private var genreJob: Job? = null
@@ -453,6 +498,7 @@ class MangaViewModel internal constructor(
                         updateState {
                             copy(
                                 results = emptyList(),
+                                groupedResults = emptyList(),
                                 isSearching = false,
                                 searchError = null,
                                 errorMessage = null,
@@ -464,6 +510,10 @@ class MangaViewModel internal constructor(
     }
 
     fun onQueryChange(text: String) {
+        if (text != _state.value.query) {
+            // Una modifica manuale della query invalida il pin del ponte Scopri.
+            pendingAniListPick = null
+        }
         updateState { copy(query = text) }
     }
 
@@ -494,6 +544,22 @@ class MangaViewModel internal constructor(
 
     fun setFavoriteSort(sort: FavoriteSort) {
         updateSettings { it.copy(favoriteSort = sort) }
+    }
+
+    /** Attiva/disattiva una fonte. L'ultima fonte attiva non è disabilitabile. */
+    fun setSourceEnabled(sourceId: String, enabled: Boolean) {
+        updateSettings { settings ->
+            val updated = if (enabled) {
+                settings.disabledSourceIds - sourceId
+            } else {
+                settings.disabledSourceIds + sourceId
+            }
+            if (updated.size >= MangaSourceCatalog.descriptors.size) {
+                settings
+            } else {
+                settings.copy(disabledSourceIds = updated)
+            }
+        }
     }
 
     fun setFavoriteFilterReadingState(state: FavoriteReadingState?) {
@@ -678,6 +744,7 @@ class MangaViewModel internal constructor(
                 copy(
                     favorites = result.favorites,
                     favoriteMangaKeys = result.favorites.identityKeys(),
+                    favoriteSeriesKeys = favoriteSeriesKeys(result.favorites),
                     favoriteSeenStates = restoredSeen,
                     favoriteStatusByKey = restoredSeen.toStatusMap(),
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
@@ -1270,6 +1337,7 @@ class MangaViewModel internal constructor(
                 copy(
                     favorites = current,
                     favoriteMangaKeys = current.identityKeys(),
+                    favoriteSeriesKeys = favoriteSeriesKeys(current),
                 )
             }
         }
@@ -1298,18 +1366,221 @@ class MangaViewModel internal constructor(
         toggleFavorite(result.toFavoriteManga())
     }
 
+    /**
+     * Tap su una card raggruppata: persiste/aggiorna il [SeriesLink] (unico momento in cui
+     * il raggruppamento effimero della ricerca diventa stato) e apre la scheda sulla fonte
+     * iniziale (preferita → lingua dello scope → prima).
+     */
+    fun selectSeries(group: GroupedSearchResult) {
+        val link = seriesLinksStore.mergeFromGroup(group, now = System.currentTimeMillis())
+        updateState { copy(selectedSeriesLink = link, sourceOptions = emptyList()) }
+        val binding = link.initialBinding(_state.value.settings.searchScope)
+        val bindingResult = group.results.firstOrNull { it.sourceId == binding.sourceId }
+            ?: group.primary
+        selectManga(bindingResult)
+    }
+
+    /**
+     * Popola le voci del selettore fonte (lazy, alla prima apertura del menu): per ogni
+     * binding del link, capitoli disponibili e ultimo capitolo, in parallelo. Il fallimento
+     * di una fonte marca solo quella voce, senza rompere le altre. Le fonti disabilitate
+     * ma già collegate restano visibili: non si nasconde ciò che l'utente ha già.
+     */
+    fun loadSourceOptions() {
+        val link = _state.value.selectedSeriesLink ?: return
+        val current = _state.value.sourceOptions
+        if (current.isNotEmpty() && current.none { it.isLoading }) return
+        sourceOptionsJob?.cancel()
+        updateState {
+            copy(
+                sourceOptions = link.sources.map { binding ->
+                    val cached = sourceOptionDetailsCache[
+                        MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl),
+                    ]
+                    SourceOptionUi(
+                        sourceId = binding.sourceId,
+                        mangaUrl = binding.mangaUrl,
+                        chapterCount = cached?.chapters?.size,
+                        lastChapterLabel = cached?.chapters?.lastOrNull()?.displayShortLabel(),
+                        isLoading = cached == null,
+                    )
+                },
+            )
+        }
+        sourceOptionsJob = viewModelScope.launch {
+            link.sources.forEach { binding ->
+                val key = MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl)
+                if (sourceOptionDetailsCache.containsKey(key)) return@forEach
+                launch {
+                    val details = withContext(Dispatchers.IO) {
+                        runCatching {
+                            sourceRegistry.resolve(binding.sourceId, binding.mangaUrl)
+                                .fetchMangaDetails(binding.mangaUrl)
+                        }.getOrNull()
+                    }
+                    if (details != null) {
+                        sourceOptionDetailsCache[key] = details
+                    }
+                    updateState {
+                        copy(
+                            sourceOptions = sourceOptions.map { option ->
+                                if (option.sourceId == binding.sourceId && option.mangaUrl == binding.mangaUrl) {
+                                    option.copy(
+                                        chapterCount = details?.chapters?.size,
+                                        lastChapterLabel = details?.chapters?.lastOrNull()?.displayShortLabel(),
+                                        isLoading = false,
+                                        hasError = details == null,
+                                    )
+                                } else {
+                                    option
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Cerca il titolo della serie sulle fonti abilitate NON ancora collegate al link, per
+     * agganciarne una a mano (o correggere un match mancato). Best-effort per fonte.
+     */
+    fun searchOtherSources() {
+        val link = _state.value.selectedSeriesLink ?: return
+        val boundSourceIds = link.sources.map { it.sourceId }.toSet()
+        val candidates = MangaSourceCatalog
+            .descriptorsForScope(SearchScope.ALL, _state.value.settings.disabledSourceIds)
+            .filterNot { it.id in boundSourceIds }
+        if (candidates.isEmpty()) {
+            updateState {
+                copy(otherSourcesSheet = OtherSourcesUiState(error = "Nessuna altra fonte disponibile"))
+            }
+            return
+        }
+        updateState { copy(otherSourcesSheet = OtherSourcesUiState(isLoading = true)) }
+        viewModelScope.launch {
+            val results = withContext(Dispatchers.IO) {
+                coroutineScope {
+                    candidates.map { descriptor ->
+                        async {
+                            runCatching {
+                                sourceRegistry.requireById(descriptor.id).searchManga(link.canonicalTitle)
+                            }.getOrDefault(emptyList())
+                        }
+                    }.awaitAll()
+                }
+            }
+            updateState {
+                copy(
+                    otherSourcesSheet = OtherSourcesUiState(
+                        isLoading = false,
+                        results = MangaSourceCatalog.interleaveBySource(results),
+                        error = null,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Aggancia manualmente un risultato come nuovo binding della serie corrente. */
+    fun linkSourceToSeries(result: MangaSearchResult) {
+        val link = _state.value.selectedSeriesLink ?: return
+        seriesLinksStore.addBinding(
+            link.seriesKey,
+            SeriesSourceBinding(result.sourceId, result.mangaUrl, System.currentTimeMillis()),
+        )
+        updateState {
+            copy(
+                selectedSeriesLink = seriesLinksStore.linkFor(link.seriesKey),
+                otherSourcesSheet = null,
+                // Ricalcolate alla prossima apertura del menu (nuova voce inclusa).
+                sourceOptions = emptyList(),
+            )
+        }
+    }
+
+    /** Scollega una fonte agganciata per errore (mai l'ultima: lo store la conserva). */
+    fun unlinkSource(sourceId: String) {
+        val link = _state.value.selectedSeriesLink ?: return
+        seriesLinksStore.removeBinding(link.seriesKey, sourceId)
+        updateState {
+            copy(
+                selectedSeriesLink = seriesLinksStore.linkFor(link.seriesKey),
+                sourceOptions = emptyList(),
+            )
+        }
+    }
+
+    fun dismissOtherSources() {
+        updateState { copy(otherSourcesSheet = null) }
+    }
+
+    /** Chiavi serie dei preferiti (ordine preservato), per `favoriteSeriesKeys`. */
+    private fun favoriteSeriesKeys(favorites: List<FavoriteManga>): Set<String> =
+        favorites.mapTo(linkedSetOf()) { seriesLinksStore.seriesKeyFor(it.sourceId, it.mangaUrl, it.title) }
+
+    /**
+     * SeriesKey della serie corrente: dal link selezionato se contiene questo binding,
+     * altrimenti derivata da (fonte, url, titolo) via [SeriesLinksStore.seriesKeyFor].
+     */
+    private fun currentSeriesKey(sourceId: String, mangaUrl: String, title: String): String {
+        _state.value.selectedSeriesLink?.let { link ->
+            val key = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+            if (link.sources.any { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == key }) {
+                return link.seriesKey
+            }
+        }
+        return seriesLinksStore.seriesKeyFor(sourceId, mangaUrl, title)
+    }
+
+    /** Cambio fonte dal selettore: ricarica la scheda e ricorda la scelta per la serie. */
+    fun switchSource(option: SourceOptionUi) {
+        val link = _state.value.selectedSeriesLink ?: return
+        if (option.sourceId == _state.value.selected?.sourceId) return
+        seriesLinksStore.setPreferredSource(link.seriesKey, option.sourceId)
+        updateState {
+            copy(selectedSeriesLink = link.copy(preferredSourceId = option.sourceId))
+        }
+        selectManga(
+            MangaSearchResult(
+                sourceId = option.sourceId,
+                title = link.canonicalTitle,
+                mangaUrl = option.mangaUrl,
+                coverUrl = link.coverUrl,
+            ),
+        )
+    }
+
     fun selectManga(result: MangaSearchResult) {
         if (_state.value.currentTab == AppTab.SEARCH) {
             recordRecentSearch(_state.value.query)
         }
+        // Percorsi che non passano da selectSeries (preferiti, retry, tutorial): riallinea
+        // il link della serie a quello che contiene questo binding, se esiste.
+        val currentLink = _state.value.selectedSeriesLink
+        val resultKey = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
+        val linkContainsResult = currentLink?.sources
+            ?.any { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == resultKey } == true
+        if (!linkContainsResult) {
+            updateState {
+                copy(selectedSeriesLink = seriesLinksStore.linkForBinding(result.sourceId, result.mangaUrl))
+            }
+        }
         detailJob?.cancel()
-        val readChapterIds = libraryRepository.streamingReadChapterIds(result.sourceId, result.mangaUrl)
+        val seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title)
+        val readChapterIds = libraryRepository.streamingReadChapterIds(
+            seriesKey,
+            result.sourceId,
+            result.mangaUrl,
+        )
         updateState {
             copy(
                 isLoadingDetails = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = readChapterIds,
                 selected = result.toDetailsStub(),
+                selectedSeriesKey = seriesKey,
             )
         }
         detailJob = viewModelScope.launch {
@@ -1330,6 +1601,7 @@ class MangaViewModel internal constructor(
                     copy(
                         selected = details,
                         selectedMangaReadChapterIds = libraryRepository.streamingReadChapterIds(
+                            currentSeriesKey(details.sourceId, details.mangaUrl, details.title),
                             details.sourceId,
                             details.mangaUrl,
                         ),
@@ -1440,8 +1712,11 @@ class MangaViewModel internal constructor(
     fun toggleFavorite(manga: FavoriteManga) {
         val current = _state.value.favorites.toMutableList()
         val targetKey = MangaSourceCatalog.identityKey(manga.sourceId, manga.mangaUrl)
+        // Dedup per SERIE, non per fonte: la stessa serie aggiunta da un'altra fonte è la
+        // stessa voce (toggle OFF), non un doppione.
+        val targetSeriesKey = seriesLinksStore.seriesKeyFor(manga.sourceId, manga.mangaUrl, manga.title)
         val existingIndex = current.indexOfFirst {
-            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+            seriesLinksStore.seriesKeyFor(it.sourceId, it.mangaUrl, it.title) == targetSeriesKey
         }
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
@@ -1453,6 +1728,7 @@ class MangaViewModel internal constructor(
             copy(
                 favorites = current,
                 favoriteMangaKeys = current.identityKeys(),
+                favoriteSeriesKeys = favoriteSeriesKeys(current),
             )
         }
         if (existingIndex < 0) {
@@ -1657,6 +1933,11 @@ class MangaViewModel internal constructor(
         streamingCacheJob?.cancel()
 
         val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(
+            currentSeriesKey(
+                streamingChapter.sourceId,
+                streamingChapter.mangaUrl,
+                _state.value.selected?.title.orEmpty(),
+            ),
             streamingChapter.sourceId,
             streamingChapter.mangaUrl,
         )
@@ -1821,6 +2102,11 @@ class MangaViewModel internal constructor(
                 libraryRepository.markChapterRead(downloaded)
             } else if (streaming != null) {
                 streamingReadId = libraryRepository.markStreamingChapterRead(
+                    seriesKey = currentSeriesKey(
+                        streaming.sourceId,
+                        streaming.mangaUrl,
+                        _state.value.selected?.title.orEmpty(),
+                    ),
                     sourceId = streaming.sourceId,
                     mangaUrl = streaming.mangaUrl,
                     chapter = streaming.chapter,
@@ -2235,9 +2521,11 @@ class MangaViewModel internal constructor(
         updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
-                val results = withContext(Dispatchers.IO) {
+                val settings = _state.value.settings
+                val (perSource, aniCandidates) = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        MangaSourceCatalog.descriptorsForScope(_state.value.settings.searchScope)
+                        val sources = MangaSourceCatalog
+                            .descriptorsForScope(settings.searchScope, settings.disabledSourceIds)
                             .map { descriptor ->
                                 async {
                                     runCatching {
@@ -2245,12 +2533,20 @@ class MangaViewModel internal constructor(
                                     }.getOrDefault(emptyList())
                                 }
                             }
-                            .awaitAll()
+                        // AniList in parallelo al fan-out: serve solo a raggruppare. Un suo
+                        // fallimento degrada al raggruppamento per titolo, mai a ricerca rotta.
+                        val aniList = async {
+                            runCatching { aniListClient.searchManga(query) }.getOrDefault(emptyList())
+                        }
+                        sources.awaitAll() to aniList.await()
                     }
                 }
+                val interleaved = MangaSourceCatalog.interleaveBySource(perSource)
+                val pinned = pendingAniListPick?.let(::listOf).orEmpty()
                 updateState {
                     copy(
-                        results = MangaSourceCatalog.interleaveBySource(results),
+                        results = interleaved,
+                        groupedResults = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates),
                         isSearching = false,
                     )
                 }
@@ -2457,11 +2753,13 @@ class MangaViewModel internal constructor(
      */
     fun onPickAniListManga(manga: AniListManga) {
         val title = manga.searchTitle() ?: return
+        pendingAniListPick = manga
         updateSettings { it.copy(searchScope = SearchScope.ALL) }
         updateState {
             copy(
                 query = title,
                 results = emptyList(),
+                groupedResults = emptyList(),
                 isSearching = true,
                 searchError = null,
                 errorMessage = null,
@@ -2854,6 +3152,11 @@ class MangaViewModel internal constructor(
             val readChapterIds = selectedMangaReadChapterIds
                 .ifEmpty {
                     libraryRepository.streamingReadChapterIds(
+                        currentSeriesKey(
+                            streamingChapter.sourceId,
+                            streamingChapter.mangaUrl,
+                            selected?.title.orEmpty(),
+                        ),
                         streamingChapter.sourceId,
                         streamingChapter.mangaUrl,
                     )
@@ -2959,11 +3262,8 @@ class MangaViewModel internal constructor(
     /** Apre il dialog di matching per la serie aperta nel dettaglio, cercandone il titolo. */
     fun openAniListMatch() {
         val selected = _state.value.selected ?: return
-        val key = MangaSourceCatalog.identityKeyOrNull(
-            selected.sourceId,
-            selected.mangaUrl,
-            selected.title,
-        ) ?: return
+        val key = _state.value.selectedSeriesKey
+            ?: currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title)
         val query = selected.title.trim()
         updateState {
             copy(
@@ -3048,8 +3348,14 @@ class MangaViewModel internal constructor(
                 val mediaEntry = withContext(Dispatchers.IO) {
                     aniListClient.fetchMediaEntry(media.id, token)
                 }
+                // Il legame vive SEMPRE sotto la chiave canonica del media: se il dialog era
+                // stato aperto con una chiave title:/legacy, l'eventuale voce vecchia migra.
+                val canonicalKey = SeriesIdentity.keyForAniList(media.id)
+                if (match.identityKey != canonicalKey) {
+                    saveAniListTracking(match.identityKey, null)
+                }
                 saveAniListTracking(
-                    match.identityKey,
+                    canonicalKey,
                     AniListTracking(
                         mediaId = media.id,
                         title = media.displayTitle(),
@@ -3059,6 +3365,7 @@ class MangaViewModel internal constructor(
                         score = mediaEntry.entry?.score,
                     ),
                 )
+                promoteSelectedSeriesToAniList(media.id)
                 updateState { copy(aniList = aniList.copy(match = null)) }
             } catch (e: CancellationException) {
                 throw e
@@ -3079,14 +3386,38 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * L'aggancio AniList è arrivato dopo: promuove il link `title:` della serie corrente a
+     * `anilist:<id>` e migra il set dei progressi streaming sulla nuova chiave. La scheda
+     * aperta viene riallineata (link + SeriesKey).
+     */
+    private fun promoteSelectedSeriesToAniList(aniListId: Int) {
+        val canonicalKey = SeriesIdentity.keyForAniList(aniListId)
+        val currentKey = _state.value.selectedSeriesKey
+        if (currentKey != null && currentKey != canonicalKey) {
+            libraryRepository.migrateStreamingSeriesKey(currentKey, canonicalKey)
+        }
+        val link = _state.value.selectedSeriesLink
+        val promoted = when {
+            link == null -> null
+            link.seriesKey == canonicalKey -> link
+            link.seriesKey.startsWith(SeriesIdentity.TITLE_PREFIX) ->
+                seriesLinksStore.promoteToAniList(link.seriesKey, aniListId)
+            else -> link
+        }
+        updateState {
+            copy(
+                selectedSeriesLink = promoted ?: selectedSeriesLink,
+                selectedSeriesKey = canonicalKey,
+            )
+        }
+    }
+
     /** Apre il dialog del tracker (stato/progresso/voto) per la serie aperta nel dettaglio. */
     fun openAniListTracker() {
         val selected = _state.value.selected ?: return
-        val key = MangaSourceCatalog.identityKeyOrNull(
-            selected.sourceId,
-            selected.mangaUrl,
-            selected.title,
-        ) ?: return
+        val key = _state.value.selectedSeriesKey
+            ?: currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title)
         if (_state.value.aniList.trackings[key] == null) return
         updateState { copy(aniList = aniList.copy(trackerKey = key)) }
     }
@@ -3150,12 +3481,12 @@ class MangaViewModel internal constructor(
     private fun maybeSyncAniListOnChapterRead(chapter: ReaderChapter) {
         val streaming = chapter.streamingChapter
         val downloaded = chapter.downloadedChapter
-        val (sourceId, mangaUrl, chapterNumber) = when {
-            streaming != null -> Triple(
+        val (seriesKey, chapterNumber) = when {
+            streaming != null -> currentSeriesKey(
                 streaming.sourceId,
                 streaming.mangaUrl,
-                streaming.chapter.numberValue,
-            )
+                _state.value.selected?.title.orEmpty(),
+            ) to streaming.chapter.numberValue
             downloaded != null -> {
                 val series = sequenceOf(_state.value.selectedDownloadedSeries)
                     .filterNotNull()
@@ -3163,12 +3494,12 @@ class MangaViewModel internal constructor(
                     .firstOrNull { s -> s.chapters.any { it.relativePath == chapter.relativePath } }
                     ?: return
                 val url = series.mangaUrl?.takeIf(String::isNotBlank) ?: return
-                Triple(series.sourceId, url, downloaded.numberValue)
+                currentSeriesKey(series.sourceId, url, series.title) to downloaded.numberValue
             }
             else -> return
         }
         val progress = chapterNumber?.toInt()?.takeIf { it > 0 } ?: return
-        pushAniListProgress(MangaSourceCatalog.identityKey(sourceId, mangaUrl), progress)
+        pushAniListProgress(seriesKey, progress)
     }
 
     /**

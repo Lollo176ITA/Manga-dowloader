@@ -76,21 +76,23 @@ class JsonStoresPersistenceTest {
     @Test
     fun aniListTrackings_roundTripKeepsDomainMapping() {
         val store = AniListStore(prefs())
-        val expected = mapOf(
-            "mangapill::berserk" to AniListTracking(
-                mediaId = 2,
-                title = "Berserk",
-                totalChapters = 380,
-                status = AniListListStatus.CURRENT,
-                progress = 42,
-                score = 9.5,
-                pendingProgress = 43,
-            ),
+        val tracking = AniListTracking(
+            mediaId = 2,
+            title = "Berserk",
+            totalChapters = 380,
+            status = AniListListStatus.CURRENT,
+            progress = 42,
+            score = 9.5,
+            pendingProgress = 43,
         )
 
-        store.persistTrackings(expected)
+        // Chiave canonica (SeriesKey): round-trip senza sorprese.
+        store.persistTrackings(mapOf("anilist:2" to tracking))
+        assertEquals(mapOf("anilist:2" to tracking), store.readTrackings())
 
-        assertEquals(expected, store.readTrackings())
+        // Chiave legacy per-fonte: in lettura viene migrata alla SeriesKey del media.
+        store.persistTrackings(mapOf("mangapill::berserk" to tracking))
+        assertEquals(mapOf("anilist:2" to tracking), store.readTrackings())
     }
 
     @Test
@@ -112,8 +114,9 @@ class JsonStoresPersistenceTest {
 
         val trackings = AniListStore(prefs()).readTrackings()
 
-        assertEquals(setOf("valid"), trackings.keys)
-        assertEquals(AniListListStatus.PLANNING, trackings.getValue("valid").status)
+        // La chiave non canonica viene migrata alla SeriesKey del media in lettura.
+        assertEquals(setOf("anilist:7"), trackings.keys)
+        assertEquals(AniListListStatus.PLANNING, trackings.getValue("anilist:7").status)
     }
 
     private fun prefs() =

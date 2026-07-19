@@ -696,3 +696,22 @@ fun LabsContent(
         }
     }
 }
+
+/** Elenco delle fonti registrate con uno switch ciascuna (sezione impostazioni "Fonti"). */
+@Composable
+fun SourceTogglesContent(
+    disabledSourceIds: Set<String>,
+    onToggle: (String, Boolean) -> Unit,
+) {
+    Column {
+        MangaSourceCatalog.descriptors.forEachIndexed { index, descriptor ->
+            if (index > 0) SettingsDivider()
+            SettingRow(
+                title = descriptor.displayName,
+                description = "Lingua: ${descriptor.language.displayName}",
+                checked = descriptor.id !in disabledSourceIds,
+                onCheckedChange = { enabled -> onToggle(descriptor.id, enabled) },
+            )
+        }
+    }
+}

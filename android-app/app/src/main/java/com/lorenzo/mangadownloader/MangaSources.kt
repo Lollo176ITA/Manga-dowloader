@@ -91,6 +91,19 @@ object MangaSourceCatalog {
         return descriptors.filter { it.language == language }
     }
 
+    /**
+     * Come [descriptorsForScope], escludendo le fonti disabilitate dall'utente. Se il filtro
+     * svuotasse l'elenco (es. tutte le fonti dello scope disabilitate), ripiega sull'elenco
+     * non filtrato: la ricerca non deve mai interrogare zero fonti.
+     */
+    fun descriptorsForScope(
+        scope: SearchScope,
+        disabledSourceIds: Set<String>,
+    ): List<MangaSourceDescriptor> {
+        val base = descriptorsForScope(scope)
+        return base.filterNot { it.id in disabledSourceIds }.ifEmpty { base }
+    }
+
     /** Lingua della fonte [sourceId] (con fallback sulla fonte di default se sconosciuta). */
     fun languageOf(sourceId: String): MangaSourceLanguage {
         val resolved = resolveSourceId(sourceId)

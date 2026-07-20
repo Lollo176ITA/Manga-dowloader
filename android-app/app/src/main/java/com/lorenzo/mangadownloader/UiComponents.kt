@@ -301,6 +301,9 @@ fun SeriesHeader(
     status: String? = null,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onDownloadAll: (() -> Unit)? = null,
+    // Slot opzionale renderizzato nella colonna a destra della cover, sotto lo stato
+    // (es. il selettore fonte nella schermata dettaglio).
+    belowStatus: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -338,6 +341,10 @@ fun SeriesHeader(
                     color = statusColor,
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            belowStatus?.let { content ->
+                Spacer(modifier = Modifier.height(10.dp))
+                content()
             }
         }
         onDownloadAll?.let { downloadAll ->

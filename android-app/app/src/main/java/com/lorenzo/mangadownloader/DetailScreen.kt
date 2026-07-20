@@ -119,18 +119,21 @@ fun DetailScreen(
                     MangaPublicationStatus.DROPPED -> MaterialTheme.colorScheme.error
                     MangaPublicationStatus.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
+                belowStatus = if (showSourceSelector) {
+                    {
+                        SourceSelector(
+                            activeSourceId = details.sourceId,
+                            options = sourceOptions,
+                            onOpenMenu = onOpenSourceMenu,
+                            onSwitchSource = onSwitchSource,
+                            onSearchOtherSources = onSearchOtherSources,
+                            onUnlinkSource = onUnlinkSource,
+                        )
+                    }
+                } else {
+                    null
+                },
             )
-
-            if (showSourceSelector) {
-                SourceSelector(
-                    activeSourceId = details.sourceId,
-                    options = sourceOptions,
-                    onOpenMenu = onOpenSourceMenu,
-                    onSwitchSource = onSwitchSource,
-                    onSearchOtherSources = onSearchOtherSources,
-                    onUnlinkSource = onUnlinkSource,
-                )
-            }
 
             if (showAniListTracking) {
                 AniListTrackingRow(
@@ -331,9 +334,9 @@ fun DetailScreen(
 }
 
 /**
- * Selettore della fonte attiva, sotto il titolo. Aprendo il menu si caricano (lazy) le
- * info comparative per fonte: capitoli disponibili e ultimo uscito. L'ultima voce apre
- * la ricerca su altre fonti non ancora collegate.
+ * Selettore della fonte attiva, nell'header a destra della cover sotto lo stato.
+ * Aprendo il menu si caricano (lazy) le info comparative per fonte: capitoli disponibili
+ * e ultimo uscito. L'ultima voce apre la ricerca su altre fonti non ancora collegate.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -352,7 +355,6 @@ private fun SourceSelector(
             expanded = open
             if (open) onOpenMenu()
         },
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
         OutlinedTextField(
             value = "${MangaSourceCatalog.displayName(activeSourceId)} · " +

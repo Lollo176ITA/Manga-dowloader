@@ -532,7 +532,15 @@ class MangaSourcesTest {
         val eng = MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id }
 
         assertEquals(listOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD), ita)
-        assertEquals(listOf(MangaSourceIds.MANGAPILL, MangaSourceIds.VYMANGA), eng)
+        assertEquals(
+            listOf(
+                MangaSourceIds.MANGAPILL,
+                MangaSourceIds.VYMANGA,
+                MangaSourceIds.ASURA_SCANS,
+                MangaSourceIds.DEMONIC_SCANS,
+            ),
+            eng,
+        )
         // Ogni fonte appartiene a esattamente una lingua: ITA+ENG coprono tutto il catalogo.
         assertEquals(
             MangaSourceCatalog.descriptors.map { it.id }.toSet(),
@@ -853,5 +861,221 @@ class MangaSourcesTest {
         // nessun suffisso di resize → invariato
         val noSuffix = "https://2.bp.blogspot.com/drive-storage/CCC"
         assertEquals(noSuffix, VyMangaSource.toHighResUrl(noSuffix))
+    }
+
+    // --- Asura Scans (API JSON) ---
+
+    @Test
+    fun asuraCanonicalSeriesUrl_stripsHashAndNormalizesChapterUrl() {
+        val series = AsuraScansSource.canonicalSeriesUrl(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af",
+        )
+        val chapter = AsuraScansSource.canonicalSeriesUrl(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+
+        assertEquals("https://asurascans.com/comics/chronicles-of-the-demon-faction", series)
+        assertEquals(series, chapter)
+    }
+
+    @Test
+    fun asuraSearchResponse_mapsDataToCleanSeriesUrls() {
+        val results = AsuraScansSource.parseSearchResponse(
+            """
+            {"data":[
+              {"slug":"reborn-as-the-heavenly-demon","title":"Reborn As The Heavenly Demon","cover":"https://cdn.asurascans.com/asura-images/covers/reborn-as-the-heavenly-demon.aec242.webp","status":"ongoing","public_url":"/comics/reborn-as-the-heavenly-demon-f886a8af"}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertEquals(1, results.size)
+        assertEquals(MangaSourceIds.ASURA_SCANS, results.first().sourceId)
+        assertEquals("Reborn As The Heavenly Demon", results.first().title)
+        assertEquals("https://asurascans.com/comics/reborn-as-the-heavenly-demon", results.first().mangaUrl)
+        assertTrue(results.first().coverUrl!!.endsWith("reborn-as-the-heavenly-demon.aec242.webp"))
+    }
+
+    @Test
+    fun asuraMangaDetails_sortsChaptersExcludesPremiumAndCleansDescription() {
+        val details = AsuraScansSource.parseMangaDetails(
+            """
+            {"series":{"slug":"chronicles-of-the-demon-faction","title":"Chronicles of the Demon Faction","description":"<p>Chun Hajin.</p><p>Reincarnated.</p>","cover":"https://cdn.asurascans.com/asura-images/covers/chronicles-of-the-demon-faction.d4dcb8.webp","status":"ongoing"}}
+            """.trimIndent(),
+            """
+            {"data":[
+              {"number":3,"slug":"chapter-3","is_premium":true},
+              {"number":2,"slug":"chapter-2","is_premium":false},
+              {"number":10,"slug":"chapter-10","is_premium":false},
+              {"number":1,"slug":"chapter-1","is_premium":false}
+            ]}
+            """.trimIndent(),
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af",
+        )
+
+        assertEquals(MangaSourceIds.ASURA_SCANS, details.sourceId)
+        assertEquals("Chronicles of the Demon Faction", details.title)
+        assertEquals("https://asurascans.com/comics/chronicles-of-the-demon-faction", details.mangaUrl)
+        // premium (3) escluso, ordine numerico crescente (10 dopo 2)
+        assertEquals(listOf("1", "2", "10"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction/chapter/1",
+            details.chapters.first().url,
+        )
+        assertEquals(MangaPublicationStatus.ONGOING, details.status)
+        // Tag HTML rimossi dalla descrizione.
+        val description = details.description.orEmpty()
+        assertTrue(description.contains("Chun Hajin"))
+        assertFalse(description.contains("<p>"))
+    }
+
+    @Test
+    fun asuraChapterPages_readsPagesInOrder() {
+        val pages = AsuraScansSource.parsePageImageUrls(
+            """
+            {"data":{"is_locked":false,"chapter":{"number":1,"pages":[
+              {"url":"https://cdn.asurascans.com/asura-images/chapters/x/1/001.webp?v=1","width":1200,"height":800},
+              {"url":"https://cdn.asurascans.com/asura-images/chapters/x/1/002.webp?v=1","width":800,"height":1200}
+            ]}}}
+            """.trimIndent(),
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("001.webp?v=1"))
+        assertTrue(pages.last().endsWith("002.webp?v=1"))
+    }
+
+    @Test
+    fun asuraChapterPages_throwsWhenLocked() {
+        assertThrows(IllegalStateException::class.java) {
+            AsuraScansSource.parsePageImageUrls(
+                """{"data":{"is_locked":true,"chapter":{"pages":[]}}}""",
+            )
+        }
+    }
+
+    @Test
+    fun sourceCatalog_resolvesAsuraUrlAndIdentityKey() {
+        val resolved = MangaSourceCatalog.resolveSourceId(
+            sourceId = null,
+            url = "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.ASURA_SCANS,
+            mangaUrl = "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+
+        assertEquals(MangaSourceIds.ASURA_SCANS, resolved)
+        assertEquals(
+            "asura_scans::https://asurascans.com/comics/chronicles-of-the-demon-faction",
+            identityKey,
+        )
+    }
+
+    // --- DemonicScans (scraping HTML) ---
+
+    @Test
+    fun demonicCanonicalSeriesUrl_normalizesMangaAndReaderUrls() {
+        val series = DemonicScansSource.canonicalSeriesUrl("https://demonicscans.org/manga/Solo-Leveling")
+        val reader = DemonicScansSource.canonicalSeriesUrl(
+            "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", series)
+        assertEquals(series, reader)
+    }
+
+    @Test
+    fun demonicSearchResults_mapsAnchorsWithThumbAndTitle() {
+        val results = DemonicScansSource.parseSearchResults(
+            """
+            <a href="/manga/Solo-Leveling">
+              <li class="flex flex-row">
+                <img src="https://readermc.org/images/thumbnails/Solo-Leveling.webp" class="search-thumb">
+                <div class="flex flex-col seach-right justify-space-between">
+                  <div>Solo Leveling</div>
+                  <div style="font-size:12px">Completed</div>
+                </div>
+              </li>
+            </a>
+            """.trimIndent(),
+            "https://demonicscans.org/search.php?manga=solo",
+        )
+
+        assertEquals(1, results.size)
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, results.first().sourceId)
+        assertEquals("Solo Leveling", results.first().title)
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", results.first().mangaUrl)
+        assertTrue(results.first().coverUrl!!.contains("readermc.org"))
+    }
+
+    @Test
+    fun demonicMangaDetails_buildsReaderUrlsSortedAndDedupsFirstChapter() {
+        val details = DemonicScansSource.parseMangaDetails(
+            """
+            <html><head>
+              <meta property="og:image" content="https://readermc.org/images/thumbnails/Solo-Leveling.webp">
+            </head><body>
+              <h1>Solo Leveling</h1>
+              <ul>
+                <li style="width:150px;color:#b2b2b2;">Status</li>
+                <li>Completed</li>
+              </ul>
+              <div class="white-font">10 anni fa si aprirono i Gate.</div>
+              <a href="/chaptered.php?manga=6&chapter=0">Read First Chapter</a>
+              <div id="chapters-list">
+                <a href="/chaptered.php?manga=6&chapter=2">Chapter 2</a>
+                <a href="/chaptered.php?manga=6&chapter=10">Chapter 10</a>
+                <a href="/chaptered.php?manga=6&chapter=1">Chapter 1</a>
+                <a href="/chaptered.php?manga=6&chapter=0">Chapter 0</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://demonicscans.org/manga/Solo-Leveling",
+        )
+
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, details.sourceId)
+        assertEquals("Solo Leveling", details.title)
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", details.mangaUrl)
+        // Ordine numerico crescente; capitolo 0 deduplicato (bottone + lista).
+        assertEquals(listOf("0", "1", "2", "10"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://demonicscans.org/title/Solo-Leveling/chapter/0/1",
+            details.chapters.first().url,
+        )
+        assertEquals(MangaPublicationStatus.COMPLETED, details.status)
+        assertTrue(details.description!!.contains("Gate"))
+    }
+
+    @Test
+    fun demonicReaderImages_keepsContentPagesInOrderSkippingAds() {
+        val pages = DemonicScansSource.parseReaderImageUrls(
+            """
+            <div id="chapter-container">
+              <img class="imgholder" src="/img/free_ads.jpg">
+              <img class="imgholder" src="https://mangareadon.org/Solo-Leveling/1/1.jpg">
+              <img class="imgholder" src="https://mangareadon.org/Solo-Leveling/1/2.jpg">
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("1.jpg"))
+        assertTrue(pages.last().endsWith("2.jpg"))
+        assertTrue(pages.none { it.contains("free_ads") })
+    }
+
+    @Test
+    fun sourceCatalog_resolvesDemonicUrlAndIdentityKey() {
+        val resolved = MangaSourceCatalog.resolveSourceId(
+            sourceId = null,
+            url = "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.DEMONIC_SCANS,
+            mangaUrl = "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, resolved)
+        assertEquals("demonic_scans::https://demonicscans.org/manga/Solo-Leveling", identityKey)
     }
 }

@@ -73,6 +73,8 @@ object MangaSourceIds {
     const val HASTA_TEAM = "hasta_team"
     const val MANGA_WORLD = "manga_world"
     const val VYMANGA = "vymanga"
+    const val ASURA_SCANS = "asura_scans"
+    const val DEMONIC_SCANS = "demonic_scans"
     const val DEFAULT = MANGAPILL
 }
 
@@ -82,6 +84,8 @@ object MangaSourceCatalog {
         MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT", MangaSourceLanguage.ITA),
         MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW", MangaSourceLanguage.ITA),
         MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.ASURA_SCANS, "Asura Scans", "AS", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.DEMONIC_SCANS, "DemonicScans", "DS", MangaSourceLanguage.ENG),
     )
 
     /** Fonti interrogate dalla ricerca aggregata per [scope]: tutte, o solo quelle della lingua. */
@@ -156,6 +160,8 @@ object MangaSourceCatalog {
             HastaTeamSource.handlesUrl(normalizedUrl) -> MangaSourceIds.HASTA_TEAM
             MangaWorldSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGA_WORLD
             VyMangaSource.handlesUrl(normalizedUrl) -> MangaSourceIds.VYMANGA
+            AsuraScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.ASURA_SCANS
+            DemonicScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.DEMONIC_SCANS
             else -> null
         }
     }
@@ -206,6 +212,8 @@ object MangaSourceCatalog {
             MangaSourceIds.HASTA_TEAM -> HastaTeamSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.MANGA_WORLD -> MangaWorldSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.VYMANGA -> VyMangaSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.ASURA_SCANS -> AsuraScansSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.DEMONIC_SCANS -> DemonicScansSource.canonicalSeriesUrl(normalizedUrl)
             else -> normalizedUrl
         } ?: normalizedUrl
     }
@@ -246,6 +254,8 @@ class MangaSourceRegistry(
         MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient, libraryRepository),
         MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient, libraryRepository),
         MangaSourceIds.VYMANGA to VyMangaSource(context, networkClient, libraryRepository),
+        MangaSourceIds.ASURA_SCANS to AsuraScansSource(context, networkClient, libraryRepository),
+        MangaSourceIds.DEMONIC_SCANS to DemonicScansSource(context, networkClient, libraryRepository),
     )
 
     val descriptors: List<MangaSourceDescriptor>

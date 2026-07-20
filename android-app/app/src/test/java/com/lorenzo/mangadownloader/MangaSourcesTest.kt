@@ -90,6 +90,60 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangapillSearchResults_prefersVisibleHeadingOverDoubledImageAlt() {
+        // HTML reale delle card di ricerca Mangapill: l'alt della copertina è
+        // "titolo + titolo alternativo" concatenati ("One Piece One Piece"),
+        // il titolo pulito sta nel div "line-clamp-2" del secondo anchor.
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div class="my-3 grid">
+              <div>
+                <a href="/manga/2/one-piece" class="relative block">
+                  <figure>
+                    <img data-src="https://cdn.mangapill.com/i/2.webp" alt="One Piece One Piece">
+                  </figure>
+                </a>
+                <div class="flex flex-col justify-end">
+                  <a href="/manga/2/one-piece" class="mb-2">
+                    <div class="mt-3 font-black leading-tight line-clamp-2">One Piece</div>
+                  </a>
+                </div>
+              </div>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=one+piece",
+        )
+
+        assertEquals(1, results.size)
+        assertEquals("One Piece", results.first().title)
+        assertTrue(results.first().coverUrl!!.endsWith("2.webp"))
+    }
+
+    @Test
+    fun mangapillSearchResults_collapsesDoubledAltWhenHeadingMissing() {
+        // Senza il div del titolo (layout diverso/futuro) resta solo l'alt:
+        // se è la stessa stringa ripetuta due volte va dimezzato, altrimenti
+        // va tenuto intatto.
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div>
+              <a href="/manga/3259/one-piece-party">
+                <img src="https://cdn.mangapill.com/i/3259.webp" alt="One Piece Party One Piece Party">
+              </a>
+              <a href="/manga/12345/berserk">
+                <img src="https://cdn.mangapill.com/i/12345.webp" alt="Berserk">
+              </a>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=one+piece",
+        )
+
+        assertEquals(2, results.size)
+        assertEquals("One Piece Party", results.first().title)
+        assertEquals("Berserk", results[1].title)
+    }
+
+    @Test
     fun mangapillMangaDetails_sortsChaptersAscendingAndReadsCover() {
         val details = MangapillSource.parseMangaDetails(
             """

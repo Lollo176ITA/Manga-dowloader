@@ -538,6 +538,7 @@ class MangaSourcesTest {
                 MangaSourceIds.VYMANGA,
                 MangaSourceIds.ASURA_SCANS,
                 MangaSourceIds.DEMONIC_SCANS,
+                MangaSourceIds.TCB_SCANS,
             ),
             eng,
         )
@@ -1077,5 +1078,149 @@ class MangaSourcesTest {
 
         assertEquals(MangaSourceIds.DEMONIC_SCANS, resolved)
         assertEquals("demonic_scans::https://demonicscans.org/manga/Solo-Leveling", identityKey)
+    }
+
+    // --- TCB Scans (scraping HTML, catalogo senza ricerca, URL capitolo sintetico) ---
+
+    @Test
+    fun tcbCanonicalSeriesUrl_normalizesSeriesAndSyntheticChapterUrls() {
+        val series = TcbScansSource.canonicalSeriesUrl("https://tcbonepiecechapters.com/mangas/5/one-piece")
+        val synthetic = TcbScansSource.canonicalSeriesUrl(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+        )
+
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", series)
+        assertEquals(series, synthetic)
+        // Un URL capitolo "reale" del sito non incorpora l'id/slug della serie: non è
+        // normalizzabile senza rete, quindi canonicalSeriesUrl lo rifiuta correttamente.
+        assertNull(
+            TcbScansSource.canonicalSeriesUrl(
+                "https://tcbonepiecechapters.com/chapters/7995/one-piece-chapter-1188",
+            ),
+        )
+    }
+
+    @Test
+    fun tcbParseChapterRef_extractsSeriesAndChapterFromSyntheticUrl() {
+        val ref = TcbScansSource.parseChapterRef(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+        )
+
+        assertNotNull(ref)
+        assertEquals("5", ref!!.seriesId)
+        assertEquals("one-piece", ref.seriesSlug)
+        assertEquals("7995", ref.chapterId)
+        assertEquals("one-piece-chapter-1188", ref.chapterSlug)
+    }
+
+    @Test
+    fun tcbCatalog_mergesThumbnailAndTitleAnchorsIgnoringLayoutClasses() {
+        // La seconda scheda è volutamente priva delle classi Tailwind del layout (`items-center`,
+        // `font-bold`): l'accoppiamento thumbnail/titolo deve reggersi solo sull'href condiviso.
+        val results = TcbScansSource.parseCatalog(
+            """
+            <a href="/"><img src="/files/h-logo.png"></a>
+            <div class="flex flex-col items-center md:flex-row md:items-start">
+                <div class="relative h-24 w-24">
+                    <a href="/mangas/5/one-piece">
+                        <img src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/one-piece.png" class="w-24 h-24 rounded-lg">
+                    </a>
+                </div>
+                <div class="flex-auto sm:ml-5">
+                    <a class="mb-3 text-white text-lg font-bold" href="/mangas/5/one-piece">One Piece</a>
+                </div>
+            </div>
+            <div>
+                <a href="/mangas/4/jujutsu-kaisen"><img src="https://altro-cdn.example/jjk.png"></a>
+                <a href="/mangas/4/jujutsu-kaisen">Jujutsu Kaisen</a>
+            </div>
+            """.trimIndent(),
+            "https://tcbonepiecechapters.com/projects",
+        )
+
+        assertEquals(2, results.size)
+        val onePiece = results.first { it.title == "One Piece" }
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", onePiece.mangaUrl)
+        assertTrue(onePiece.coverUrl!!.endsWith("one-piece.png"))
+
+        assertEquals(
+            listOf("Jujutsu Kaisen", "One Piece"),
+            TcbScansSource.run { results.filterByTitle("").sortedAlphabetically().map { it.title } },
+        )
+        assertEquals(
+            listOf("One Piece"),
+            TcbScansSource.run { results.filterByTitle("piece").sortedAlphabetically().map { it.title } },
+        )
+    }
+
+    @Test
+    fun tcbMangaDetails_buildsSyntheticChapterUrlsSortedAscending() {
+        val details = TcbScansSource.parseMangaDetails(
+            """
+            <html><body>
+              <a href="/"><img src="/files/h-logo.png"></a>
+              <h1 class="my-3 font-bold text-3xl">One Piece </h1>
+              <img src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/one-piece-cover.png" alt="One Piece" height="325">
+              <a href="/chapters/7995/one-piece-chapter-1188" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 1188</div>
+                <div class="text-gray-500">Wailing Void</div>
+              </a>
+              <a href="/chapters/1/one-piece-chapter-1" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 1</div>
+                <div class="text-gray-500">Romance Dawn</div>
+              </a>
+              <a href="/chapters/50/one-piece-chapter-10" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 10</div>
+                <div class="text-gray-500">Ope Ope</div>
+              </a>
+            </body></html>
+            """.trimIndent(),
+            "https://tcbonepiecechapters.com/mangas/5/one-piece",
+        )
+
+        assertEquals(MangaSourceIds.TCB_SCANS, details.sourceId)
+        assertEquals("One Piece", details.title)
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", details.mangaUrl)
+        assertTrue(details.coverUrl!!.endsWith("one-piece-cover.png"))
+        // Ordine numerico crescente, non l'ordine "più recente prima" della pagina.
+        assertEquals(listOf("1", "10", "1188"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+            details.chapters.last().url,
+        )
+    }
+
+    @Test
+    fun tcbPageImageUrls_extractsFixedRatioImagesInOrder() {
+        val pages = TcbScansSource.parsePageImageUrls(
+            """
+            <div class="reader">
+              <img class="fixed-ratio-content" src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_001.png">
+              <img class="fixed-ratio-content" src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_002.png">
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_001.png",
+                "https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_002.png",
+            ),
+            pages,
+        )
+    }
+
+    @Test
+    fun sourceCatalog_resolvesTcbSyntheticChapterUrlAndIdentityKey() {
+        val syntheticChapterUrl =
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188"
+        val resolved = MangaSourceCatalog.resolveSourceId(sourceId = null, url = syntheticChapterUrl)
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.TCB_SCANS,
+            mangaUrl = syntheticChapterUrl,
+        )
+
+        assertEquals(MangaSourceIds.TCB_SCANS, resolved)
+        assertEquals("tcb_scans::https://tcbonepiecechapters.com/mangas/5/one-piece", identityKey)
     }
 }

@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.MaterialTheme
 
 @Composable
@@ -130,6 +131,13 @@ fun AvailableUpdateDialog(
                 onDismiss()
             }
         },
+        // Il tap fuori non chiude: il controllo aggiornamenti è throttlato a una volta al
+        // giorno, quindi un tocco a vuoto farebbe sparire l'avviso fino al giorno dopo.
+        // Per uscire ci sono "Più tardi" o il tasto indietro (bloccati durante l'installazione).
+        properties = DialogProperties(
+            dismissOnBackPress = !isInstalling,
+            dismissOnClickOutside = false,
+        ),
         title = { Text("Aggiornamento disponibile") },
         shape = MaterialTheme.shapes.extraLarge,
         text = {

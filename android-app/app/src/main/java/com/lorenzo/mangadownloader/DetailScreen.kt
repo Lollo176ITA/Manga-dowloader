@@ -1,6 +1,5 @@
 package com.lorenzo.mangadownloader
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoMode
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
@@ -26,10 +24,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -62,11 +57,6 @@ fun DetailScreen(
     sourceOptions: List<SourceOptionUi>,
     onOpenSourceMenu: () -> Unit,
     onSwitchSource: (SourceOptionUi) -> Unit,
-    onSearchOtherSources: () -> Unit,
-    onUnlinkSource: (String) -> Unit,
-    otherSourcesSheet: OtherSourcesUiState?,
-    onPickOtherSource: (MangaSearchResult) -> Unit,
-    onDismissOtherSources: () -> Unit,
     // Tracking AniList: la riga compare solo con l'account collegato (vedi AniListTrackingRow).
     showAniListTracking: Boolean,
     aniListTracking: AniListTracking?,
@@ -126,8 +116,6 @@ fun DetailScreen(
                             options = sourceOptions,
                             onOpenMenu = onOpenSourceMenu,
                             onSwitchSource = onSwitchSource,
-                            onSearchOtherSources = onSearchOtherSources,
-                            onUnlinkSource = onUnlinkSource,
                         )
                     }
                 } else {
@@ -228,51 +216,6 @@ fun DetailScreen(
         }
     }
 
-    otherSourcesSheet?.let { sheet ->
-        ModalBottomSheet(onDismissRequest = onDismissOtherSources) {
-            Text(
-                text = "Altre fonti per questa serie",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-            )
-            when {
-                sheet.isLoading -> AppLoadingIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                )
-                sheet.error != null -> Text(
-                    text = sheet.error,
-                    modifier = Modifier.padding(24.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                sheet.results.isEmpty() -> Text(
-                    text = "Nessun risultato sulle altre fonti.",
-                    modifier = Modifier.padding(24.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(
-                        sheet.results,
-                        key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
-                    ) { result ->
-                        ListItem(
-                            modifier = Modifier.clickable { onPickOtherSource(result) },
-                            supportingContent = {
-                                Text(
-                                    MangaSourceCatalog.displayName(result.sourceId) + " · " +
-                                        MangaSourceCatalog.languageOf(result.sourceId).displayName,
-                                )
-                            },
-                        ) {
-                            Text(result.title)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     pendingStart?.let { startChapter ->
         val endOptions = remember(chapters, startChapter.url) {
             val startIndex = chapters.indexOfFirst { it.url == startChapter.url }
@@ -336,7 +279,8 @@ fun DetailScreen(
 /**
  * Selettore della fonte attiva, nell'header a destra della cover sotto lo stato.
  * Aprendo il menu si caricano (lazy) le info comparative per fonte: capitoli disponibili
- * e ultimo uscito. L'ultima voce apre la ricerca su altre fonti non ancora collegate.
+ * e ultimo uscito. Elenca tutte le fonti collegate alla serie, incluse quelle disattivate
+ * dalle impostazioni: la disattivazione restringe la ricerca, non ciò che hai già.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -345,8 +289,6 @@ private fun SourceSelector(
     options: List<SourceOptionUi>,
     onOpenMenu: () -> Unit,
     onSwitchSource: (SourceOptionUi) -> Unit,
-    onSearchOtherSources: () -> Unit,
-    onUnlinkSource: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
@@ -402,32 +344,9 @@ private fun SourceSelector(
                             onSwitchSource(option)
                         }
                     },
-                    trailingIcon = if (option.sourceId != activeSourceId && options.size > 1) {
-                        {
-                            IconButton(onClick = {
-                                expanded = false
-                                onUnlinkSource(option.sourceId)
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Scollega ${MangaSourceCatalog.displayName(option.sourceId)}",
-                                )
-                            }
-                        }
-                    } else {
-                        null
-                    },
                     contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                 )
             }
-            DropdownMenuItem(
-                text = { Text("Cerca su altre fonti…") },
-                onClick = {
-                    expanded = false
-                    onSearchOtherSources()
-                },
-                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
-            )
         }
     }
 }

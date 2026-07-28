@@ -105,13 +105,6 @@ data class SourceOptionUi(
     val hasError: Boolean = false,
 )
 
-/** Stato dello sheet "Cerca su altre fonti…" (aggancio manuale di una fonte alla serie). */
-data class OtherSourcesUiState(
-    val isLoading: Boolean = false,
-    val results: List<MangaSearchResult> = emptyList(),
-    val error: String? = null,
-)
-
 data class FavoriteManga(
     val sourceId: String,
     val title: String,
@@ -281,8 +274,6 @@ data class MangaUiState(
     val selectedSeriesKey: String? = null,
     // Voci del selettore fonte, popolate in lazy alla prima apertura del menu.
     val sourceOptions: List<SourceOptionUi> = emptyList(),
-    // Sheet "Cerca su altre fonti…": non-null = visibile.
-    val otherSourcesSheet: OtherSourcesUiState? = null,
     val selectedMangaReadChapterIds: Set<String> = emptySet(),
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
@@ -483,14 +474,21 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * Rilancia la ricerca aggregata quando cambia ciò che la definisce: la query, l'ambito e
+     * **l'insieme delle fonti attive**. Includere le fonti attive evita che dopo un cambio in
+     * impostazioni restino a schermo risultati di fonti appena spente (o manchino quelli di una
+     * appena accesa): i risultati mostrati devono venire dalle fonti che l'utente ha ora. Il
+     * debounce collassa una raffica di toggle in una sola ricerca.
+     */
     @OptIn(FlowPreview::class)
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { it.query.trim() to it.settings.searchScope }
+                .map { Triple(it.query.trim(), it.settings.searchScope, it.settings.disabledSourceIds) }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (query, _) ->
+                .collect { (query, _, _) ->
                     if (query.isNotEmpty()) {
                         runAggregatedSearch(query)
                     } else {
@@ -1440,80 +1438,6 @@ class MangaViewModel internal constructor(
                 }
             }
         }
-    }
-
-    /**
-     * Cerca il titolo della serie sulle fonti abilitate NON ancora collegate al link, per
-     * agganciarne una a mano (o correggere un match mancato). Best-effort per fonte.
-     */
-    fun searchOtherSources() {
-        val link = _state.value.selectedSeriesLink ?: return
-        val boundSourceIds = link.sources.map { it.sourceId }.toSet()
-        val candidates = MangaSourceCatalog
-            .descriptorsForScope(SearchScope.ALL, _state.value.settings.disabledSourceIds)
-            .filterNot { it.id in boundSourceIds }
-        if (candidates.isEmpty()) {
-            updateState {
-                copy(otherSourcesSheet = OtherSourcesUiState(error = "Nessuna altra fonte disponibile"))
-            }
-            return
-        }
-        updateState { copy(otherSourcesSheet = OtherSourcesUiState(isLoading = true)) }
-        viewModelScope.launch {
-            val results = withContext(Dispatchers.IO) {
-                coroutineScope {
-                    candidates.map { descriptor ->
-                        async {
-                            runCatching {
-                                sourceRegistry.requireById(descriptor.id).searchManga(link.canonicalTitle)
-                            }.getOrDefault(emptyList())
-                        }
-                    }.awaitAll()
-                }
-            }
-            updateState {
-                copy(
-                    otherSourcesSheet = OtherSourcesUiState(
-                        isLoading = false,
-                        results = MangaSourceCatalog.interleaveBySource(results),
-                        error = null,
-                    ),
-                )
-            }
-        }
-    }
-
-    /** Aggancia manualmente un risultato come nuovo binding della serie corrente. */
-    fun linkSourceToSeries(result: MangaSearchResult) {
-        val link = _state.value.selectedSeriesLink ?: return
-        seriesLinksStore.addBinding(
-            link.seriesKey,
-            SeriesSourceBinding(result.sourceId, result.mangaUrl, System.currentTimeMillis()),
-        )
-        updateState {
-            copy(
-                selectedSeriesLink = seriesLinksStore.linkFor(link.seriesKey),
-                otherSourcesSheet = null,
-                // Ricalcolate alla prossima apertura del menu (nuova voce inclusa).
-                sourceOptions = emptyList(),
-            )
-        }
-    }
-
-    /** Scollega una fonte agganciata per errore (mai l'ultima: lo store la conserva). */
-    fun unlinkSource(sourceId: String) {
-        val link = _state.value.selectedSeriesLink ?: return
-        seriesLinksStore.removeBinding(link.seriesKey, sourceId)
-        updateState {
-            copy(
-                selectedSeriesLink = seriesLinksStore.linkFor(link.seriesKey),
-                sourceOptions = emptyList(),
-            )
-        }
-    }
-
-    fun dismissOtherSources() {
-        updateState { copy(otherSourcesSheet = null) }
     }
 
     /** Chiavi serie dei preferiti (ordine preservato), per `favoriteSeriesKeys`. */

@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -47,8 +48,15 @@ fun SearchScreen(
     onSelectAllSources: () -> Unit,
 ) {
     val trimmed = state.query.trim()
-    val scope = state.settings.searchScope
     val pullState = rememberPullToRefreshState()
+
+    // Lingue effettivamente interrogabili: quelle con almeno una fonte attiva. Con una sola
+    // lingua rimasta lo scope è di fatto "tutte le fonti attive", a prescindere da cosa era
+    // stato salvato in precedenza — le caption devono dirlo, non mentire su un filtro morto.
+    val availableLanguages = remember(state.settings.disabledSourceIds) {
+        MangaSourceCatalog.languagesWithEnabledSources(state.settings.disabledSourceIds)
+    }
+    val scope = if (availableLanguages.size > 1) state.settings.searchScope else SearchScope.ALL
 
     val tutorialAnchorFor = LocalTutorialAnchor.current
     Column(
@@ -65,14 +73,17 @@ fun SearchScreen(
             onSearch = onRefresh,
         )
 
-        // Ambito sempre visibile e cambiabile a 1 tap. L'utente sceglie per lingua
-        // (Tutte · Italiano · English), non per server: i nomi delle fonti non dicono
-        // nulla a chi non le conosce.
-        SearchScopeChips(
-            scope = scope,
-            onSelectLanguage = onSelectLanguage,
-            onSelectAllSources = onSelectAllSources,
-        )
+        // Ambito cambiabile a 1 tap. L'utente sceglie per lingua (Tutte · Italiano · English),
+        // non per server: i nomi delle fonti non dicono nulla a chi non le conosce. Con una
+        // sola lingua attiva non c'è nulla da scegliere e la riga sparisce.
+        if (availableLanguages.size > 1) {
+            SearchScopeChips(
+                scope = scope,
+                languages = availableLanguages,
+                onSelectLanguage = onSelectLanguage,
+                onSelectAllSources = onSelectAllSources,
+            )
+        }
 
         PullToRefreshBox(
             isRefreshing = state.isSearching && state.groupedResults.isNotEmpty(),
@@ -217,12 +228,13 @@ private fun SearchScope.emptyResultsPlace(): String = when (language) {
 }
 
 /**
- * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per lingua
- * (Italiano/English), che attivano la ricerca aggregata sulle fonti corrispondenti.
+ * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per ciascuna delle
+ * [languages] con fonti attive, che attivano la ricerca aggregata sulle fonti corrispondenti.
  */
 @Composable
 private fun SearchScopeChips(
     scope: SearchScope,
+    languages: List<MangaSourceLanguage>,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
@@ -238,7 +250,7 @@ private fun SearchScopeChips(
                 label = { Text("Tutte") },
             )
         }
-        items(MangaSourceLanguage.entries, key = { "lang_${it.name}" }) { language ->
+        items(languages, key = { "lang_${it.name}" }) { language ->
             FilterChip(
                 selected = scope.language == language,
                 onClick = { onSelectLanguage(language) },

@@ -20,14 +20,48 @@ class MangaSourcesTest {
     }
 
     @Test
-    fun descriptorsForScope_filtroCheSvuotaLoScopeRipiegaSullElencoCompleto() {
+    fun descriptorsForScope_linguaSenzaFontiAttiveRipiegaSulleAltreAttive() {
+        val disabled = MangaSourceCatalog.descriptorsForScope(SearchScope.ITA).map { it.id }.toSet()
         val ids = MangaSourceCatalog
-            .descriptorsForScope(
-                SearchScope.ITA,
-                disabledSourceIds = setOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD),
-            )
+            .descriptorsForScope(SearchScope.ITA, disabledSourceIds = disabled)
             .map { it.id }
-        assertEquals(listOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD), ids)
+
+        // Mai le fonti che l'utente ha spento: si ripiega sulle fonti attive (inglesi).
+        assertTrue(ids.none { it in disabled })
+        assertEquals(
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id },
+            ids,
+        )
+    }
+
+    @Test
+    fun descriptorsForScope_tutteLeFontiSpenteRipiegaSullElencoCompleto() {
+        val tutteSpente = MangaSourceCatalog.descriptors.map { it.id }.toSet()
+
+        // Rete di sicurezza: senza nessuna fonte attiva si torna al catalogo completo,
+        // continuando a rispettare lo scope. La ricerca non interroga mai zero fonti.
+        assertEquals(
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ITA).map { it.id },
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ITA, tutteSpente).map { it.id },
+        )
+        assertEquals(
+            MangaSourceCatalog.descriptors.map { it.id },
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ALL, tutteSpente).map { it.id },
+        )
+    }
+
+    @Test
+    fun languagesWithEnabledSources_escludeLeLingueSenzaFontiAttive() {
+        val engIds = MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id }.toSet()
+
+        assertEquals(
+            listOf(MangaSourceLanguage.ITA, MangaSourceLanguage.ENG),
+            MangaSourceCatalog.languagesWithEnabledSources(emptySet()),
+        )
+        assertEquals(
+            listOf(MangaSourceLanguage.ITA),
+            MangaSourceCatalog.languagesWithEnabledSources(engIds),
+        )
     }
 
     @Test

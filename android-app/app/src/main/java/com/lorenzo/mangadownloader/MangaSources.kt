@@ -98,16 +98,32 @@ object MangaSourceCatalog {
     }
 
     /**
-     * Come [descriptorsForScope], escludendo le fonti disabilitate dall'utente. Se il filtro
-     * svuotasse l'elenco (es. tutte le fonti dello scope disabilitate), ripiega sull'elenco
-     * non filtrato: la ricerca non deve mai interrogare zero fonti.
+     * Come [descriptorsForScope], escludendo le fonti disabilitate dall'utente. Se la lingua
+     * dello scope non ha più fonti attive (scope salvato da prima che l'utente le spegnesse),
+     * ripiega su **tutte le fonti attive**, non su quelle disattivate della lingua: una fonte
+     * spenta in impostazioni non va mai interrogata. Se l'utente spegnesse tutto, l'elenco
+     * completo resta l'ultima rete di sicurezza: la ricerca non deve interrogare zero fonti.
      */
     fun descriptorsForScope(
         scope: SearchScope,
         disabledSourceIds: Set<String>,
     ): List<MangaSourceDescriptor> {
-        val base = descriptorsForScope(scope)
-        return base.filterNot { it.id in disabledSourceIds }.ifEmpty { base }
+        val enabled = descriptors.filterNot { it.id in disabledSourceIds }.ifEmpty { descriptors }
+        val language = scope.language ?: return enabled
+        return enabled.filter { it.language == language }.ifEmpty { enabled }
+    }
+
+    /**
+     * Lingue che hanno almeno una fonte attiva, nell'ordine di [MangaSourceLanguage]. La tab
+     * Cerca mostra una chip per ciascuna: filtrare per una lingua senza fonti attive non
+     * cambierebbe nulla. Con una sola lingua rimasta la riga di chip sparisce del tutto,
+     * perché "Tutte" e quell'unica lingua interrogherebbero le stesse fonti.
+     */
+    fun languagesWithEnabledSources(disabledSourceIds: Set<String>): List<MangaSourceLanguage> {
+        val enabled = descriptors.filterNot { it.id in disabledSourceIds }.ifEmpty { descriptors }
+        return MangaSourceLanguage.entries.filter { language ->
+            enabled.any { it.language == language }
+        }
     }
 
     /** Lingua della fonte [sourceId] (con fallback sulla fonte di default se sconosciuta). */

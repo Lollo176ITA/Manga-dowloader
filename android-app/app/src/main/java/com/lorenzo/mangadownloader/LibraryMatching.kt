@@ -9,8 +9,10 @@ object LibraryMatching {
 
     /**
      * Chiavi dei capitoli già scaricati per la serie [details]: l'id stabile del capitolo
-     * più una chiave per-numero (`number:<label>`), così il dettaglio può marcare come
-     * "scaricato" anche capitoli con URL diverso ma stesso numero.
+     * più una chiave per-numero (`number:<label>`, con `@<variante>` in coda quando il
+     * capitolo appartiene a un gruppo secondario), così il dettaglio può marcare come
+     * "scaricato" anche capitoli con URL diverso ma stesso numero, senza però confondere
+     * fra loro due omonimi della stessa fonte.
      */
     fun downloadedChapterKeys(
         details: MangaDetails,
@@ -21,7 +23,7 @@ object LibraryMatching {
         return buildSet {
             matchingSeries.chapters.forEach { chapter ->
                 add(chapter.chapterId)
-                add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
+                add(DownloadStorage.chapterNumberKey(chapter.numberText, chapter.variantTag))
             }
         }
     }

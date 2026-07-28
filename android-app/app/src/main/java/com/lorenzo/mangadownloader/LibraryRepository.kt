@@ -23,6 +23,7 @@ data class DownloadedChapter(
     val numberValue: BigDecimal?,
     val volumeText: String?,
     val labelPrefix: String,
+    val variantTag: String? = null,
     val file: File,
     val relativePath: String,
     val chapterId: String,
@@ -69,6 +70,7 @@ data class SeriesMetadataChapter(
     val id: String? = null,
     val volumeText: String? = null,
     val labelPrefix: String = "Capitolo",
+    val variantTag: String? = null,
 )
 
 object DownloadStorage {
@@ -77,6 +79,13 @@ object DownloadStorage {
 
     private val chapterFileRegex = Regex("""^chapter_(.+)\.cbz$""", RegexOption.IGNORE_CASE)
     private val numericRegex = Regex("""\d+(?:\.\d+)?""")
+
+    /**
+     * Separa numero e variante nel nome file (`chapter_001__group_2.cbz`). Doppio underscore
+     * perché [safeFilename] collassa le sequenze di caratteri non ammessi in un solo `_`,
+     * quindi non può produrlo da sé e resta un delimitatore affidabile.
+     */
+    private const val VARIANT_SEPARATOR = "__"
 
     /**
      * Soglia minima di spazio libero richiesta prima di scaricare un capitolo.
@@ -117,16 +126,39 @@ object DownloadStorage {
     fun buildChapterFileName(chapter: ChapterEntry): String {
         val label = normalizedChapterLabel(chapter.numberText)
         val padded = if (label.all(Char::isDigit)) label.padStart(3, '0') else label
-        return "chapter_${safeFilename(padded)}.cbz"
+        // Il gruppo principale non ha variante → nome file invariato rispetto alle versioni
+        // precedenti, così i .cbz già scaricati restano associati al loro capitolo.
+        val variant = chapter.normalizedVariantTag()
+            ?.let { "$VARIANT_SEPARATOR${safeFilename(it)}" }
+            .orEmpty()
+        return "chapter_${safeFilename(padded)}$variant.cbz"
     }
 
     fun normalizedChapterLabel(raw: String): String {
         return raw.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: raw.trim()
     }
 
+    /**
+     * Chiave "per numero" usata per marcare come scaricato/letto lo stesso capitolo arrivato
+     * da un URL diverso (tipicamente un'altra fonte). La variante entra nella chiave, altrimenti
+     * due capitoli omonimi della stessa fonte si marcherebbero a vicenda.
+     */
+    fun chapterNumberKey(numberLabel: String, variantTag: String?): String {
+        val normalizedVariant = variantTag?.trim()?.takeIf(String::isNotBlank)
+        val suffix = normalizedVariant?.let { "@$it" }.orEmpty()
+        return "number:${normalizedChapterLabel(numberLabel)}$suffix"
+    }
+
     fun parseChapterLabelFromFileName(fileName: String): String? {
         val raw = chapterFileRegex.matchEntire(fileName)?.groupValues?.getOrNull(1) ?: return null
-        return normalizedChapterLabel(raw)
+        return normalizedChapterLabel(raw.substringBefore(VARIANT_SEPARATOR))
+    }
+
+    /** La variante codificata nel nome file, se presente (`chapter_001__group_1.cbz`). */
+    fun parseChapterVariantFromFileName(fileName: String): String? {
+        val raw = chapterFileRegex.matchEntire(fileName)?.groupValues?.getOrNull(1) ?: return null
+        if (!raw.contains(VARIANT_SEPARATOR)) return null
+        return raw.substringAfter(VARIANT_SEPARATOR).trim().takeIf(String::isNotBlank)
     }
 
     fun parseChapterValueOrNull(raw: String): BigDecimal? {
@@ -294,12 +326,20 @@ object LibraryScanner {
                     ?.trim()
                     ?.takeIf(String::isNotBlank)
                     ?: "Capitolo"
+                // Senza metadati la variante si recupera dal nome file, così un .cbz di un
+                // gruppo secondario non viene riattribuito a quello principale.
+                val variantTag = chapterMeta?.variantTag?.trim()?.takeIf(String::isNotBlank)
+                    ?: DownloadStorage.parseChapterVariantFromFileName(file.name)
+                val baseTitle = variantTag
+                    ?.let { "$labelPrefix $normalized ($it)" }
+                    ?: "$labelPrefix $normalized"
                 DownloadedChapter(
-                    title = volumeText?.let { "$it - $labelPrefix $normalized" } ?: "$labelPrefix $normalized",
+                    title = volumeText?.let { "$it - $baseTitle" } ?: baseTitle,
                     numberText = normalized,
                     numberValue = DownloadStorage.parseChapterValueOrNull(normalized),
                     volumeText = volumeText,
                     labelPrefix = labelPrefix,
+                    variantTag = variantTag,
                     file = file,
                     relativePath = relativePath,
                     chapterId = chapterId,
@@ -490,7 +530,7 @@ class LibraryRepository(
         chapter: ChapterEntry,
     ): String {
         val chapterId = DownloadStorage.stableChapterId(chapter)
-        val numberKey = "number:${DownloadStorage.normalizedChapterLabel(chapter.displayNumber())}"
+        val numberKey = DownloadStorage.chapterNumberKey(chapter.displayNumber(), chapter.variantTag)
         prefs.edit {
             val legacyKey = streamingReadPrefKey(sourceId, mangaUrl)
             putStringSet(legacyKey, prefs.getStringSet(legacyKey, emptySet()).orEmpty() + chapterId)
@@ -758,6 +798,7 @@ class LibraryRepository(
                     id = chapter.chapterId,
                     volumeText = chapter.volumeText,
                     labelPrefix = chapter.labelPrefix,
+                    variantTag = chapter.variantTag,
                 )
             },
         )

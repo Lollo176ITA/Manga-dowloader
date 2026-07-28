@@ -480,7 +480,7 @@ private fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterLis
 
 private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boolean {
     val stableId = DownloadStorage.stableChapterId(this)
-    val numberKey = "number:${DownloadStorage.normalizedChapterLabel(displayNumber())}"
+    val numberKey = DownloadStorage.chapterNumberKey(displayNumber(), variantTag)
     return stableId in downloadedChapterKeys || numberKey in downloadedChapterKeys
 }
 
@@ -505,7 +505,7 @@ fun downloadRangeSummary(
 }
 
 private fun ChapterEntry.isRead(readChapterIds: Set<String>): Boolean {
-    val numberKey = "number:${DownloadStorage.normalizedChapterLabel(displayNumber())}"
+    val numberKey = DownloadStorage.chapterNumberKey(displayNumber(), variantTag)
     return DownloadStorage.stableChapterId(this) in readChapterIds || numberKey in readChapterIds
 }
 

@@ -56,6 +56,45 @@ class DownloadRangeSummaryTest {
     }
 
     @Test
+    fun sameNumberDifferentGroup_isNotMarkedAsAlreadyDownloaded() {
+        // Due capitoli omonimi della stessa fonte (gruppi di scanlation diversi): scaricare
+        // quello principale non deve far risultare scaricato anche il secondario.
+        val main = chapter(1)
+        val secondary = main.copy(
+            url = "https://mangapill.com/chapters/1-10001000/test-1",
+            variantTag = "Group 1",
+        )
+        val downloaded = setOf(DownloadStorage.chapterNumberKey(main.displayNumber(), main.variantTag))
+
+        val summary = downloadRangeSummary(
+            chapters = listOf(main, secondary),
+            startUrl = main.url,
+            endUrl = secondary.url,
+            downloadedChapterKeys = downloaded,
+        )
+
+        assertEquals(2, summary.selectedCount)
+        assertEquals(1, summary.alreadyDownloadedCount)
+    }
+
+    @Test
+    fun sameNumberKey_stillMatchesAcrossSourcesForTheMainGroup() {
+        // La chiave per-numero senza variante resta quella di prima: un capitolo scaricato
+        // da un'altra fonte continua a risultare scaricato.
+        val fromOtherSource = chapter(2).copy(url = "https://mangaworld.example/read/x/2")
+        val downloaded = setOf(DownloadStorage.chapterNumberKey("2", null))
+
+        val summary = downloadRangeSummary(
+            chapters = listOf(fromOtherSource),
+            startUrl = fromOtherSource.url,
+            endUrl = fromOtherSource.url,
+            downloadedChapterKeys = downloaded,
+        )
+
+        assertEquals(1, summary.alreadyDownloadedCount)
+    }
+
+    @Test
     fun invertedOrUnknownRange_isEmpty() {
         // end prima di start
         assertEquals(

@@ -11,10 +11,23 @@ data class ChapterEntry(
     val slug: String,
     val volumeText: String? = null,
     val labelPrefix: String = "Capitolo",
+    /**
+     * Qualificatore per capitoli che condividono lo stesso numero **dentro la stessa fonte**
+     * (es. Mangapill pubblica più gruppi di scanlation: "Chapter 1" e "Group 2 Chapter 1").
+     * Senza di esso i due omonimi finirebbero sullo stesso `chapter_001.cbz` e uno
+     * sovrascriverebbe l'altro. Vale `null` per il gruppo principale, così etichetta, nome
+     * file e chiavi restano identici a prima e i download già su disco continuano a valere.
+     */
+    val variantTag: String? = null,
 ) {
     fun displayNumber(): String = numberValue.stripTrailingZeros().toPlainString()
 
-    fun displayShortLabel(): String = "$labelPrefix ${displayNumber()}"
+    fun normalizedVariantTag(): String? = variantTag?.trim()?.takeIf(String::isNotBlank)
+
+    fun displayShortLabel(): String {
+        val base = "$labelPrefix ${displayNumber()}"
+        return normalizedVariantTag()?.let { "$base ($it)" } ?: base
+    }
 
     fun displayLabel(): String {
         val chapterLabel = displayShortLabel()

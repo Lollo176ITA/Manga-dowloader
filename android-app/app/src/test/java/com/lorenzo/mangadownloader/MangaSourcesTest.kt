@@ -187,6 +187,64 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangapillMangaDetails_qualifiesOnlySecondaryScanlationGroup() {
+        // Mangapill pubblica più gruppi per la stessa serie: il titolo dell'anchor antepone
+        // "Group N" dal secondo in poi. Il gruppo più numeroso resta senza variante (nomi file
+        // e chiavi invariati); gli altri vengono qualificati per non collidere.
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/1-20003000/berserk-chapter-3" title=" Group 2 Chapter 3">Group 2 Chapter 3</a>
+                <a href="/chapters/1-20002000/berserk-chapter-2" title=" Group 2 Chapter 2">Group 2 Chapter 2</a>
+                <a href="/chapters/1-20001000/berserk-chapter-1" title=" Group 2 Chapter 1">Group 2 Chapter 1</a>
+                <a href="/chapters/1-10001000/berserk-chapter-1" title=" Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/1/berserk",
+        )
+
+        assertEquals(4, details.chapters.size)
+        val chapterOnes = details.chapters.filter { it.numberText == "1" }
+        assertEquals(2, chapterOnes.size)
+
+        // Il gruppo maggioritario ("Group 2", 3 capitoli) resta il principale.
+        val main = chapterOnes.first { it.url.contains("1-20001000") }
+        assertNull(main.variantTag)
+        assertEquals("Capitolo 1", main.displayShortLabel())
+        assertEquals("chapter_001.cbz", DownloadStorage.buildChapterFileName(main))
+
+        // Quello del gruppo minoritario viene qualificato: etichetta e file distinti.
+        val secondary = chapterOnes.first { it.url.contains("1-10001000") }
+        assertEquals("Group 1", secondary.variantTag)
+        assertEquals("Capitolo 1 (Group 1)", secondary.displayShortLabel())
+        assertEquals("chapter_001__Group_1.cbz", DownloadStorage.buildChapterFileName(secondary))
+    }
+
+    @Test
+    fun mangapillMangaDetails_singleGroupKeepsChaptersUnqualified() {
+        // Caso normale (un solo gruppo): nessuna variante, così nulla cambia per le serie
+        // già in libreria.
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/12345-2/berserk-chapter-2" title="Chapter 2">Chapter 2</a>
+                <a href="/chapters/12345-1/berserk-chapter-1" title="Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertTrue(details.chapters.all { it.variantTag == null })
+        assertEquals("chapter_001.cbz", DownloadStorage.buildChapterFileName(details.chapters.first()))
+    }
+
+    @Test
     fun mangapillChapterPages_readsReaderImagesInOrder() {
         val pages = MangapillSource.parsePageImageUrls(
             """

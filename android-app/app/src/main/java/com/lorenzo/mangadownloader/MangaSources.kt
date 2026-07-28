@@ -364,6 +364,7 @@ abstract class BaseMangaSource(
                 ),
                 volumeText = chapter.volumeText,
                 labelPrefix = chapter.labelPrefix,
+                variantTag = chapter.normalizedVariantTag(),
             )
         }
         val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(plan)

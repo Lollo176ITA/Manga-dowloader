@@ -195,7 +195,9 @@ class MangapillSource(
         }
 
         private fun parseChapterEntries(document: Document): List<ChapterEntry> {
-            val entries = linkedMapOf<String, ChapterEntry>()
+            // Raccolta grezza: URL → (numero, gruppo). Mangapill può pubblicare la stessa
+            // serie da più gruppi di scanlation, con capitoli numerati uguali ma URL diversi.
+            val raw = linkedMapOf<String, Pair<String, String>>()
 
             for (link in document.select("""#chapters a[href^="/chapters/"]""")) {
                 if (link.attr("href").trim().isBlank()) {
@@ -207,22 +209,50 @@ class MangapillSource(
                     ?: chapterNumberInUrl.find(chapterUrl)?.groupValues?.getOrNull(1)
                     ?: continue
 
+                raw[chapterUrl] = numberText to groupLabel(title)
+            }
+
+            if (raw.isEmpty()) {
+                throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
+            }
+
+            // Il gruppo più numeroso è quello "principale" e resta senza variante: il suo nome
+            // file e le sue chiavi restano identici alle versioni precedenti dell'app, così i
+            // capitoli già scaricati non diventano orfani. Solo gli altri vengono qualificati.
+            val mainGroup = raw.values
+                .groupingBy { (_, group) -> group }
+                .eachCount()
+                .maxByOrNull { (_, count) -> count }
+                ?.key
+
+            val entries = raw.map { (chapterUrl, data) ->
+                val (numberText, group) = data
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
                     ?: throw IllegalArgumentException("Numero capitolo non valido: $numberText")
 
-                entries[chapterUrl] = ChapterEntry(
+                ChapterEntry(
                     numberText = numberText,
                     numberValue = numberValue,
                     url = chapterUrl,
                     slug = chapterUrl.substringAfterLast('/'),
+                    variantTag = group.takeIf { it != mainGroup },
                 )
             }
 
-            if (entries.isEmpty()) {
-                throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
-            }
+            return entries.sortedBy { it.numberValue }
+        }
 
-            return entries.values.sortedBy { it.numberValue }
+        /**
+         * Il gruppo di scanlation dedotto dal titolo dell'anchor: Mangapill antepone
+         * `Group N` solo dal secondo in poi (`" Group 2 Chapter 1"`), quindi un titolo senza
+         * prefisso è per convenzione il primo gruppo.
+         */
+        private fun groupLabel(title: String): String {
+            val prefix = chapterNumberInTitle.find(title)
+                ?.let { title.substring(0, it.range.first) }
+                ?.trim()
+                .orEmpty()
+            return prefix.ifBlank { "Group 1" }
         }
 
         private fun parsePageImageUrls(document: Document, chapterUrl: String): List<String> {

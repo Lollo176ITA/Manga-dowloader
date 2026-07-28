@@ -195,7 +195,7 @@ val copyChangelogToAssets = tasks.register<Copy>("copyChangelogToAssets") {
 tasks.named("preBuild").configure { dependsOn(copyChangelogToAssets) }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -206,7 +206,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3:1.5.0-alpha23")
+    implementation("androidx.compose.material3:material3:1.5.0-alpha24")
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.compose.material:material-icons-extended")

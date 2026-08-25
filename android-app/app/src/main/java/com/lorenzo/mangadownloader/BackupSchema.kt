@@ -132,6 +132,7 @@ data class FavoriteBackupEntry(
     val mangaUrl: String = "",
     val coverUrl: String? = null,
     val addedAt: Long = 0L,
+    val seriesKey: String? = null,
 )
 
 /**
@@ -304,6 +305,7 @@ fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =
         mangaUrl = mangaUrl,
         coverUrl = coverUrl,
         addedAt = addedAt,
+        seriesKey = canonicalKey(),
     )
 
 /** Converte una entry di backup in [FavoriteManga], risolvendo la fonte come fa `FavoritesStore`. */
@@ -311,28 +313,35 @@ fun FavoriteBackupEntry.toFavoriteManga(): FavoriteManga? {
     val cleanTitle = title.trim()
     val cleanUrl = mangaUrl.trim()
     if (cleanTitle.isBlank() || cleanUrl.isBlank()) return null
+    val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId, cleanUrl)
     return FavoriteManga(
-        sourceId = MangaSourceCatalog.resolveSourceId(sourceId, cleanUrl),
+        sourceId = resolvedSourceId,
         title = cleanTitle,
         mangaUrl = cleanUrl,
         coverUrl = coverUrl,
         addedAt = addedAt,
+        // Backup scritti prima dello schema per-serie: chiave derivata dal titolo.
+        seriesKey = seriesKey?.trim()?.takeIf(String::isNotBlank)
+            ?: SeriesIdentity.keyForTitle(cleanTitle)
+            ?: MangaSourceCatalog.identityKey(resolvedSourceId, cleanUrl),
     )
 }
 
-/** MERGE dei preferiti: tiene i correnti in testa, aggiunge solo i nuovi (dedup per identityKey). */
+/**
+ * MERGE dei preferiti: tiene i correnti in testa e aggiunge solo i nuovi. La dedup è **per
+ * serie** (chiave canonica + alias titolo), non per fonte: un backup fatto quando leggevi
+ * One Piece da un'altra fonte non deve ricreare una seconda voce della stessa serie.
+ */
 fun mergeFavorites(
     current: List<FavoriteManga>,
     incoming: List<FavoriteBackupEntry>,
 ): List<FavoriteManga> {
     val merged = current.toMutableList()
-    val keys = current.mapTo(mutableSetOf()) {
-        MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
-    }
+    val keys = current.flatMapTo(mutableSetOf()) { it.matchKeys() }
     for (entry in incoming) {
         val favorite = entry.toFavoriteManga() ?: continue
-        val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
-        if (keys.add(key)) {
+        if (favorite.matchKeys().none { it in keys }) {
+            keys += favorite.matchKeys()
             merged += favorite
         }
     }

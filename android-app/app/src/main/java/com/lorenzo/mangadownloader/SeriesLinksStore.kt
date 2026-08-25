@@ -23,6 +23,23 @@ data class SeriesLink(
     val preferredSourceId: String? = null,
 )
 
+/**
+ * Fonti da interrogare per questa serie, in ordine di tentativo: prima la preferita, poi le
+ * altre nell'ordine in cui sono state agganciate. Pura: è la lista che il
+ * `FavoriteUpdatesWorker` percorre fermandosi alla prima che risponde.
+ */
+fun SeriesLink.candidateBindings(maxCandidates: Int = MAX_SOURCE_CANDIDATES): List<SeriesSourceBinding> {
+    val preferred = preferredSourceId?.let { id -> sources.firstOrNull { it.sourceId == id } }
+    val ordered = listOfNotNull(preferred) + sources.filterNot { it.sourceId == preferred?.sourceId }
+    return ordered.take(maxCandidates.coerceAtLeast(1))
+}
+
+/**
+ * Quante fonti al massimo si provano in un giro di controllo aggiornamenti. Serve a non
+ * trasformare una rete assente in 5 richieste fallite per ogni preferito.
+ */
+const val MAX_SOURCE_CANDIDATES = 3
+
 /** Fonte iniziale all'apertura della scheda: preferita → coerente con lo scope → prima. */
 fun SeriesLink.initialBinding(scope: SearchScope): SeriesSourceBinding {
     preferredSourceId?.let { preferred ->
@@ -81,6 +98,40 @@ class SeriesLinksStore(private val prefs: SharedPreferences) {
     }
 
     /**
+     * Garantisce che [seriesKey] abbia un link che contiene [binding]: lo crea se manca,
+     * altrimenti aggiunge il binding se non c'è già. È così che un preferito nato su una
+     * fonte sola diventa multi-fonte man mano che apri la stessa serie altrove — senza
+     * chiedere niente all'utente.
+     */
+    fun ensureLink(
+        seriesKey: String,
+        title: String,
+        coverUrl: String?,
+        binding: SeriesSourceBinding,
+    ): SeriesLink {
+        val existing = linkFor(seriesKey)
+        if (existing == null) {
+            val created = SeriesLink(
+                seriesKey = seriesKey,
+                aniListId = SeriesIdentity.aniListIdFromKey(seriesKey),
+                canonicalTitle = title,
+                coverUrl = coverUrl,
+                sources = listOf(binding),
+            )
+            upsert(created)
+            return created
+        }
+        val bindingKey = MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl)
+        val alreadyLinked = existing.sources.any {
+            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == bindingKey
+        }
+        if (alreadyLinked) return existing
+        val updated = existing.copy(sources = existing.sources + binding)
+        upsert(updated)
+        return updated
+    }
+
+    /**
      * Crea/aggiorna il link a partire da una card raggruppata tappata: unione dei binding
      * (dedup per identityKey), preferred conservato. Se il gruppo ha un aniListId e i suoi
      * binding vivevano sotto una chiave `title:`, quel link viene PROMOSSO (ri-chiavato).
@@ -121,15 +172,30 @@ class SeriesLinksStore(private val prefs: SharedPreferences) {
         return merged
     }
 
-    /** Promuove un link `title:` ad `anilist:` (aggancio tracking arrivato dopo). */
+    /**
+     * Promuove un link `title:` ad `anilist:` (aggancio arrivato dopo). Se sotto la chiave
+     * AniList c'è già un link — le due metà della stessa serie trovate con titoli diversi —
+     * i mirror vengono **fusi** invece di sovrascritti: è il caso "Attack on Titan" +
+     * "Shingeki no Kyojin" che convergono.
+     */
     fun promoteToAniList(titleKey: String, aniListId: Int): SeriesLink? {
         val all = readAll().toMutableMap()
         val link = all.remove(titleKey) ?: return null
-        val promoted = link.copy(
-            seriesKey = SeriesIdentity.keyForAniList(aniListId),
+        val targetKey = SeriesIdentity.keyForAniList(aniListId)
+        val existing = all[targetKey]
+        val mergedSources = LinkedHashMap<String, SeriesSourceBinding>()
+        (existing?.sources.orEmpty() + link.sources).forEach {
+            mergedSources.putIfAbsent(MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl), it)
+        }
+        val promoted = SeriesLink(
+            seriesKey = targetKey,
             aniListId = aniListId,
+            canonicalTitle = existing?.canonicalTitle ?: link.canonicalTitle,
+            coverUrl = existing?.coverUrl ?: link.coverUrl,
+            sources = mergedSources.values.toList(),
+            preferredSourceId = existing?.preferredSourceId ?: link.preferredSourceId,
         )
-        all[promoted.seriesKey] = promoted
+        all[targetKey] = promoted
         persistAll(all)
         return promoted
     }

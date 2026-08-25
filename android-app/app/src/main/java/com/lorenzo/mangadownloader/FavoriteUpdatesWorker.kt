@@ -30,6 +30,11 @@ import kotlinx.coroutines.withContext
  * confronta l'ultimo capitolo con quello già visto e, se è uscito qualcosa di nuovo, manda
  * una notifica. I manga già noti come conclusi vengono saltati (niente rete). Best-effort:
  * un errore su un preferito non blocca gli altri.
+ *
+ * Un preferito è **una serie**, non una serie-su-una-fonte: se il mirror da cui la leggevi non
+ * risponde si prova il successivo tra quelli agganciati e, se ne risponde uno, diventa il nuovo
+ * preferito per quella serie. Tutto è indicizzato per `seriesKey`, così il cambio di mirror non
+ * fa ripartire la baseline (che significherebbe ri-notificare capitoli già visti).
  */
 class FavoriteUpdatesWorker(
     appContext: Context,
@@ -39,34 +44,95 @@ class FavoriteUpdatesWorker(
     override suspend fun doWork(): Result {
         val context = applicationContext
         val prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
-        if (!SettingsStore(prefs).read().favoriteNewChapterNotificationsEnabled) {
+        val settings = SettingsStore(prefs).read()
+        if (!settings.favoriteNewChapterNotificationsEnabled) {
             return Result.success()
         }
-        val favorites = FavoritesStore(prefs).read()
+
+        val favoritesStore = FavoritesStore(prefs)
+        val store = FavoriteUpdatesStore(prefs)
+        val descriptionsStore = FavoriteDescriptionsStore(prefs)
+        val feedStore = FavoriteUpdatesFeedStore(prefs)
+        val seriesLinksStore = SeriesLinksStore(prefs)
+        val healthStore = FavoriteSourceHealthStore(prefs)
+
+        // Idempotente: la fa il ViewModel all'avvio, ma il worker può girare prima di lui.
+        var favorites = FavoritesSeriesMigration(
+            prefs = prefs,
+            favoritesStore = favoritesStore,
+            favoriteUpdatesStore = store,
+            favoriteDescriptionsStore = descriptionsStore,
+            favoriteUpdatesFeedStore = feedStore,
+            seriesLinksStore = seriesLinksStore,
+        ).migrateIfNeeded()
         if (favorites.isEmpty()) {
             return Result.success()
         }
 
-        val store = FavoriteUpdatesStore(prefs)
-        val seenMap = store.read().toMutableMap()
-        val descriptionsStore = FavoriteDescriptionsStore(prefs)
-        val descriptions = descriptionsStore.read().toMutableMap()
-        val feedStore = FavoriteUpdatesFeedStore(prefs)
         val registry = sharedSourceRegistry(context)
+        val aniListClient = AniListClient(SharedHttpClient.get(context))
+
+        // Prima le identità, poi i capitoli: così un preferito appena promosso ad `anilist:`
+        // usa già la chiave definitiva per baseline e feed in questo stesso giro.
+        favorites = FavoriteIdentityResolver(
+            favoritesStore = favoritesStore,
+            favoriteUpdatesStore = store,
+            favoriteDescriptionsStore = descriptionsStore,
+            favoriteSourceHealthStore = healthStore,
+            seriesLinksStore = seriesLinksStore,
+            attemptsStore = AniListResolutionAttemptsStore(prefs),
+            searchAniList = { title -> withContext(Dispatchers.IO) { aniListClient.searchManga(title) } },
+        ).resolve(favorites)
+
+        val seenMap = store.read().toMutableMap()
+        val descriptions = descriptionsStore.read().toMutableMap()
+        val healthMap = healthStore.read().toMutableMap()
         val notifier = FavoriteUpdateNotifier(context)
         var notifiedCount = 0
+        var favoritesChanged = false
+        val updatedFavorites = favorites.toMutableList()
 
         try {
-        for (favorite in favorites) {
-            val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
+        for ((index, favorite) in favorites.withIndex()) {
+            val key = favorite.canonicalKey()
             val seen = seenMap[key]
             if (!shouldPollFavorite(seen)) {
                 continue
             }
             try {
-                val details = withContext(Dispatchers.IO) {
-                    registry.resolve(favorite.sourceId, favorite.mangaUrl)
-                        .fetchMangaDetails(favorite.mangaUrl)
+                val candidates = favoriteSourceCandidates(
+                    favorite = favorite,
+                    link = seriesLinksStore.linkFor(key),
+                    disabledSourceIds = settings.disabledSourceIds,
+                )
+                val fetched = fetchFromFirstAvailable(candidates) { binding ->
+                    withContext(Dispatchers.IO) {
+                        registry.resolve(binding.sourceId, binding.mangaUrl)
+                            .fetchMangaDetails(binding.mangaUrl)
+                    }
+                }
+                if (fetched == null) {
+                    // Nessun mirror raggiungibile: NON si cambia la fonte preferita (di
+                    // solito è la rete del telefono, non il sito). Si conta e basta.
+                    healthMap[key] = recordSourceFailure(healthMap[key])
+                    continue
+                }
+                val details = fetched.details
+                val usedBinding = fetched.binding
+                healthMap[key] = recordSourceSuccess(
+                    current = healthMap[key],
+                    previousSourceId = favorite.sourceId,
+                    usedSourceId = usedBinding.sourceId,
+                    nowMillis = System.currentTimeMillis(),
+                )
+                if (usedBinding.sourceId != favorite.sourceId) {
+                    // Ha risposto un mirror diverso: diventa quello da cui leggere la serie.
+                    seriesLinksStore.setPreferredSource(key, usedBinding.sourceId)
+                    updatedFavorites[index] = favorite.copy(
+                        sourceId = usedBinding.sourceId,
+                        mangaUrl = usedBinding.mangaUrl,
+                    )
+                    favoritesChanged = true
                 }
                 // La trama dei preferiti viene scaricata comunque qui: salvala così il
                 // pulsante info è pronto anche dopo il riavvio dell'app (è solo testo).
@@ -91,19 +157,25 @@ class FavoriteUpdatesWorker(
                         appendUpdateEvent(
                             events,
                             FavoriteUpdateEvent(
-                                identityKey = key,
+                                identityKey = MangaSourceCatalog.identityKey(
+                                    usedBinding.sourceId,
+                                    usedBinding.mangaUrl,
+                                ),
                                 title = favorite.title,
-                                sourceId = favorite.sourceId,
-                                mangaUrl = favorite.mangaUrl,
+                                // Fonte e URL dell'evento sono quelli del mirror che ha
+                                // risposto: è lì che il tap deve portare.
+                                sourceId = usedBinding.sourceId,
+                                mangaUrl = usedBinding.mangaUrl,
                                 chapterLabel = label,
                                 chapterNumber = latest.numberValue.stripTrailingZeros().toPlainString(),
                                 coverUrl = favorite.coverUrl,
                                 timestampMillis = System.currentTimeMillis(),
                                 seen = false,
+                                seriesKey = key,
                             ),
                         )
                     }
-                    notifier.notifyNewChapter(favorite, label)
+                    notifier.notifyNewChapter(updatedFavorites[index], key, label)
                     notifiedCount++
                 }
             } catch (cancellation: CancellationException) {
@@ -124,6 +196,10 @@ class FavoriteUpdatesWorker(
             // della notifica (vedi sopra).
             store.write(seenMap)
             descriptionsStore.write(descriptions)
+            healthStore.write(healthMap)
+            if (favoritesChanged) {
+                favoritesStore.persist(updatedFavorites)
+            }
         }
         return Result.success()
     }
@@ -136,12 +212,17 @@ class FavoriteUpdatesWorker(
  */
 class FavoriteUpdateNotifier(private val context: Context) {
 
-    fun notifyNewChapter(favorite: FavoriteManga, chapterLabel: String) {
+    /**
+     * [seriesKey] è l'identità della serie: l'id della notifica ci si basa perché la stessa
+     * serie ritrovata su un mirror diverso deve **aggiornare** la sua notifica, non aprirne
+     * una seconda accanto.
+     */
+    fun notifyNewChapter(favorite: FavoriteManga, seriesKey: String, chapterLabel: String) {
         if (!canPostNotifications()) {
             return
         }
         ensureChannel()
-        val notificationId = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl).hashCode()
+        val notificationId = seriesKey.hashCode()
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_manga)
             .setContentTitle(favorite.title)

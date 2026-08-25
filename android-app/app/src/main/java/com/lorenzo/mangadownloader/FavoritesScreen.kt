@@ -39,9 +39,11 @@ fun FavoritesScreen(
     query: String,
     filterReadingState: FavoriteReadingState?,
     sort: FavoriteSort,
+    // Tutte indicizzate per SeriesKey (l'identità del preferito), non per fonte.
     statusByKey: Map<String, MangaPublicationStatus>,
     seenByKey: Map<String, FavoriteSeenState>,
     readingStateByKey: Map<String, FavoriteReadingState>,
+    noticesByKey: Map<String, FavoriteSourceNotice>,
     padding: PaddingValues,
     onQueryChange: (String) -> Unit,
     onSelect: (FavoriteManga) -> Unit,
@@ -168,14 +170,15 @@ fun FavoritesScreen(
                     ) {
                         items(
                             displayed,
-                            key = { it.identityKey() },
+                            key = { it.canonicalKey() },
                         ) { favorite ->
                             FavoriteCard(
                                 favorite = favorite,
                                 onClick = { onSelect(favorite) },
                                 onLongClick = { actionsFor = favorite },
                                 onMoreActions = { actionsFor = favorite },
-                                readingState = readingStateByKey[favorite.identityKey()],
+                                readingState = readingStateByKey[favorite.canonicalKey()],
+                                notice = noticesByKey[favorite.canonicalKey()],
                             )
                         }
                     }
@@ -187,6 +190,7 @@ fun FavoritesScreen(
     actionsFor?.let { favorite ->
         FavoriteActionsDialog(
             title = favorite.title,
+            notice = noticesByKey[favorite.canonicalKey()],
             onRead = {
                 onReadNow(favorite)
                 actionsFor = null

@@ -176,6 +176,21 @@ class BackupSchemaTest {
         assertEquals(listOf("A", "B"), merged.map { it.title })
     }
 
+    /**
+     * Un backup fatto quando la serie si leggeva da un'altra fonte non deve ricreare una
+     * seconda voce: il preferito è la serie, e la dedup del merge lo rispetta.
+     */
+    @Test
+    fun mergeFavorites_dedupesAcrossSources() {
+        val current = listOf(
+            FavoriteManga("mangapill", "One Piece", "https://mangapill.com/manga/1", null),
+        )
+        val incoming = listOf(
+            FavoriteBackupEntry("vymanga", "One Piece", "https://vymanga.com/manga/9", null),
+        )
+        assertEquals(listOf("One Piece"), mergeFavorites(current, incoming).map { it.title })
+    }
+
     @Test
     fun mergeRecentSearches_dedupesCaseInsensitiveAndCaps() {
         val current = listOf("a", "b")

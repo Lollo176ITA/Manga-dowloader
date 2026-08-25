@@ -41,7 +41,8 @@ fun SearchScreen(
     onClearRecentSearches: () -> Unit,
     onRefresh: () -> Unit,
     onSelectSeries: (GroupedSearchResult) -> Unit,
-    onToggleFavorite: (MangaSearchResult) -> Unit,
+    // La stella agisce sulla SERIE (il gruppo), non sul singolo risultato di una fonte.
+    onToggleFavorite: (GroupedSearchResult) -> Unit,
     onShowInfo: (MangaSearchResult) -> Unit,
     onDismissInfo: () -> Unit,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
@@ -129,10 +130,6 @@ fun SearchScreen(
                                     key = { it.seriesKey },
                                 ) { group ->
                                     val primary = group.primary
-                                    val primaryKey = MangaSourceCatalog.identityKey(
-                                        primary.sourceId,
-                                        primary.mangaUrl,
-                                    )
                                     val cardModifier = if (group.seriesKey == firstKey) {
                                         anchorFor(TutorialAnchor.SEARCH_RESULT_FIRST)
                                     } else {
@@ -141,10 +138,9 @@ fun SearchScreen(
                                     Box(modifier = cardModifier) {
                                         ResultCard(
                                             result = primary.copy(title = group.title, coverUrl = group.coverUrl),
-                                            isFavorite = group.seriesKey in state.favoriteSeriesKeys ||
-                                                primaryKey in state.favoriteMangaKeys,
+                                            isFavorite = group.seriesKey in state.favoriteSeriesKeys,
                                             onClick = { onSelectSeries(group) },
-                                            onToggleFavorite = { onToggleFavorite(primary) },
+                                            onToggleFavorite = { onToggleFavorite(group) },
                                             onShowInfo = { onShowInfo(primary) },
                                             // Una card = una serie: se la serie è su più fonti
                                             // il badge dice quante, altrimenti la sigla fonte

@@ -165,10 +165,14 @@ fun AppTopBar(
             }
 
             if (selectedManga != null) {
-                val isFavorite = MangaSourceCatalog.identityKey(
-                    selectedManga.sourceId,
-                    selectedManga.mangaUrl,
-                ) in state.favoriteMangaKeys
+                // La domanda è "questa SERIE è tra i preferiti?", non "questa copia su questa
+                // fonte lo è": altrimenti la stella risulterebbe vuota aprendo da un altro
+                // mirror e il tap, che agisce per serie, toglierebbe il preferito invece di
+                // aggiungerlo. Stessa chiave usata dalle card della ricerca.
+                val isFavorite = state.favoriteSeriesKeys.containsAny(
+                    state.selectedSeriesKey,
+                    SeriesIdentity.keyForTitle(selectedManga.title),
+                )
                 FavoriteToggleAction(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
@@ -180,10 +184,10 @@ fun AppTopBar(
             // metterlo tra i preferiti. Solo con un URL d'origine (l'identità del preferito).
             val seriesMangaUrl = selectedSeries?.mangaUrl?.takeIf { it.isNotBlank() }
             if (screen == Screen.DownloadedSeries && selectedSeries != null && seriesMangaUrl != null) {
-                val isSeriesFavorite = MangaSourceCatalog.identityKey(
-                    selectedSeries.sourceId,
-                    seriesMangaUrl,
-                ) in state.favoriteMangaKeys
+                val isSeriesFavorite = state.favoriteSeriesKeys.containsAny(
+                    SeriesIdentity.keyForTitle(selectedSeries.title),
+                    MangaSourceCatalog.identityKey(selectedSeries.sourceId, seriesMangaUrl),
+                )
                 FavoriteToggleAction(
                     isFavorite = isSeriesFavorite,
                     onToggle = onToggleFavoriteSeries,

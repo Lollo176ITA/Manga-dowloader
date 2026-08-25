@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Done
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -471,6 +473,9 @@ fun FavoriteCard(
     onLongClick: (() -> Unit)? = null,
     onMoreActions: (() -> Unit)? = null,
     readingState: FavoriteReadingState? = null,
+    // La fonte non compare finché non c'è qualcosa da dire: nessun avviso = card pulita,
+    // perché il preferito è il manga, non il manga-su-una-fonte.
+    notice: FavoriteSourceNotice? = null,
 ) {
     MangaPosterCard(
         coverModel = favorite.coverUrl,
@@ -479,6 +484,7 @@ fun FavoriteCard(
         onClickLabel = "Apri",
         onLongClick = onLongClick,
         onLongClickLabel = "Altre azioni",
+        bottomStartBadge = notice?.let { { FavoriteNoticeBadge(notice = it) } },
         topEndBadge = onMoreActions?.let { actions ->
             {
                 IconButton(
@@ -512,6 +518,47 @@ fun FavoriteCard(
             )
         },
     )
+}
+
+/**
+ * Avviso sull'approvvigionamento di un preferito, in basso a sinistra sulla copertina.
+ *
+ * Solo icona: nella griglia a 3 colonne un'etichetta di testo verrebbe troncata. Il testo
+ * completo resta accessibile — è il `contentDescription` letto da TalkBack, e compare per
+ * esteso nel dialog delle azioni (pressione lunga).
+ */
+@Composable
+fun FavoriteNoticeBadge(
+    notice: FavoriteSourceNotice,
+    modifier: Modifier = Modifier,
+) {
+    val container = when (notice.kind) {
+        FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.errorContainer
+        FavoriteNoticeKind.SOURCE_SWITCHED -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val content = when (notice.kind) {
+        FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.onErrorContainer
+        FavoriteNoticeKind.SOURCE_SWITCHED -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(container)
+            .padding(4.dp),
+    ) {
+        Icon(
+            imageVector = notice.icon(),
+            contentDescription = notice.label,
+            tint = content,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+/** Icona dell'avviso: "scambio" per il cambio mirror, "nuvola barrata" per l'irraggiungibile. */
+fun FavoriteSourceNotice.icon(): ImageVector = when (kind) {
+    FavoriteNoticeKind.SOURCE_SWITCHED -> Icons.Default.SwapHoriz
+    FavoriteNoticeKind.UNREACHABLE -> Icons.Default.CloudOff
 }
 
 /**

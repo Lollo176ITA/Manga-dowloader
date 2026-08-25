@@ -105,17 +105,23 @@ data class SourceOptionUi(
     val hasError: Boolean = false,
 )
 
+/**
+ * Un preferito è **una serie**, non una serie-su-una-fonte: la sua identità è [seriesKey]
+ * ([SeriesIdentity]). [sourceId]/[mangaUrl] restano, ma valgono solo come "da dove la sto
+ * leggendo adesso" e cambiano quando cambi fonte dal selettore o quando il fallback del
+ * `FavoriteUpdatesWorker` promuove un altro mirror.
+ *
+ * [seriesKey] è vuota solo nelle istanze costruite al volo prima di risolverla: leggila
+ * sempre con `canonicalKey()`, mai direttamente.
+ */
 data class FavoriteManga(
     val sourceId: String,
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
     val addedAt: Long = 0L,
+    val seriesKey: String = "",
 )
-
-/** Chiavi d'identità dei preferiti (ordine d'inserimento preservato), per `favoriteMangaKeys`. */
-private fun List<FavoriteManga>.identityKeys(): Set<String> =
-    mapTo(linkedSetOf()) { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) }
 
 /** Mappa `identityKey -> stato pubblicazione` derivata dalla baseline notifiche (per sort/filtro). */
 private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPublicationStatus> =
@@ -254,12 +260,19 @@ data class MangaUiState(
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val recommendations: RecommendationsUiState = RecommendationsUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
-    val favoriteMangaKeys: Set<String> = emptySet(),
-    // Chiavi serie (SeriesKey) dei preferiti: usate dalle card raggruppate della ricerca.
+    /**
+     * Identità delle serie tra i preferiti (chiave canonica + alias titolo). È l'**unica**
+     * domanda che la UI fa sui preferiti — "questa serie ce l'ho?" — indipendentemente dalla
+     * fonte da cui la stai guardando: è ciò che tiene la stella coerente tra ricerca e scheda.
+     */
     val favoriteSeriesKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
+    // Mappe indicizzate per SeriesKey (vedi FavoritesSeriesMigration): sopravvivono al
+    // cambio fonte, che per un preferito è un evento normale.
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
+    /** Avvisi per-serie mostrati sulla card: vuoto finché l'approvvigionamento funziona. */
+    val favoriteNotices: Map<String, FavoriteSourceNotice> = emptyMap(),
     val isSearching: Boolean = false,
     // Fallimento dell'ultima ricerca (rete assente, fonte down): mostrato dalla tab Cerca
     // come stato dedicato con "Riprova", invece di un falso "Nessun risultato".
@@ -361,6 +374,7 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
     private val seriesLinksStore = SeriesLinksStore(prefs)
+    private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val backupManager = BackupManager(
@@ -375,14 +389,23 @@ class MangaViewModel internal constructor(
     )
 
     /**
-     * Cache in memoria delle trame (descrizioni) per `identityKey`: il pulsante info diventa
+     * Cache in memoria delle trame (descrizioni) per **SeriesKey**: il pulsante info diventa
      * istantaneo dopo il primo fetch o dopo aver aperto il manga, senza ri-scaricare la pagina.
      * Per i **preferiti** è anche persistita su disco ([favoriteDescriptionsStore]) e ricaricata
      * all'avvio, così la loro info è pronta anche dopo il riavvio. È solo testo.
      */
     private val mangaDescriptionCache = mutableMapOf<String, String>()
 
-    private val initialFavorites = favoritesStore.read()
+    // I preferiti passano da chiave-fonte a chiave-serie prima di qualunque lettura (vedi
+    // FavoritesSeriesMigration): one-shot e idempotente, la rifà anche il worker se arriva prima.
+    private val initialFavorites = FavoritesSeriesMigration(
+        prefs = prefs,
+        favoritesStore = favoritesStore,
+        favoriteUpdatesStore = favoriteUpdatesStore,
+        favoriteDescriptionsStore = favoriteDescriptionsStore,
+        favoriteUpdatesFeedStore = favoriteUpdatesFeedStore,
+        seriesLinksStore = seriesLinksStore,
+    ).migrateIfNeeded()
     private val initialSettings = settingsStore.read()
     private val initialFavoriteSeen = favoriteUpdatesStore.read()
     private val initialReadingMemory = readingMemoryStore.read()
@@ -406,10 +429,12 @@ class MangaViewModel internal constructor(
             readingMemory = initialReadingMemory,
             readingDiary = initialReadingDiary,
             favorites = initialFavorites,
-            favoriteMangaKeys = initialFavorites.identityKeys(),
             favoriteSeriesKeys = favoriteSeriesKeys(initialFavorites),
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
+            favoriteNotices = favoriteSourceHealthStore.read()
+                .mapNotNull { (key, health) -> favoriteSourceNotice(health)?.let { key to it } }
+                .toMap(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
             aniList = AniListUiState(
                 viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null },
@@ -573,11 +598,33 @@ class MangaViewModel internal constructor(
         viewModelScope.launch {
             updateState { copy(errorMessage = "Preparo i primi capitoli di ${favorite.title}…") }
             try {
-                val details = withContext(Dispatchers.IO) {
-                    sourceRegistry.resolve(favorite.sourceId, favorite.mangaUrl)
-                        .fetchMangaDetails(favorite.mangaUrl)
+                // Stessa regola del worker: se il mirror abituale non risponde si prova il
+                // successivo, invece di far fallire la scorciatoia "Leggi".
+                val fetched = fetchFromFirstAvailable(
+                    favoriteSourceCandidates(
+                        favorite = favorite,
+                        link = seriesLinksStore.linkFor(favorite.canonicalKey()),
+                        disabledSourceIds = _state.value.settings.disabledSourceIds,
+                    ),
+                ) { binding ->
+                    withContext(Dispatchers.IO) {
+                        sourceRegistry.resolve(binding.sourceId, binding.mangaUrl)
+                            .fetchMangaDetails(binding.mangaUrl)
+                    }
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                if (fetched == null) {
+                    updateState {
+                        copy(errorMessage = "${favorite.title} non è raggiungibile da nessuna fonte")
+                    }
+                    return@launch
+                }
+                val details = fetched.details
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 val firstChapters = firstChaptersForReading(details.chapters, READ_NOW_CHAPTER_COUNT)
                 if (firstChapters.isEmpty()) {
                     updateState { copy(errorMessage = "Nessun capitolo disponibile per ${details.title}") }
@@ -741,7 +788,6 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(
                     favorites = result.favorites,
-                    favoriteMangaKeys = result.favorites.identityKeys(),
                     favoriteSeriesKeys = favoriteSeriesKeys(result.favorites),
                     favoriteSeenStates = restoredSeen,
                     favoriteStatusByKey = restoredSeen.toStatusMap(),
@@ -1334,7 +1380,6 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(
                     favorites = current,
-                    favoriteMangaKeys = current.identityKeys(),
                     favoriteSeriesKeys = favoriteSeriesKeys(current),
                 )
             }
@@ -1361,7 +1406,38 @@ class MangaViewModel internal constructor(
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
-        toggleFavorite(result.toFavoriteManga())
+        toggleFavorite(
+            result.toFavoriteManga(
+                seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title),
+            ),
+        )
+    }
+
+    /**
+     * Stella su una card raggruppata della ricerca. Il preferito nasce con la chiave della
+     * **serie** e con tutti i mirror del gruppo già agganciati, così il fallback del worker ha
+     * alternative fin dal primo giro. I titoli di tutte le fonti del gruppo entrano tra le
+     * chiavi di confronto: se la serie era già tra i preferiti sotto il titolo di un'altra
+     * fonte, questo tap la toglie invece di crearne una copia.
+     */
+    fun toggleFavoriteFromGroup(group: GroupedSearchResult) {
+        val alreadyFavorite = group.seriesKey in _state.value.favoriteSeriesKeys
+        if (!alreadyFavorite) {
+            seriesLinksStore.mergeFromGroup(group, now = System.currentTimeMillis())
+        }
+        val primary = group.primary
+        toggleFavorite(
+            manga = FavoriteManga(
+                sourceId = primary.sourceId,
+                title = group.title,
+                mangaUrl = primary.mangaUrl,
+                coverUrl = group.coverUrl ?: primary.coverUrl,
+                seriesKey = group.seriesKey,
+            ),
+            extraMatchKeys = group.results.mapNotNullTo(mutableSetOf()) {
+                SeriesIdentity.keyForTitle(it.title)
+            },
+        )
     }
 
     /**
@@ -1440,9 +1516,31 @@ class MangaViewModel internal constructor(
         }
     }
 
-    /** Chiavi serie dei preferiti (ordine preservato), per `favoriteSeriesKeys`. */
+    /**
+     * Chiavi con cui riconoscere i preferiti (ordine preservato): per ciascuno la chiave
+     * canonica **e** l'alias titolo, così la stella si accende anche quando la stessa serie
+     * arriva sotto l'altra forma di chiave (vedi [FavoriteManga.matchKeys]).
+     */
     private fun favoriteSeriesKeys(favorites: List<FavoriteManga>): Set<String> =
-        favorites.mapTo(linkedSetOf()) { seriesLinksStore.seriesKeyFor(it.sourceId, it.mangaUrl, it.title) }
+        favorites.flatMapTo(linkedSetOf()) { it.matchKeys() }
+
+    /**
+     * Sposta il preferito di [seriesKey] sul mirror indicato. No-op se quella serie non è tra
+     * i preferiti: il cambio fonte resta comunque registrato nel link.
+     */
+    private fun updateFavoriteBinding(seriesKey: String, sourceId: String, mangaUrl: String) {
+        val current = _state.value.favorites
+        val index = current.indexOfFirst { seriesKey in it.matchKeys() }
+        if (index < 0) return
+        val existing = current[index]
+        if (existing.sourceId == sourceId && existing.mangaUrl == mangaUrl) return
+        val updated = current.toMutableList()
+        updated[index] = existing.copy(sourceId = sourceId, mangaUrl = mangaUrl)
+        favoritesStore.persist(updated)
+        updateState {
+            copy(favorites = updated, favoriteSeriesKeys = favoriteSeriesKeys(updated))
+        }
+    }
 
     /**
      * SeriesKey della serie corrente: dal link selezionato se contiene questo binding,
@@ -1466,6 +1564,10 @@ class MangaViewModel internal constructor(
         updateState {
             copy(selectedSeriesLink = link.copy(preferredSourceId = option.sourceId))
         }
+        // Se la serie è tra i preferiti, la scelta vale anche per lei: `sourceId`/`mangaUrl`
+        // del preferito sono "da dove la leggo adesso", quindi riaprirla dai Preferiti deve
+        // portare sulla fonte appena scelta, non su quella con cui era stata aggiunta.
+        updateFavoriteBinding(link.seriesKey, option.sourceId, option.mangaUrl)
         selectManga(
             MangaSearchResult(
                 sourceId = option.sourceId,
@@ -1493,6 +1595,22 @@ class MangaViewModel internal constructor(
         }
         detailJob?.cancel()
         val seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title)
+        // Serie già tra i preferiti aperta da una fonte non ancora collegata: aggancia il
+        // mirror in silenzio. È così che l'app impara le alternative da usare nel fallback,
+        // senza chiedere niente all'utente.
+        if (seriesKey in _state.value.favoriteSeriesKeys) {
+            val link = seriesLinksStore.ensureLink(
+                seriesKey = seriesKey,
+                title = result.title,
+                coverUrl = result.coverUrl,
+                binding = SeriesSourceBinding(
+                    result.sourceId,
+                    result.mangaUrl,
+                    System.currentTimeMillis(),
+                ),
+            )
+            updateState { copy(selectedSeriesLink = link) }
+        }
         val readChapterIds = libraryRepository.streamingReadChapterIds(
             seriesKey,
             result.sourceId,
@@ -1512,11 +1630,16 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 // Se è un preferito, aggiorna in memoria lo stato di pubblicazione per i sort/filtri
                 // (utile quando le notifiche non hanno ancora popolato la baseline).
-                val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
-                val updatedStatusByKey = if (detailsKey in _state.value.favoriteMangaKeys) {
+                val detailsKey = currentSeriesKey(details.sourceId, details.mangaUrl, details.title)
+                val updatedStatusByKey = if (detailsKey in _state.value.favoriteSeriesKeys) {
                     _state.value.favoriteStatusByKey + (detailsKey to details.status)
                 } else {
                     _state.value.favoriteStatusByKey
@@ -1549,7 +1672,7 @@ class MangaViewModel internal constructor(
 
     fun showMangaInfo(result: MangaSearchResult) {
         infoJob?.cancel()
-        val key = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
+        val key = currentSeriesKey(result.sourceId, result.mangaUrl, result.title)
         mangaDescriptionCache[key]?.let { cached ->
             // Trama già in cache (info "sempre pronta"): mostra subito, niente fetch né spinner.
             updateState {
@@ -1584,7 +1707,12 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 updateState {
                     copy(
                         mangaInfoDialog = MangaInfoDialogState(
@@ -1633,32 +1761,47 @@ class MangaViewModel internal constructor(
         }
     }
 
-    fun toggleFavorite(manga: FavoriteManga) {
+    /**
+     * Aggiunge/rimuove **la serie** dai preferiti. La fonte da cui arriva il tap conta solo
+     * come primo mirror da agganciare: premere la stella su One Piece letto da un'altra fonte
+     * agisce sullo stesso preferito, non ne crea un secondo.
+     */
+    fun toggleFavorite(manga: FavoriteManga, extraMatchKeys: Set<String> = emptySet()) {
         val current = _state.value.favorites.toMutableList()
-        val targetKey = MangaSourceCatalog.identityKey(manga.sourceId, manga.mangaUrl)
-        // Dedup per SERIE, non per fonte: la stessa serie aggiunta da un'altra fonte è la
-        // stessa voce (toggle OFF), non un doppione.
-        val targetSeriesKey = seriesLinksStore.seriesKeyFor(manga.sourceId, manga.mangaUrl, manga.title)
-        val existingIndex = current.indexOfFirst {
-            seriesLinksStore.seriesKeyFor(it.sourceId, it.mangaUrl, it.title) == targetSeriesKey
+        val now = System.currentTimeMillis()
+        val targetSeriesKey = manga.seriesKey.takeIf(String::isNotBlank)
+            ?: seriesLinksStore.seriesKeyFor(manga.sourceId, manga.mangaUrl, manga.title)
+        val target = manga.copy(seriesKey = targetSeriesKey)
+        val matchKeys = target.matchKeys() + extraMatchKeys
+        val existingIndex = current.indexOfFirst { favorite ->
+            favorite.matchKeys().any { it in matchKeys }
         }
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
         } else {
-            current.add(0, manga.copy(addedAt = System.currentTimeMillis()))
+            current.add(0, target.copy(addedAt = now))
+            // Ogni preferito nasce con il suo link: è il contenitore dove il fallback e le
+            // aperture da altre fonti accumuleranno i mirror alternativi.
+            seriesLinksStore.ensureLink(
+                seriesKey = targetSeriesKey,
+                title = target.title,
+                coverUrl = target.coverUrl,
+                binding = SeriesSourceBinding(target.sourceId, target.mangaUrl, now),
+            )
         }
         favoritesStore.persist(current)
         updateState {
             copy(
                 favorites = current,
-                favoriteMangaKeys = current.identityKeys(),
                 favoriteSeriesKeys = favoriteSeriesKeys(current),
             )
         }
         if (existingIndex < 0) {
             // Appena aggiunto ai preferiti: se la trama è già in cache, persistila subito.
-            mangaDescriptionCache[targetKey]?.let { description ->
-                favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (targetKey to description))
+            mangaDescriptionCache[targetSeriesKey]?.let { description ->
+                favoriteDescriptionsStore.write(
+                    favoriteDescriptionsStore.read() + (targetSeriesKey to description),
+                )
             }
         }
     }
@@ -1667,18 +1810,28 @@ class MangaViewModel internal constructor(
      * Mette la trama in cache (info istantanea) e, se il manga è tra i preferiti, la persiste su
      * disco così resta pronta anche dopo il riavvio dell'app.
      */
-    private fun cacheMangaDescription(sourceId: String, mangaUrl: String, description: String?) {
+    private fun cacheMangaDescription(
+        sourceId: String,
+        mangaUrl: String,
+        title: String,
+        description: String?,
+    ) {
         val text = description?.trim()?.takeIf(String::isNotBlank) ?: return
-        val key = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+        // Indicizzata per serie: cambiando fonte la trama resta quella giusta.
+        val key = currentSeriesKey(sourceId, mangaUrl, title)
         mangaDescriptionCache[key] = text
-        if (key in _state.value.favoriteMangaKeys) {
+        if (key in _state.value.favoriteSeriesKeys) {
             favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (key to text))
         }
     }
 
     fun toggleFavoriteSelectedManga() {
         val selected = _state.value.selected ?: return
-        toggleFavorite(selected.toFavoriteManga())
+        toggleFavorite(
+            selected.toFavoriteManga(
+                seriesKey = currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title),
+            ),
+        )
     }
 
     /**
@@ -1687,7 +1840,11 @@ class MangaViewModel internal constructor(
      * (identità del preferito) — in quel caso la stella non viene proprio mostrata.
      */
     fun toggleFavoriteSelectedSeries() {
-        val favorite = _state.value.selectedDownloadedSeries?.toFavoriteManga() ?: return
+        val series = _state.value.selectedDownloadedSeries ?: return
+        val url = series.mangaUrl?.trim()?.takeIf(String::isNotBlank) ?: return
+        val favorite = series.toFavoriteManga(
+            seriesKey = currentSeriesKey(series.sourceId, url, series.title),
+        ) ?: return
         toggleFavorite(favorite)
     }
 

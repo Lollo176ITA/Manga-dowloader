@@ -322,6 +322,9 @@ fun FavoriteActionsDialog(
     onRead: () -> Unit,
     onRemoveFromFavorites: () -> Unit,
     onDismiss: () -> Unit,
+    // Avviso sull'approvvigionamento: qui c'è lo spazio per il testo esteso che sulla card
+    // sta solo come icona.
+    notice: FavoriteSourceNotice? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -329,6 +332,18 @@ fun FavoriteActionsDialog(
         shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column {
+                notice?.let {
+                    Text(
+                        text = it.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when (it.kind) {
+                            FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.error
+                            FavoriteNoticeKind.SOURCE_SWITCHED ->
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 FavoriteActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = "Leggi",

@@ -23,6 +23,9 @@ import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 /**
@@ -83,6 +86,21 @@ class FavoriteUpdatesWorker(
             attemptsStore = AniListResolutionAttemptsStore(prefs),
             searchAniList = { title -> withContext(Dispatchers.IO) { aniListClient.searchManga(title) } },
         ).resolve(favorites)
+
+        // Preferiti aggiunti su AniList altrove (sito, altro dispositivo): entrano qui, prima
+        // del giro capitoli, così ricevono subito la baseline invece di aspettare il prossimo
+        // risveglio del worker. Va dopo la risoluzione delle identità: un preferito appena
+        // promosso ad `anilist:` ha già l'id con cui confrontarsi.
+        favorites = syncAniListFavorites(
+            settings = settings,
+            favorites = favorites,
+            favoritesStore = favoritesStore,
+            seriesLinksStore = seriesLinksStore,
+            syncStore = AniListFavoritesSyncStore(prefs),
+            aniListStore = AniListStore(prefs),
+            aniListClient = aniListClient,
+            registry = registry,
+        )
 
         val seenMap = store.read().toMutableMap()
         val descriptions = descriptionsStore.read().toMutableMap()
@@ -202,6 +220,77 @@ class FavoriteUpdatesWorker(
             }
         }
         return Result.success()
+    }
+
+    /**
+     * Un giro di riconciliazione preferiti app <-> AniList (vedi [AniListFavoritesSynchronizer]).
+     * Ritorna la lista aggiornata, o quella ricevuta se non c'e' nulla da fare o l'account non
+     * e' collegato. Best-effort come il resto del worker: un fallimento non deve impedire il
+     * controllo dei capitoli.
+     */
+    private suspend fun syncAniListFavorites(
+        settings: AppSettings,
+        favorites: List<FavoriteManga>,
+        favoritesStore: FavoritesStore,
+        seriesLinksStore: SeriesLinksStore,
+        syncStore: AniListFavoritesSyncStore,
+        aniListStore: AniListStore,
+        aniListClient: AniListClient,
+        registry: MangaSourceRegistry,
+    ): List<FavoriteManga> {
+        if (!settings.aniListFavoritesSyncEnabled) return favorites
+        val token = aniListStore.readToken() ?: return favorites
+        val viewerId = aniListStore.readViewer()?.id ?: return favorites
+        return try {
+            val imported = AniListFavoritesSynchronizer(
+                syncStore = syncStore,
+                seriesLinksStore = seriesLinksStore,
+                fetchFavourites = {
+                    withContext(Dispatchers.IO) { aniListClient.fetchFavouriteManga(token, viewerId) }
+                },
+                toggleFavourite = { mediaId ->
+                    withContext(Dispatchers.IO) { aniListClient.toggleFavouriteManga(token, mediaId) }
+                },
+                searchSources = { query ->
+                    searchEnabledSources(registry, settings.disabledSourceIds, query)
+                },
+            ).sync(favorites)
+            if (imported.isEmpty()) {
+                favorites
+            } else {
+                val updated = imported + favorites
+                favoritesStore.persist(updated)
+                updated
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: AniListAuthException) {
+            // Token non più valido: l'account va scollegato dall'app, non dal worker. Qui ci
+            // si limita a non insistere; ci penserà il ViewModel alla prossima apertura.
+            favorites
+        } catch (_: Exception) {
+            favorites
+        }
+    }
+
+    /** Ricerca su tutte le fonti attive, ignorando i fallimenti della singola fonte. */
+    private suspend fun searchEnabledSources(
+        registry: MangaSourceRegistry,
+        disabledSourceIds: Set<String>,
+        query: String,
+    ): List<MangaSearchResult> = withContext(Dispatchers.IO) {
+        coroutineScope {
+            MangaSourceCatalog
+                .descriptorsForScope(SearchScope.ALL, disabledSourceIds)
+                .map { descriptor ->
+                    async {
+                        runCatching { registry.requireById(descriptor.id).searchManga(query) }
+                            .getOrDefault(emptyList())
+                    }
+                }
+                .awaitAll()
+                .flatten()
+        }
     }
 }
 

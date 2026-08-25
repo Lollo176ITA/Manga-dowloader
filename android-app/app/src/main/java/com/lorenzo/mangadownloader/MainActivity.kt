@@ -171,14 +171,18 @@ private fun MangaDownloaderAppContent(
         contract = ActivityResultContracts.RequestPermission(),
     ) { }
 
-    // Il permesso notifiche può cambiare fuori dall'app (impostazioni di sistema):
-    // ricontrollato a ogni ritorno in foreground, così l'avviso sotto "Notifiche
-    // preferiti" resta veritiero anche dopo una revoca.
+    // Cose che possono cambiare fuori dall'app e vanno ricontrollate a ogni ritorno in
+    // foreground: il permesso notifiche (revocabile dalle impostazioni di sistema, altrimenti
+    // l'avviso sotto "Notifiche preferiti" mentirebbe) e l'account AniList, visto che il
+    // ritorno in primo piano è tipicamente il rientro dal browser dell'OAuth.
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationsPermissionTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) notificationsPermissionTick++
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsPermissionTick++
+                viewModel.syncAniListAccountState()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -561,6 +565,8 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
+                    rotateSpreadPages =
+                        state.settings.spreadPageMode == SpreadPageMode.ROTATE,
                     pageSpacing = state.settings.readerPageSpacingDp.dp,
                     navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,
@@ -680,6 +686,8 @@ private fun MangaDownloaderAppContent(
                     },
                     onDisconnectAniList = viewModel::disconnectAniList,
                     onToggleAniListSync = viewModel::setAniListSyncEnabled,
+                    onToggleAniListFavoritesSync =
+                        viewModel::setAniListFavoritesSyncEnabled,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -687,6 +695,7 @@ private fun MangaDownloaderAppContent(
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                     onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
+                    onSelectSpreadPageMode = viewModel::setSpreadPageMode,
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,

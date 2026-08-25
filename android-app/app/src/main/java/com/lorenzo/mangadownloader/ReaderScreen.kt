@@ -94,6 +94,7 @@ import coil3.imageLoader
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import coil3.request.transformations
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
@@ -111,6 +112,7 @@ fun ReaderScreen(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    rotateSpreadPages: Boolean,
     pageSpacing: Dp,
     navBarVisible: Boolean,
     padding: PaddingValues,
@@ -152,6 +154,7 @@ fun ReaderScreen(
                 isLoading = isLoading,
                 readingMode = readingMode,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                rotateSpreadPages = rotateSpreadPages,
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
@@ -265,6 +268,7 @@ private fun ReaderContent(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
+    rotateSpreadPages: Boolean,
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -308,6 +312,7 @@ private fun ReaderContent(
                 chapter = chapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                rotateSpreadPages = rotateSpreadPages,
                 pageSpacing = pageSpacing,
                 rightToLeft = readingMode.isRightToLeft,
                 padding = padding,
@@ -327,6 +332,7 @@ private fun ReaderContent(
                 nextChapter = nextChapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
+                rotateSpreadPages = rotateSpreadPages,
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
@@ -349,6 +355,7 @@ private fun VerticalReader(
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    rotateSpreadPages: Boolean,
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -438,7 +445,7 @@ private fun VerticalReader(
                     furthestPageIndex = reachedPageIndex
                 }
                 onPageVisible(reachedPageIndex, pages.size, allowCompletion)
-                prefetchReaderPages(context, pages, reachedPageIndex)
+                prefetchReaderPages(context, pages, reachedPageIndex, rotateSpreadPages)
             }
     }
 
@@ -693,6 +700,7 @@ private fun VerticalReader(
                     page = page,
                     contentDescription = chapter.title,
                     contentScale = ContentScale.FillWidth,
+                    rotateSpreadPages = rotateSpreadPages,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = if (index > 0 && !continuesTallPage) pageSpacing else 0.dp),
@@ -735,6 +743,7 @@ private fun PagedReader(
     chapter: ReaderChapter,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
+    rotateSpreadPages: Boolean,
     pageSpacing: Dp,
     rightToLeft: Boolean,
     padding: PaddingValues,
@@ -777,7 +786,7 @@ private fun PagedReader(
                 }
                 onPageVisible(pageIndex, pages.size, hasMoved)
                 onAtLastPageChange(pageIndex == pages.lastIndex)
-                prefetchReaderPages(context, pages, pageIndex)
+                prefetchReaderPages(context, pages, pageIndex, rotateSpreadPages)
             }
     }
 
@@ -808,6 +817,7 @@ private fun PagedReader(
                     page = pages[index],
                     contentDescription = chapter.title,
                     doubleTapZoomEnabled = doubleTapZoomEnabled,
+                    rotateSpreadPages = rotateSpreadPages,
                     onToggleFullscreen = onToggleFullscreen,
                 )
             }
@@ -923,6 +933,7 @@ private fun ZoomablePage(
     page: ReaderPage,
     contentDescription: String,
     doubleTapZoomEnabled: Boolean,
+    rotateSpreadPages: Boolean,
     onToggleFullscreen: () -> Unit,
 ) {
     val minScale = 1f
@@ -1014,6 +1025,7 @@ private fun ZoomablePage(
             page = page,
             contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
+            rotateSpreadPages = rotateSpreadPages,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -1044,6 +1056,7 @@ private fun ReaderPageImage(
     page: ReaderPage,
     contentDescription: String,
     contentScale: ContentScale,
+    rotateSpreadPages: Boolean,
     modifier: Modifier = Modifier,
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
@@ -1068,8 +1081,8 @@ private fun ReaderPageImage(
         return
     }
 
-    val model = remember(page.stableKey, retryAttempt) {
-        readerImageRequest(context, page, retryAttempt)
+    val model = remember(page.stableKey, retryAttempt, rotateSpreadPages) {
+        readerImageRequest(context, page, retryAttempt, rotateSpreadPages)
     }
     SubcomposeAsyncImage(
         model = model,
@@ -1151,6 +1164,7 @@ private fun readerImageRequest(
     context: Context,
     page: ReaderPage,
     retryAttempt: Int = 0,
+    rotateSpreadPages: Boolean = false,
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
     when (page) {
@@ -1172,6 +1186,13 @@ private fun readerImageRequest(
             .data(page.url)
             .httpHeaders(NetworkHeaders.Builder().set("Referer", page.referer).build())
     }
+    // Pagine doppie: o si mostra una metà per volta (deciso a monte, sull'elenco pagine)
+    // oppure si ruota tutto il capitolo. Le due cose si escludono a vicenda.
+    val half = (page as? ReaderPage.Local)?.half
+    when {
+        half != null -> builder.transformations(SpreadHalfTransformation(half))
+        rotateSpreadPages -> builder.transformations(SpreadRotateTransformation)
+    }
     if (retryAttempt > 0) {
         builder.memoryCacheKeyExtra("retry", retryAttempt.toString())
     }
@@ -1184,12 +1205,21 @@ private fun readerImageRequest(
  * Best-effort: le pagine locali non ne hanno bisogno, le richieste duplicate le
  * deduplica Coil tramite cache.
  */
-private fun prefetchReaderPages(context: Context, pages: List<ReaderPage>, fromIndex: Int) {
+private fun prefetchReaderPages(
+    context: Context,
+    pages: List<ReaderPage>,
+    fromIndex: Int,
+    rotateSpreadPages: Boolean,
+) {
     val first = fromIndex + 1
     val last = (fromIndex + ReaderPrefetchPagesAhead).coerceAtMost(pages.lastIndex)
     for (index in first..last) {
         val page = pages.getOrNull(index) as? ReaderPage.Remote ?: continue
-        context.imageLoader.enqueue(readerImageRequest(context, page))
+        context.imageLoader.enqueue(
+            // Stessa richiesta che farà la pagina quando toccherà a lei, rotazione compresa:
+            // con parametri diversi la cache non verrebbe riusata e il prefetch sarebbe sprecato.
+            readerImageRequest(context, page, rotateSpreadPages = rotateSpreadPages),
+        )
     }
 }
 

@@ -230,6 +230,48 @@ fun ReadingModeContent(
     }
 }
 
+/**
+ * Come trattare le pagine doppie. Sta subito sotto alla modalità di lettura perché è da
+ * quella che dipende l'ordine delle due metà: nella modalità occidentale si legge prima la
+ * sinistra, altrove prima la destra.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SpreadPageModeContent(
+    currentMode: SpreadPageMode,
+    onSelectMode: (SpreadPageMode) -> Unit,
+) {
+    Column {
+        SettingsSubheader("Pagine doppie")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SpreadPageMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = currentMode == mode,
+                    onClick = { onSelectMode(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = SpreadPageMode.entries.size,
+                    ),
+                    label = { Text(mode.shortLabel) },
+                )
+            }
+        }
+        Text(
+            text = when (currentMode) {
+                SpreadPageMode.FIT ->
+                    "Le facciate affiancate restano in un'unica immagine, rimpicciolita per starci."
+                SpreadPageMode.SPLIT ->
+                    "Le facciate affiancate diventano due pagine, nell'ordine di lettura giusto."
+                SpreadPageMode.ROTATE ->
+                    "Le facciate affiancate vengono ruotate: si leggono girando il telefono."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderPageSpacingContent(
@@ -535,9 +577,11 @@ fun AniListAccountContent(
     viewerName: String?,
     isConnecting: Boolean,
     syncEnabled: Boolean,
+    favoritesSyncEnabled: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onToggleSync: (Boolean) -> Unit,
+    onToggleFavoritesSync: (Boolean) -> Unit,
 ) {
     Column {
         Row(
@@ -577,6 +621,14 @@ fun AniListAccountContent(
                 description = "A fine capitolo aggiorna stato e progresso sulla tua lista AniList",
                 checked = syncEnabled,
                 onCheckedChange = onToggleSync,
+            )
+            SettingsDivider()
+            SettingRow(
+                title = "Sincronizza preferiti",
+                description = "Unisce i preferiti dell'app e quelli di AniList. " +
+                    "Non rimuove mai niente da nessuna delle due parti.",
+                checked = favoritesSyncEnabled,
+                onCheckedChange = onToggleFavoritesSync,
             )
         }
     }

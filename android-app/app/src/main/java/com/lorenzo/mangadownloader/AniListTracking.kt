@@ -140,6 +140,21 @@ class AniListStore(private val prefs: SharedPreferences) {
 
     fun readToken(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
 
+    /**
+     * Ultimo token estratto da un redirect OAuth **già elaborato**. Android riconsegna
+     * l'intent originale quando ricrea l'activity dopo un process death (riapertura dalle
+     * Recenti): senza ricordare quale redirect è già stato consumato, l'app ritenterebbe il
+     * login con quel token — anche molto tempo dopo, quando è ormai scaduto — e il 401 che
+     * ne segue scollegherebbe un account valido. Sopravvive a [clearAccount]: il punto è
+     * proprio non ri-elaborare un redirect vecchio dopo una disconnessione.
+     */
+    fun readHandledAuthToken(): String? =
+        prefs.getString(KEY_HANDLED_AUTH_TOKEN, null)?.takeIf(String::isNotBlank)
+
+    fun markAuthTokenHandled(token: String) {
+        prefs.edit { putString(KEY_HANDLED_AUTH_TOKEN, token) }
+    }
+
     fun readViewer(): AniListViewer? {
         val id = prefs.getInt(KEY_VIEWER_ID, -1).takeIf { it > 0 } ?: return null
         val name = prefs.getString(KEY_VIEWER_NAME, null)?.takeIf(String::isNotBlank) ?: return null
@@ -238,6 +253,7 @@ class AniListStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY_TOKEN = "anilist_token"
+        const val KEY_HANDLED_AUTH_TOKEN = "anilist_handled_auth_token"
         const val KEY_VIEWER_ID = "anilist_viewer_id"
         const val KEY_VIEWER_NAME = "anilist_viewer_name"
         const val KEY_VIEWER_SCORE_FORMAT = "anilist_viewer_score_format"

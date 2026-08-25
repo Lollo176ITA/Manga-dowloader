@@ -35,6 +35,7 @@ fun SettingsScreen(
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
     onToggleAniListSync: (Boolean) -> Unit,
+    onToggleAniListFavoritesSync: (Boolean) -> Unit,
     onToggleAutoDownload: (Boolean) -> Unit,
     onTriggerChange: (Int) -> Unit,
     onBatchChange: (Int) -> Unit,
@@ -42,6 +43,7 @@ fun SettingsScreen(
     onSmartCleanupKeepChange: (Int) -> Unit,
     onToggleStreamingReader: (Boolean) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
+    onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
     onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
@@ -87,6 +89,11 @@ fun SettingsScreen(
             ReadingModeContent(
                 currentMode = settings.readingMode,
                 onSelectMode = onSelectReadingMode,
+            )
+            SettingsDivider()
+            SpreadPageModeContent(
+                currentMode = settings.spreadPageMode,
+                onSelectMode = onSelectSpreadPageMode,
             )
             SettingsDivider()
             ReaderPageSpacingContent(
@@ -142,9 +149,11 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 viewerName = aniListViewerName,
                 isConnecting = isAniListConnecting,
                 syncEnabled = settings.aniListSyncEnabled,
+                favoritesSyncEnabled = settings.aniListFavoritesSyncEnabled,
                 onConnect = onConnectAniList,
                 onDisconnect = onDisconnectAniList,
                 onToggleSync = onToggleAniListSync,
+                onToggleFavoritesSync = onToggleAniListFavoritesSync,
             )
             SettingsDivider()
             FavoriteNotificationsContent(

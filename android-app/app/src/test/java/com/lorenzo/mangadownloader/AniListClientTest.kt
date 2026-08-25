@@ -234,4 +234,65 @@ class AniListClientTest {
         // Su AniList 0 significa "nessun voto": non va riportato come voto reale.
         assertNull(saved?.score)
     }
+
+    @Test
+    fun parseFavouriteMangaResponse_mapsNodesAndPagination() {
+        val response = """
+            {
+              "data": {
+                "User": {
+                  "favourites": {
+                    "manga": {
+                      "pageInfo": { "hasNextPage": true },
+                      "nodes": [
+                        {
+                          "id": 30002,
+                          "title": { "romaji": "Berserk", "english": "Berserk", "native": "ベルセルク" },
+                          "synonyms": ["Berserk: Ougon Jidai-hen"],
+                          "coverImage": { "large": "https://img/berserk.jpg" },
+                          "genres": ["Action"],
+                          "averageScore": 93,
+                          "description": null,
+                          "status": "RELEASING",
+                          "chapters": null,
+                          "format": "MANGA"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val (favourites, hasNextPage) = AniListClient.parseFavouriteMangaResponse(response)
+
+        assertEquals(1, favourites.size)
+        assertEquals(30002, favourites.single().id)
+        assertEquals(listOf("Berserk: Ougon Jidai-hen"), favourites.single().synonyms)
+        assertTrue("la paginazione va seguita finché hasNextPage è true", hasNextPage)
+    }
+
+    @Test
+    fun parseFavouriteMangaResponse_toleratesMissingUser() {
+        val (favourites, hasNextPage) = AniListClient.parseFavouriteMangaResponse(
+            """{ "data": { "User": null } }""",
+        )
+
+        assertEquals(emptyList<AniListManga>(), favourites)
+        assertEquals(false, hasNextPage)
+    }
+
+    @Test
+    fun parseToggleFavouriteResponse_reportsWhetherTheMangaIsNowFavourite() {
+        val added = """
+            { "data": { "ToggleFavourite": { "manga": { "nodes": [{ "id": 30002 }] } } } }
+        """.trimIndent()
+        val removed = """
+            { "data": { "ToggleFavourite": { "manga": { "nodes": [{ "id": 11061 }] } } } }
+        """.trimIndent()
+
+        assertTrue(AniListClient.parseToggleFavouriteResponse(added, mediaId = 30002))
+        assertEquals(false, AniListClient.parseToggleFavouriteResponse(removed, mediaId = 30002))
+    }
 }

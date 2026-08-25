@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -157,6 +158,10 @@ data class AppSettings(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    // Come trattare le pagine doppie (le facciate affiancate distribuite come
+    // un'immagine sola): dividerle è il default, perché intere — su un telefono
+    // tenuto in verticale — lasciano a ogni facciata metà larghezza.
+    val spreadPageMode: SpreadPageMode = SpreadPageMode.SPLIT,
     val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
     val keepScreenOnEnabled: Boolean = true,
@@ -170,6 +175,10 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
+    // Riconciliazione dei preferiti con i favourites AniList, in unione e senza rimozioni
+    // (vedi [planAniListFavoritesSync]). Attiva di default per la stessa ragione del sync
+    // di lettura: chi collega l'account vuole che le due parti si parlino.
+    val aniListFavoritesSyncEnabled: Boolean = true,
     // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
     val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
@@ -274,6 +283,9 @@ data class MangaUiState(
     /** Avvisi per-serie mostrati sulla card: vuoto finché l'approvvigionamento funziona. */
     val favoriteNotices: Map<String, FavoriteSourceNotice> = emptyMap(),
     val isSearching: Boolean = false,
+    // Contatore delle richieste di ricerca esplicite (vedi [SearchTrigger]): distingue due
+    // richieste con query e ambito identici, che devono comunque produrre due fetch.
+    val searchRequestId: Int = 0,
     // Fallimento dell'ultima ricerca (rete assente, fonte down): mostrato dalla tab Cerca
     // come stato dedicato con "Riprova", invece di un falso "Nessun risultato".
     val searchError: String? = null,
@@ -373,6 +385,7 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
+    private val aniListFavoritesSyncStore = AniListFavoritesSyncStore(prefs)
     private val seriesLinksStore = SeriesLinksStore(prefs)
     private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
@@ -476,6 +489,7 @@ class MangaViewModel internal constructor(
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
     private var aniListMatchJob: Job? = null
+    private var aniListFavoritesSyncJob: Job? = null
     private var nextBiometricRequestId = 1L
 
     init {
@@ -491,6 +505,9 @@ class MangaViewModel internal constructor(
         }
         // Progressi AniList rimasti in sospeso (offline/errore): riprova all'avvio.
         flushPendingAniListSync()
+        // Preferiti aggiunti su AniList da un altro dispositivo (o dal sito): li porta
+        // dentro, e porta fuori quelli aggiunti qui mentre l'account era scollegato.
+        syncAniListFavorites()
         // Le cartelle dei preferiti sono state rimosse (lo stato di lettura è automatico):
         // ripulisce le chiavi legacy rimaste su disco dalle versioni precedenti.
         prefs.edit {
@@ -500,20 +517,22 @@ class MangaViewModel internal constructor(
     }
 
     /**
-     * Rilancia la ricerca aggregata quando cambia ciò che la definisce: la query, l'ambito e
-     * **l'insieme delle fonti attive**. Includere le fonti attive evita che dopo un cambio in
-     * impostazioni restino a schermo risultati di fonti appena spente (o manchino quelli di una
-     * appena accesa): i risultati mostrati devono venire dalle fonti che l'utente ha ora. Il
-     * debounce collassa una raffica di toggle in una sola ricerca.
+     * Rilancia la ricerca aggregata quando cambia ciò che la definisce (vedi [SearchTrigger]):
+     * la query, l'ambito, **l'insieme delle fonti attive** e il contatore delle richieste
+     * esplicite. Includere le fonti attive evita che dopo un cambio in impostazioni restino a
+     * schermo risultati di fonti appena spente (o manchino quelli di una appena accesa): i
+     * risultati mostrati devono venire dalle fonti che l'utente ha ora. Il debounce collassa
+     * una raffica di toggle in una sola ricerca.
      */
     @OptIn(FlowPreview::class)
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { Triple(it.query.trim(), it.settings.searchScope, it.settings.disabledSourceIds) }
+                .map { it.searchTrigger() }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (query, _, _) ->
+                .collect { trigger ->
+                    val query = trigger.query
                     if (query.isNotEmpty()) {
                         runAggregatedSearch(query)
                     } else {
@@ -1258,6 +1277,36 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(doubleTapZoomEnabled = enabled) }
     }
 
+    fun setSpreadPageMode(mode: SpreadPageMode) {
+        if (mode == _state.value.settings.spreadPageMode) return
+        updateSettings { it.copy(spreadPageMode = mode) }
+        // Il capitolo aperto è già stato espanso (o no) secondo la modalità precedente:
+        // ricaricarlo è l'unico modo perché il cambio si veda subito invece che al prossimo.
+        _state.value.readerChapter?.let(::openReaderChapter)
+    }
+
+    /**
+     * L'elenco pagine da consegnare al reader, con le pagine doppie già divise se
+     * l'impostazione lo chiede. Le proporzioni si leggono dall'intestazione dei file su un
+     * dispatcher I/O: costa una manciata di microsecondi a pagina, e solo per le pagine locali
+     * (di una pagina ancora solo remota non si conoscono le dimensioni senza scaricarla).
+     */
+    private suspend fun expandedReaderPages(
+        pages: List<ReaderPage>,
+        seriesKey: String,
+    ): ReaderPageExpansion {
+        if (_state.value.settings.spreadPageMode != SpreadPageMode.SPLIT) {
+            return unexpandedReaderPages(pages)
+        }
+        val rightFirst = resolveReadingMode(seriesKey).splitsSpreadRightFirst
+        return withContext(Dispatchers.IO) {
+            val bounds = mutableMapOf<String, PageBounds?>()
+            expandSpreadPages(pages = pages, rightFirst = rightFirst) { local ->
+                bounds.getOrPut(local.file.absolutePath) { readPageBounds(local.file) }
+            }
+        }
+    }
+
     fun setKeepScreenOnEnabled(enabled: Boolean) {
         updateSettings { it.copy(keepScreenOnEnabled = enabled) }
     }
@@ -1804,6 +1853,9 @@ class MangaViewModel internal constructor(
                 )
             }
         }
+        // La stella è appena cambiata: riallinea AniList. Il giro precedente viene annullato,
+        // quindi una raffica di stelle toccate in fila produce una sola riconciliazione.
+        syncAniListFavorites()
     }
 
     /**
@@ -1938,9 +1990,11 @@ class MangaViewModel internal constructor(
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
-        val savedPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
+        val savedPagePosition = libraryRepository.readerPagePosition(chapter.relativePath)
+        val savedPageIndex = savedPagePosition?.pageIndex
             ?: chapter.readerPageIndex
             ?: 0
+        val savedPageCount = savedPagePosition?.pageCount ?: chapter.readerPageCount
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
         val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
         val readerSourceId = sequenceOf(_state.value.selectedDownloadedSeries)
@@ -1970,15 +2024,27 @@ class MangaViewModel internal constructor(
         readerJob = viewModelScope.launch {
             try {
                 val pages = libraryRepository.extractReaderPages(chapter)
-                val restoredPageIndex = savedPageIndex.coerceIn(0, pages.lastIndex.coerceAtLeast(0))
-                libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
+                val expansion = expandedReaderPages(
+                    pages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
+                    seriesKey = seriesKey,
+                )
+                val restoredPageIndex = expansion.restoredIndex(savedPageIndex, savedPageCount)
+                libraryRepository.saveReaderPagePosition(
+                    chapter.relativePath,
+                    restoredPageIndex,
+                    expansion.pages.size,
+                )
                 updateState {
                     copy(
-                        readerPages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
+                        readerPages = expansion.pages,
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
-                        .withReaderProgress(chapter.relativePath, pageIndex = restoredPageIndex, pageCount = pages.size)
+                        .withReaderProgress(
+                            chapter.relativePath,
+                            pageIndex = restoredPageIndex,
+                            pageCount = expansion.pages.size,
+                        )
                         .withReaderAdjacency(chapter.relativePath)
                 }
             } catch (e: CancellationException) {
@@ -2053,13 +2119,21 @@ class MangaViewModel internal constructor(
                     streamingCacheRepository.getCachedChapter(cacheKey)
                 }
                 if (cached != null) {
-                    val restored = cached.restoreReaderPageIndex(savedPagePosition)
-                    libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, cached.pages.size)
+                    val expansion = expandedReaderPages(cached.toReaderPages(), seriesKey)
+                    val restored = expansion.restoredIndex(
+                        savedIndex = cached.restoreReaderPageIndex(savedPagePosition),
+                        savedCount = expansion.originalCount,
+                    )
+                    libraryRepository.saveReaderPagePosition(
+                        readerChapter.relativePath,
+                        restored,
+                        expansion.pages.size,
+                    )
                     updateState {
                         withStreamingReaderPayload(
                             expectedRelativePath = readerChapter.relativePath,
                             streamingChapter = streamingChapter,
-                            pages = cached.toReaderPages(),
+                            pages = expansion.pages,
                             restoredPageIndex = restored,
                         )
                     }
@@ -2106,23 +2180,28 @@ class MangaViewModel internal constructor(
                             ?.takeIf { it.relativePath == readerChapter.relativePath }
                             ?.readerPageIndex
                         if (currentOriginalPage != null) {
-                            val mappedPageIndex = completed
+                            val expansion = expandedReaderPages(completed.toReaderPages(), seriesKey)
+                            val cachedPageIndex = completed
                                 .readerPageIndexForOriginalPage(currentOriginalPage)
                                 ?.coerceIn(0, completed.pages.lastIndex.coerceAtLeast(0))
                                 ?: currentOriginalPage.coerceIn(
                                     0,
                                     completed.pages.lastIndex.coerceAtLeast(0),
                                 )
+                            val mappedPageIndex = expansion.restoredIndex(
+                                savedIndex = cachedPageIndex,
+                                savedCount = expansion.originalCount,
+                            )
                             libraryRepository.saveReaderPagePosition(
                                 readerChapter.relativePath,
                                 mappedPageIndex,
-                                completed.pages.size,
+                                expansion.pages.size,
                             )
                             updateState {
                                 withStreamingReaderPayload(
                                     expectedRelativePath = readerChapter.relativePath,
                                     streamingChapter = streamingChapter,
-                                    pages = completed.toReaderPages(),
+                                    pages = expansion.pages,
                                     restoredPageIndex = mappedPageIndex,
                                 )
                             }
@@ -2839,6 +2918,9 @@ class MangaViewModel internal constructor(
         updateState {
             copy(
                 query = title,
+                // Richiesta esplicita: va rifatta anche se la query non cambia, altrimenti
+                // ritoccare lo stesso consigliato lascia la ricerca in caricamento per sempre.
+                searchRequestId = searchRequestId + 1,
                 results = emptyList(),
                 groupedResults = emptyList(),
                 isSearching = true,
@@ -3303,6 +3385,14 @@ class MangaViewModel internal constructor(
             updateState { copy(errorMessage = "Accesso ad AniList annullato o non riuscito") }
             return
         }
+        // Redirect gia' consumato e riconsegnato da Android (ricreazione dell'activity dopo un
+        // process death): rifare il login significherebbe rigiocare un token vecchio e farsi
+        // scollegare dal 401 che ne segue. Basta riallineare lo stato a cio' che e' su disco.
+        if (token == aniListStore.readHandledAuthToken()) {
+            syncAniListAccountState()
+            return
+        }
+        aniListStore.markAuthTokenHandled(token)
         updateState { copy(aniList = aniList.copy(isConnecting = true)) }
         viewModelScope.launch {
             try {
@@ -3315,8 +3405,19 @@ class MangaViewModel internal constructor(
                     )
                 }
                 flushPendingAniListSync()
+                syncAniListFavorites()
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: AniListAuthException) {
+                // Il token appena ricevuto e' stato rifiutato: e' un collegamento fallito, non
+                // una sessione scaduta. Dirlo con le parole giuste evita il messaggio assurdo
+                // "ricollega l'account" subito DOPO aver ricollegato l'account.
+                updateState {
+                    copy(
+                        aniList = aniList.copy(isConnecting = false),
+                        errorMessage = "AniList ha rifiutato l'accesso: riprova il collegamento",
+                    )
+                }
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -3325,6 +3426,37 @@ class MangaViewModel internal constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Riallinea lo stato in memoria dell'account con quello persistito. E' esattamente cio' che
+     * oggi si ottiene solo chiudendo e riaprendo l'app: chiamandolo al ritorno in primo piano
+     * (cioe' al rientro dal browser dell'OAuth) un eventuale disallineamento si risolve da solo.
+     * Non tocca nulla mentre un collegamento e' in corso, per non calpestarne l'esito.
+     */
+    fun syncAniListAccountState() {
+        if (_state.value.aniList.isConnecting) return
+        val viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null }
+        if (viewer == _state.value.aniList.viewer) return
+        updateState { copy(aniList = aniList.copy(viewer = viewer)) }
+    }
+
+    /**
+     * Azione AniList richiesta senza un token valido: lo stato in memoria diceva "collegato"
+     * ma su disco non c'e' piu' nulla. Prima era un `?: return` muto, cioe' un tap che non
+     * faceva niente e non spiegava niente.
+     */
+    private fun reportAniListNotConnected() {
+        syncAniListAccountState()
+        updateState {
+            copy(
+                aniList = aniList.copy(
+                    isSavingEntry = false,
+                    match = aniList.match?.copy(isLinking = false),
+                ),
+                errorMessage = "Account AniList non collegato: ricollegalo dalle impostazioni",
+            )
         }
     }
 
@@ -3339,6 +3471,94 @@ class MangaViewModel internal constructor(
     fun setAniListSyncEnabled(enabled: Boolean) {
         updateSettings { it.copy(aniListSyncEnabled = enabled) }
     }
+
+    fun setAniListFavoritesSyncEnabled(enabled: Boolean) {
+        updateSettings { it.copy(aniListFavoritesSyncEnabled = enabled) }
+        // Accendendolo si vuole vedere subito l'effetto, non al prossimo avvio.
+        if (enabled) syncAniListFavorites()
+    }
+
+    /**
+     * Riconcilia i preferiti dell'app con i favourites AniList (vedi
+     * [planAniListFavoritesSync]). No-op senza account collegato o con il sync disattivato.
+     *
+     * I nuovi arrivati vengono fusi con i preferiti **correnti**, non con lo snapshot con cui
+     * il giro era partito: la riconciliazione dura quanto una ricerca su tutte le fonti, e nel
+     * frattempo l'utente può aver toccato altre stelle che non vanno perse.
+     */
+    fun syncAniListFavorites() {
+        if (!_state.value.settings.aniListFavoritesSyncEnabled) return
+        val token = aniListStore.readToken() ?: return
+        val viewerId = (_state.value.aniList.viewer ?: aniListStore.readViewer())?.id ?: return
+        val snapshot = _state.value.favorites
+        aniListFavoritesSyncJob?.cancel()
+        aniListFavoritesSyncJob = viewModelScope.launch {
+            try {
+                val synchronizer = AniListFavoritesSynchronizer(
+                    syncStore = aniListFavoritesSyncStore,
+                    seriesLinksStore = seriesLinksStore,
+                    fetchFavourites = {
+                        withContext(Dispatchers.IO) {
+                            aniListClient.fetchFavouriteManga(token, viewerId)
+                        }
+                    },
+                    toggleFavourite = { mediaId ->
+                        withContext(Dispatchers.IO) {
+                            aniListClient.toggleFavouriteManga(token, mediaId)
+                        }
+                    },
+                    searchSources = ::searchAllEnabledSources,
+                )
+                val imported = synchronizer.sync(snapshot)
+                if (imported.isEmpty()) return@launch
+                val current = _state.value.favorites
+                val known = favoriteSeriesKeys(current)
+                val fresh = imported.filterNot { favorite ->
+                    favorite.matchKeys().any { it in known }
+                }
+                if (fresh.isEmpty()) return@launch
+                val updated = fresh + current
+                favoritesStore.persist(updated)
+                updateState {
+                    copy(
+                        favorites = updated,
+                        favoriteSeriesKeys = favoriteSeriesKeys(updated),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AniListAuthException) {
+                handleAniListAuthError(e.token)
+            } catch (_: Exception) {
+                // Best-effort: si riprova al prossimo avvio o al prossimo preferito toccato.
+            }
+        }
+    }
+
+    /**
+     * Ricerca su **tutte** le fonti attive, ignorando l'ambito di lingua scelto per la tab
+     * Cerca: un preferito importato da AniList può stare su qualsiasi fonte, e restringerlo
+     * alla lingua della ricerca lo renderebbe introvabile senza ragione.
+     */
+    private suspend fun searchAllEnabledSources(query: String): List<MangaSearchResult> =
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                MangaSourceCatalog
+                    .descriptorsForScope(
+                        SearchScope.ALL,
+                        _state.value.settings.disabledSourceIds,
+                    )
+                    .map { descriptor ->
+                        async {
+                            runCatching {
+                                sourceRegistry.requireById(descriptor.id).searchManga(query)
+                            }.getOrDefault(emptyList())
+                        }
+                    }
+                    .awaitAll()
+                    .flatten()
+            }
+        }
 
     /** Apre il dialog di matching per la serie aperta nel dettaglio, cercandone il titolo. */
     fun openAniListMatch() {
@@ -3420,7 +3640,10 @@ class MangaViewModel internal constructor(
      */
     fun confirmAniListMatch(media: AniListManga) {
         val match = _state.value.aniList.match ?: return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            reportAniListNotConnected()
+            return
+        }
         updateState {
             copy(aniList = aniList.copy(match = aniList.match?.copy(isLinking = true)))
         }
@@ -3451,7 +3674,7 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -3518,7 +3741,10 @@ class MangaViewModel internal constructor(
     fun saveAniListEntry(status: AniListListStatus?, progress: Int?, score: Double?) {
         val key = _state.value.aniList.trackerKey ?: return
         val tracking = _state.value.aniList.trackings[key] ?: return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            reportAniListNotConnected()
+            return
+        }
         updateState { copy(aniList = aniList.copy(isSavingEntry = true)) }
         viewModelScope.launch {
             try {
@@ -3543,7 +3769,7 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -3591,7 +3817,12 @@ class MangaViewModel internal constructor(
      */
     private fun pushAniListProgress(identityKey: String, progress: Int) {
         if (!_state.value.settings.aniListSyncEnabled) return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            // Push automatico: nessun messaggio all'utente, ma se la UI si crede ancora
+            // collegata va rimessa in pari.
+            syncAniListAccountState()
+            return
+        }
         val tracking = _state.value.aniList.trackings[identityKey] ?: return
         if (tracking.status == AniListListStatus.COMPLETED) return
         val target = maxOf(progress, tracking.pendingProgress ?: 0)
@@ -3628,7 +3859,7 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (_: Exception) {
                 // Offline o errore transitorio: si riprova all'avvio o al prossimo capitolo.
                 updateAniListTracking(identityKey) { it.copy(pendingProgress = target) }
@@ -3658,8 +3889,17 @@ class MangaViewModel internal constructor(
         saveAniListTracking(identityKey, transform(current))
     }
 
-    /** Token rifiutato dal server: account scollegato, l'utente deve riautorizzare. */
-    private fun handleAniListAuthError() {
+    /**
+     * Token rifiutato dal server: account scollegato, l'utente deve riautorizzare.
+     *
+     * [failedToken] e' il token con cui la richiesta era partita. Se nel frattempo l'utente si
+     * e' gia' ricollegato, il token corrente e' un altro e questo 401 riguarda una sessione
+     * ormai chiusa: ignorarlo e' l'unico modo perche' un login appena fatto sopravviva alle
+     * risposte in ritardo di quella precedente.
+     */
+    private fun handleAniListAuthError(failedToken: String?) {
+        val currentToken = aniListStore.readToken()
+        if (failedToken != null && currentToken != null && failedToken != currentToken) return
         aniListStore.clearAccount()
         updateState {
             copy(
@@ -3740,8 +3980,15 @@ class MangaViewModel internal constructor(
         settingsStore.persist(updated)
     }
 
+    /**
+     * Unico punto di scrittura dello stato. Usa `update` (compare-and-set) invece di
+     * `_state.value = _state.value.transform()`: quest'ultimo e' una lettura-modifica-scrittura
+     * che perde aggiornamenti se due chiamate si incrociano. Tutte le trasformazioni sono
+     * `copy` pure (o letture idempotenti da uno store), quindi rieseguirle in caso di contesa
+     * non ha effetti collaterali.
+     */
     private inline fun updateState(transform: MangaUiState.() -> MangaUiState) {
-        _state.value = _state.value.transform()
+        _state.update(transform)
     }
 
     private suspend fun scanLibrarySnapshot(forceRefresh: Boolean = false): List<DownloadedSeries> {

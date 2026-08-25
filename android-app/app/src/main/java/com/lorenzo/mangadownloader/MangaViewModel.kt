@@ -3517,11 +3517,11 @@ class MangaViewModel internal constructor(
                 )
                 val imported = synchronizer.sync(snapshot)
                 if (imported.isEmpty()) return@launch
+                // Il confronto è con i preferiti di ADESSO, non con lo snapshot di partenza:
+                // il giro dura quanto una ricerca su tutte le fonti e nel frattempo l'utente
+                // può aver aggiunto a mano proprio una di queste serie.
                 val current = _state.value.favorites
-                val known = favoriteSeriesKeys(current)
-                val fresh = imported.filterNot { favorite ->
-                    favorite.matchKeys().any { it in known }
-                }
+                val fresh = newAniListFavorites(imported, current)
                 if (fresh.isEmpty()) return@launch
                 val updated = fresh + current
                 favoritesStore.persist(updated)
@@ -3545,11 +3545,16 @@ class MangaViewModel internal constructor(
      * Ricerca su **tutte** le fonti attive, ignorando l'ambito di lingua scelto per la tab
      * Cerca: un preferito importato da AniList può stare su qualsiasi fonte, e restringerlo
      * alla lingua della ricerca lo renderebbe introvabile senza ragione.
+     *
+     * I risultati vengono **alternati** fra le fonti come nella ricerca normale, non accodati
+     * a blocchi: chi importa prende il primo che combacia, e concatenando avrebbe sempre e
+     * solo la fonte in cima al catalogo — una scelta che non ha niente a che vedere con la
+     * serie cercata.
      */
     private suspend fun searchAllEnabledSources(query: String): List<MangaSearchResult> =
         withContext(Dispatchers.IO) {
             coroutineScope {
-                MangaSourceCatalog
+                val perSource = MangaSourceCatalog
                     .descriptorsForScope(
                         SearchScope.ALL,
                         _state.value.settings.disabledSourceIds,
@@ -3562,7 +3567,7 @@ class MangaViewModel internal constructor(
                         }
                     }
                     .awaitAll()
-                    .flatten()
+                MangaSourceCatalog.interleaveBySource(perSource)
             }
         }
 

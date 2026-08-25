@@ -180,4 +180,81 @@ class AniListFavoritesSyncPlanTest {
         mangaUrl = "https://mangapill.com/manga/${title.hashCode()}",
         coverUrl = null,
     )
+
+    @Test
+    fun `un import gia presente in app sotto chiave titolo non crea un doppione`() {
+        // La serie c'e' gia', ma AniList non era riuscito ad agganciarla: chiave `title:`.
+        val esistente = FavoriteManga(
+            sourceId = MangaSourceIds.MANGAPILL,
+            title = "Berserk",
+            mangaUrl = "https://mangapill.com/manga/1",
+            coverUrl = null,
+            seriesKey = SeriesIdentity.keyForTitle("Berserk").orEmpty(),
+        )
+        val importato = FavoriteManga(
+            sourceId = MangaSourceIds.MANGA_WORLD,
+            title = "Berserk",
+            mangaUrl = "https://www.mangaworld.mx/manga/2",
+            coverUrl = null,
+            seriesKey = SeriesIdentity.keyForAniList(30002),
+        )
+
+        assertEquals(
+            emptyList<FavoriteManga>(),
+            newAniListFavorites(listOf(importato), listOf(esistente)),
+        )
+    }
+
+    @Test
+    fun `un import di una serie che l app non ha viene tenuto`() {
+        val esistente = FavoriteManga(
+            sourceId = MangaSourceIds.MANGAPILL,
+            title = "Berserk",
+            mangaUrl = "https://mangapill.com/manga/1",
+            coverUrl = null,
+            seriesKey = SeriesIdentity.keyForAniList(30002),
+        )
+        val importato = FavoriteManga(
+            sourceId = MangaSourceIds.MANGAPILL,
+            title = "Vinland Saga",
+            mangaUrl = "https://mangapill.com/manga/3",
+            coverUrl = null,
+            seriesKey = SeriesIdentity.keyForAniList(30642),
+        )
+
+        assertEquals(
+            listOf(importato),
+            newAniListFavorites(listOf(importato), listOf(esistente)),
+        )
+    }
+
+    @Test
+    fun `senza import non c e niente da aggiungere`() {
+        assertEquals(emptyList<FavoriteManga>(), newAniListFavorites(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun `il match sulle fonti rispetta l ordine in cui arrivano i risultati`() {
+        // I risultati arrivano alternati fra le fonti (come nella ricerca dell'app), quindi il
+        // primo che combacia non e' piu' per forza quello della fonte in cima al catalogo.
+        val media = AniListManga(
+            id = 30002,
+            titleRomaji = "Berserk",
+            titleEnglish = "Berserk",
+            coverUrl = null,
+            genres = emptyList(),
+            averageScore = null,
+            description = null,
+            status = MangaPublicationStatus.ONGOING,
+        )
+        val alternati = listOf(
+            MangaSearchResult(MangaSourceIds.MANGA_WORLD, "Berserk", "https://mw/1", null),
+            MangaSearchResult(MangaSourceIds.MANGAPILL, "Berserk", "https://mp/1", null),
+        )
+
+        assertEquals(
+            MangaSourceIds.MANGA_WORLD,
+            matchSourceResultForAniList(media, alternati)?.sourceId,
+        )
+    }
 }

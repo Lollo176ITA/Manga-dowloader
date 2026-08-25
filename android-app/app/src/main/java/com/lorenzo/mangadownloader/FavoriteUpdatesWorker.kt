@@ -255,10 +255,11 @@ class FavoriteUpdatesWorker(
                     searchEnabledSources(registry, settings.disabledSourceIds, query)
                 },
             ).sync(favorites)
-            if (imported.isEmpty()) {
+            val fresh = newAniListFavorites(imported, favorites)
+            if (fresh.isEmpty()) {
                 favorites
             } else {
-                val updated = imported + favorites
+                val updated = fresh + favorites
                 favoritesStore.persist(updated)
                 updated
             }
@@ -273,14 +274,18 @@ class FavoriteUpdatesWorker(
         }
     }
 
-    /** Ricerca su tutte le fonti attive, ignorando i fallimenti della singola fonte. */
+    /**
+     * Ricerca su tutte le fonti attive, ignorando i fallimenti della singola fonte. Risultati
+     * alternati fra le fonti come nella ricerca dell'app: accodarli a blocchi farebbe vincere
+     * sempre la fonte in cima al catalogo.
+     */
     private suspend fun searchEnabledSources(
         registry: MangaSourceRegistry,
         disabledSourceIds: Set<String>,
         query: String,
     ): List<MangaSearchResult> = withContext(Dispatchers.IO) {
         coroutineScope {
-            MangaSourceCatalog
+            val perSource = MangaSourceCatalog
                 .descriptorsForScope(SearchScope.ALL, disabledSourceIds)
                 .map { descriptor ->
                     async {
@@ -289,7 +294,7 @@ class FavoriteUpdatesWorker(
                     }
                 }
                 .awaitAll()
-                .flatten()
+            MangaSourceCatalog.interleaveBySource(perSource)
         }
     }
 }

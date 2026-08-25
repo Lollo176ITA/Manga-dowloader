@@ -110,6 +110,26 @@ fun aniListImportSearchQueries(media: AniListManga): List<String> =
         .distinct()
 
 /**
+ * Fra i preferiti [imported] da AniList, quelli che l'app non ha già sotto un'altra identità.
+ *
+ * Non basta confrontare le chiavi canoniche: una serie può essere in app come `title:<titolo>`
+ * — perché AniList non è ancora riuscito ad agganciarla — e arrivare dall'import come
+ * `anilist:<id>`. Sono chiavi diverse per la stessa serie, e senza gli alias di
+ * [FavoriteManga.matchKeys] l'utente si ritroverebbe due card dello stesso manga.
+ *
+ * Vive qui, e non nel chiamante, perché i chiamanti sono due (il ViewModel ad app aperta e il
+ * worker in background): duplicarne la logica significa vederla divergere.
+ */
+fun newAniListFavorites(
+    imported: List<FavoriteManga>,
+    current: List<FavoriteManga>,
+): List<FavoriteManga> {
+    if (imported.isEmpty()) return emptyList()
+    val known = current.flatMapTo(HashSet()) { it.matchKeys() }
+    return imported.filterNot { favorite -> favorite.matchKeys().any { it in known } }
+}
+
+/**
  * Memoria della riconciliazione su [SharedPreferences], nello stile degli altri store.
  *
  * Non è una cache: senza questi due insiemi il sync non saprebbe distinguere un preferito

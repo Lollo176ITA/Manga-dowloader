@@ -18,9 +18,9 @@ data class GroupedSearchResult(
 
 /**
  * Matcher conservativo fonte↔AniList: un risultato entra in un gruppo AniList solo se il suo
- * titolo normalizzato è ESATTAMENTE uno dei titoli/sinonimi del candidato. Niente fuzzy:
- * meglio due card separate che un raggruppamento sbagliato. Con [aniListCandidates] vuoto
- * (AniList giù) degrada al raggruppamento per solo titolo normalizzato.
+ * titolo normalizzato è ESATTAMENTE uno dei titoli del candidato. Niente fuzzy: meglio due
+ * card separate che un raggruppamento sbagliato. Con [aniListCandidates] vuoto (AniList giù)
+ * degrada al raggruppamento per solo titolo normalizzato.
  */
 object SeriesGrouping {
 
@@ -28,17 +28,27 @@ object SeriesGrouping {
         results: List<MangaSearchResult>,
         aniListCandidates: List<AniListManga>,
     ): List<GroupedSearchResult> {
-        // Primo candidato che rivendica un titolo vince (i candidati arrivano già in ordine
-        // di rilevanza AniList; un eventuale media "pinnato" dal ponte Scopri è in testa).
+        // Due passate, non una: prima i titoli veri di TUTTI i candidati, poi i sinonimi a
+        // riempire i buchi rimasti. Un titolo rivendicato da un candidato come nome proprio
+        // batte così chiunque lo elenchi fra i propri sinonimi, anche se AniList lo ritiene
+        // più rilevante — è ciò che tiene "Pick Me Up" sul webtoon omonimo invece che sulla
+        // raccolta hentai che ha quel titolo fra i sinonimi (vedi [AniListManga.synonymTitles]).
+        // Dentro la stessa passata resta valido "il primo che rivendica vince": i candidati
+        // arrivano già in ordine di rilevanza AniList, con l'eventuale media "pinnato" dal
+        // ponte Scopri in testa.
         val titleToCandidate = LinkedHashMap<String, AniListManga>()
-        aniListCandidates.forEach { candidate ->
-            candidate.allTitles().forEach { title ->
-                val normalized = SeriesIdentity.normalizeTitle(title)
-                if (normalized.isNotBlank()) {
-                    titleToCandidate.putIfAbsent(normalized, candidate)
+        fun claimTitles(titlesOf: (AniListManga) -> List<String>) {
+            aniListCandidates.forEach { candidate ->
+                titlesOf(candidate).forEach { title ->
+                    val normalized = SeriesIdentity.normalizeTitle(title)
+                    if (normalized.isNotBlank()) {
+                        titleToCandidate.putIfAbsent(normalized, candidate)
+                    }
                 }
             }
         }
+        claimTitles(AniListManga::primaryTitles)
+        claimTitles(AniListManga::synonymTitles)
 
         val groups = LinkedHashMap<String, MutableList<MangaSearchResult>>()
         val candidateByKey = HashMap<String, AniListManga>()

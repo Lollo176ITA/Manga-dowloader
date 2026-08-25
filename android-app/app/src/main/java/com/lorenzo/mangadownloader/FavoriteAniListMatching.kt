@@ -9,15 +9,22 @@ import android.content.SharedPreferences
  * un preferito solo invece di due.
  *
  * Regola volutamente identica a [SeriesGrouping]: il titolo normalizzato del preferito deve
- * combaciare **esattamente** con uno dei titoli o sinonimi del candidato. Niente fuzzy — un
- * accoppiamento sbagliato qui fonderebbe due serie diverse in un preferito solo.
+ * combaciare **esattamente** con un titolo del candidato. Niente fuzzy — un accoppiamento
+ * sbagliato qui fonderebbe due serie diverse in un preferito solo.
+ *
+ * A parità di combaciamento vince chi combacia su un **titolo principale**: chi combacia solo
+ * per un sinonimo passa dietro a tutti, per quanto AniList lo consideri più rilevante. Senza
+ * questa precedenza "Pick Me Up" si aggancia a una raccolta hentai che ha quel titolo fra i
+ * suoi sinonimi, invece che al webtoon omonimo (vedi [AniListManga.synonymTitles]).
  */
 fun matchAniListCandidate(title: String, candidates: List<AniListManga>): AniListManga? {
     val normalized = SeriesIdentity.normalizeTitle(title)
     if (normalized.isBlank()) return null
-    return candidates.firstOrNull { candidate ->
-        candidate.allTitles().any { SeriesIdentity.normalizeTitle(it) == normalized }
-    }
+    fun matchesOn(titles: (AniListManga) -> List<String>): AniListManga? =
+        candidates.firstOrNull { candidate ->
+            titles(candidate).any { SeriesIdentity.normalizeTitle(it) == normalized }
+        }
+    return matchesOn(AniListManga::primaryTitles) ?: matchesOn(AniListManga::synonymTitles)
 }
 
 /**

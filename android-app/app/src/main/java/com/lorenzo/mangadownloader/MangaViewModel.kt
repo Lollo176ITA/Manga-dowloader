@@ -2811,7 +2811,13 @@ class MangaViewModel internal constructor(
                                 runCatching {
                                     aniListClient.searchManga(title, perPage = 5)
                                         .let { results ->
-                                            results.firstOrNull { it.format != "NOVEL" }
+                                            // Il primo risultato di AniList non è il più
+                                            // giusto: la ricerca pesca anche nei sinonimi, e
+                                            // un titolo generico può portare in testa una
+                                            // serie che non c'entra. Se qualcuno combacia
+                                            // esattamente, vince lui.
+                                            matchAniListCandidate(title, results)
+                                                ?: results.firstOrNull { it.format != "NOVEL" }
                                                 ?: results.firstOrNull()
                                         }?.id
                                 }

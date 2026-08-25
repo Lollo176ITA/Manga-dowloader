@@ -52,11 +52,28 @@ data class AniListManga(
     /** Titolo da mostrare in UI, con lo stesso ordine di preferenza di [searchTitle]. */
     fun displayTitle(): String = searchTitle() ?: "Senza titolo"
 
-    /** Tutti i titoli noti, in ordine di preferenza, per il matching tra fonti. */
-    fun allTitles(): List<String> =
-        (listOfNotNull(titleEnglish, titleRomaji, titleNative) + synonyms)
+    /**
+     * I titoli **veri** della serie: come si chiama, nelle tre lingue che AniList tiene.
+     * Vanno tenuti distinti dai [synonymTitles] perché valgono molto di più in un confronto:
+     * un titolo principale identifica la serie, un sinonimo può essere qualsiasi cosa.
+     */
+    fun primaryTitles(): List<String> =
+        listOfNotNull(titleEnglish, titleRomaji, titleNative)
             .map(String::trim)
             .filter(String::isNotBlank)
+
+    /**
+     * I titoli alternativi noti ad AniList. Utili — spesso contengono il titolo italiano — ma
+     * inaffidabili come prova d'identità: sono compilati dalla community e su certe raccolte
+     * contengono i titoli dei singoli capitoli. Un esempio reale: la raccolta hentai
+     * `Gekka Bijin` (id 94792) ha "Pick Me Up" fra i suoi diciotto sinonimi, e la ricerca
+     * AniList per quel titolo la mette PRIMA del webtoon che si chiama davvero così.
+     */
+    fun synonymTitles(): List<String> =
+        synonyms.map(String::trim).filter(String::isNotBlank)
+
+    /** Tutti i titoli noti, in ordine di preferenza, per il matching tra fonti. */
+    fun allTitles(): List<String> = primaryTitles() + synonymTitles()
 }
 
 /**

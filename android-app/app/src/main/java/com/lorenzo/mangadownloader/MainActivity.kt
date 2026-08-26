@@ -800,6 +800,7 @@ private fun MangaDownloaderAppContent(
                             onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
                             onLoadDiscover = viewModel::loadDiscovery,
                             onLoadRecommendations = viewModel::loadRecommendations,
+                            onRefreshFeeds = viewModel::refreshHomeFeeds,
                             onOpenGenre = viewModel::openDiscoverGenre,
                             onSearchFirst = goToSearchTab,
                             onStartTutorial = {

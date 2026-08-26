@@ -202,6 +202,11 @@ class AsuraScansSource(
                     url = chapterUrl,
                     slug = obj["slug"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
                         ?: "chapter-$numberText",
+                    // `published_at` è l'uscita pubblica; `early_access_until` riguarda solo
+                    // la finestra Asura+ ed è nel futuro, quindi non va usato come data.
+                    publishedAtMillis = chapterDateFromIso(
+                        obj["published_at"]?.jsonPrimitive?.contentOrNull,
+                    ),
                 )
             }
             if (entries.isEmpty()) {

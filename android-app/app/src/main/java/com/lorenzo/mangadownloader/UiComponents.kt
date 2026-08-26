@@ -579,6 +579,25 @@ fun FavoriteReadingState.iconTint(): Color = when (this) {
     FavoriteReadingState.COMPLETED -> ReadGreen
 }
 
+/**
+ * Data di uscita del capitolo, in coda alla riga e in `labelSmall`: è un dettaglio di contorno,
+ * non deve competere col numero del capitolo. Non si mostra nulla quando la fonte non la
+ * pubblica (Mangapill, TCB Scans) o quando il capitolo è stato scaricato prima che l'app la
+ * salvasse — vedi [ChapterEntry.publishedAtMillis].
+ */
+@Composable
+private fun ChapterDateLabel(publishedAtMillis: Long?) {
+    val label = publishedAtMillis?.let { millis ->
+        remember(millis) { formatChapterDate(millis, System.currentTimeMillis()) }
+    } ?: return
+    Text(
+        text = label,
+        modifier = Modifier.padding(start = 12.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 @Composable
 fun ChapterRow(
     chapter: ChapterEntry,
@@ -609,6 +628,7 @@ fun ChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
+            ChapterDateLabel(chapter.publishedAtMillis)
             if (isDownloaded || isRead) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -713,6 +733,7 @@ fun DownloadedChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
+            ChapterDateLabel(chapter.publishedAtMillis)
             Box(
                 modifier = Modifier.width(32.dp),
                 contentAlignment = Alignment.Center,

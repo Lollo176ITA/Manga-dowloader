@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import java.io.IOException
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -26,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * va ri-cercato sulle fonti reali ([MangaSource]) tramite [searchTitle]. Per questo [AniListManga]
  * vive fuori dal [MangaSourceRegistry].
  */
+@Serializable
 data class AniListManga(
     val id: Int,
     val titleRomaji: String?,

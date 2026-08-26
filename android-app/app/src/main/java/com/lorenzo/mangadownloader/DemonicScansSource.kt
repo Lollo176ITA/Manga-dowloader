@@ -181,6 +181,9 @@ class DemonicScansSource(
                         numberValue = numberValue,
                         url = chapterUrl,
                         slug = "chapter-$numberText",
+                        // DemonicScans allinea a destra la data dentro l'anchor stesso:
+                        // `<a class="chplinks"> Chapter 200 <span>2023-10-16</span></a>`.
+                        publishedAtMillis = chapterDateFromIso(anchor.selectFirst("span")?.text()),
                     ),
                 )
             }

@@ -19,6 +19,12 @@ data class ChapterEntry(
      * file e chiavi restano identici a prima e i download già su disco continuano a valere.
      */
     val variantTag: String? = null,
+    /**
+     * Quando la fonte dichiara di aver pubblicato il capitolo (epoch millis), o `null` se non
+     * lo dice. Non tutte le fonti espongono la data: Mangapill e TCB Scans, per esempio, nella
+     * lista capitoli hanno solo il numero. Dove manca, la UI semplicemente non mostra nulla.
+     */
+    val publishedAtMillis: Long? = null,
 ) {
     fun displayNumber(): String = numberValue.stripTrailingZeros().toPlainString()
 

@@ -24,11 +24,14 @@ import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -52,6 +55,7 @@ import java.time.LocalDate
  * [MangaUiState] e delega tutto ai callback. Il blocco Scopri è escluso del tutto sotto
  * controllo parentale.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     state: MangaUiState,
@@ -67,6 +71,7 @@ fun HomeScreen(
     onDismissDiscoverInfo: () -> Unit,
     onLoadDiscover: () -> Unit,
     onLoadRecommendations: () -> Unit,
+    onRefreshFeeds: () -> Unit,
     onOpenGenre: (DiscoverGenre) -> Unit,
     onSearchFirst: () -> Unit,
     onStartTutorial: () -> Unit,
@@ -107,11 +112,12 @@ fun HomeScreen(
         computeReadingHistory(state.readingMemory, state.library, limit = 10)
     }
     val discovery = state.discovery
+    val hasDiscoverSections = discovery.trending.isNotEmpty() ||
+        discovery.topRated.isNotEmpty() ||
+        discovery.newest.isNotEmpty()
     // Il blocco Scopri "ha qualcosa da mostrare" se ci sono risultati, sta caricando, oppure c'è
     // un errore (in errore mostriamo un retry invece di far sparire il blocco).
-    val discoverHasContent = discovery.trending.isNotEmpty() ||
-        discovery.topRated.isNotEmpty() ||
-        discovery.newest.isNotEmpty() ||
+    val discoverHasContent = hasDiscoverSections ||
         discovery.isLoadingSections ||
         discovery.sectionsError != null
     // Stessa logica per i Consigliati; senza semi (né preferiti né letture) il blocco sparisce.
@@ -144,191 +150,205 @@ fun HomeScreen(
         LaunchedEffect(Unit) { onLoadRecommendations() }
     }
 
-    LazyColumn(
+    // Le vetrine AniList si rinnovano da sole una volta al giorno (cache con rollover alle 9):
+    // il pull-to-refresh è il modo per chiedere contenuti nuovi prima di allora. L'indicatore
+    // compare solo quando c'è già qualcosa da rinfrescare — al primo caricamento ci pensano già
+    // gli spinner dei singoli blocchi, due indicatori sarebbero rumore.
+    val pullState = rememberPullToRefreshState()
+    val isRefreshingFeeds = !editMode && (
+        (discovery.isLoadingSections && hasDiscoverSections) ||
+            (recommendations.isLoading && recommendations.items.isNotEmpty())
+        )
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshingFeeds,
+        onRefresh = { if (!editMode) onRefreshFeeds() },
+        state = pullState,
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(if (editMode) 12.dp else 16.dp),
     ) {
-        if (editMode) {
-            // Modalità modifica: solo la lista dei blocchi come card, niente contenuti.
-            item(key = "edit-hint") {
-                Text(
-                    text = "Sposta i blocchi con le frecce, tocca l'occhio per nasconderli.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-            blocks.forEachIndexed { index, block ->
-                item(key = "ctrl-${block.name}") {
-                    HomeBlockEditRow(
-                        block = block,
-                        index = index,
-                        lastIndex = blocks.lastIndex,
-                        hidden = block in hidden,
-                        onMove = onMoveBlock,
-                        onSetHidden = onSetBlockHidden,
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(if (editMode) 12.dp else 16.dp),
+        ) {
+            if (editMode) {
+                // Modalità modifica: solo la lista dei blocchi come card, niente contenuti.
+                item(key = "edit-hint") {
+                    Text(
+                        text = "Sposta i blocchi con le frecce, tocca l'occhio per nasconderli.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
-            }
-        } else {
-            if (state.tutorialState.phase == TutorialPhase.Welcome) {
-                item(key = "onboarding") {
-                    HomeOnboardingCard(
-                        onStart = onStartTutorial,
-                        onDismiss = onDismissTutorial,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                }
-            }
-
-            if (!hasAnyContent) {
-                item(key = "empty") {
-                    HomeEmptyState(onSearchFirst = onSearchFirst)
-                }
-            }
-
-            blocks.forEach { block ->
-                // I blocchi nascosti o vuoti non occupano spazio.
-                if (block in hidden || isBlockEmpty(block)) return@forEach
-
-                when (block) {
-                    HomeBlock.RESUME -> item(key = "b-resume") {
-                        HomeResumeCard(
-                            item = continueItem!!,
-                            onResume = onResume,
-                            compact = density == CardDensity.COMPACT,
+                blocks.forEachIndexed { index, block ->
+                    item(key = "ctrl-${block.name}") {
+                        HomeBlockEditRow(
+                            block = block,
+                            index = index,
+                            lastIndex = blocks.lastIndex,
+                            hidden = block in hidden,
+                            onMove = onMoveBlock,
+                            onSetHidden = onSetBlockHidden,
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
-
-                    HomeBlock.FAVORITE_UPDATES -> item(key = "b-updates") {
-                        HomeSection(
-                            title = "Novità dai preferiti",
-                            trailingActionLabel = "Vedi tutte",
-                            onTrailingAction = onOpenAllUpdates,
-                        ) {
-                            HomeCarousel(recentUpdates) { event ->
-                                MangaRowCard(
-                                    coverModel = event.coverUrl,
-                                    title = event.title,
-                                    subtitle = event.chapterLabel,
-                                    onClick = { onOpenUpdate(event) },
-                                    inCarousel = true,
-                                    cardStateDescription = "Non letto".takeIf { !event.seen },
-                                    trailing = { if (!event.seen) UnseenDot() },
-                                )
-                            }
-                        }
+                }
+            } else {
+                if (state.tutorialState.phase == TutorialPhase.Welcome) {
+                    item(key = "onboarding") {
+                        HomeOnboardingCard(
+                            onStart = onStartTutorial,
+                            onDismiss = onDismissTutorial,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                     }
+                }
 
-                    HomeBlock.DISCOVER -> {
-                        item(key = "b-discover-header") {
-                            HomeSectionTitle(title = "Scopri")
-                        }
-                        item(key = "b-discover-genres") {
-                            HomeGenreRow(onOpenGenre = onOpenGenre)
-                        }
-                        val hasSections = discovery.trending.isNotEmpty() ||
-                            discovery.topRated.isNotEmpty() ||
-                            discovery.newest.isNotEmpty()
-                        val sectionsError = discovery.sectionsError
-                        when {
-                            hasSections -> {
-                                discoverySection("Tendenze", discovery.trending, onPickDiscover, onShowDiscoverInfo)
-                                discoverySection("Più votati", discovery.topRated, onPickDiscover, onShowDiscoverInfo)
-                                discoverySection("Novità", discovery.newest, onPickDiscover, onShowDiscoverInfo)
-                            }
-                            discovery.isLoadingSections -> item(key = "b-discover-loading") { HomeDiscoverLoading() }
-                            sectionsError != null -> item(key = "b-discover-error") {
-                                HomeDiscoverError(message = sectionsError, onRetry = onLoadDiscover)
-                            }
-                        }
+                if (!hasAnyContent) {
+                    item(key = "empty") {
+                        HomeEmptyState(onSearchFirst = onSearchFirst)
                     }
+                }
 
-                    HomeBlock.RECOMMENDED -> {
-                        item(key = "b-recommended-header") {
-                            HomeSectionTitle(title = "Consigliati per te")
+                blocks.forEach { block ->
+                    // I blocchi nascosti o vuoti non occupano spazio.
+                    if (block in hidden || isBlockEmpty(block)) return@forEach
+
+                    when (block) {
+                        HomeBlock.RESUME -> item(key = "b-resume") {
+                            HomeResumeCard(
+                                item = continueItem!!,
+                                onResume = onResume,
+                                compact = density == CardDensity.COMPACT,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
                         }
-                        when {
-                            recommendations.items.isNotEmpty() -> item(key = "b-recommended-row") {
-                                HomeCarousel(recommendations.items) { manga ->
-                                    DiscoveryCard(
-                                        manga = manga,
-                                        onClick = { onPickDiscover(manga) },
-                                        onShowInfo = { onShowDiscoverInfo(manga) },
+
+                        HomeBlock.FAVORITE_UPDATES -> item(key = "b-updates") {
+                            HomeSection(
+                                title = "Novità dai preferiti",
+                                trailingActionLabel = "Vedi tutte",
+                                onTrailingAction = onOpenAllUpdates,
+                            ) {
+                                HomeCarousel(recentUpdates) { event ->
+                                    MangaRowCard(
+                                        coverModel = event.coverUrl,
+                                        title = event.title,
+                                        subtitle = event.chapterLabel,
+                                        onClick = { onOpenUpdate(event) },
+                                        inCarousel = true,
+                                        cardStateDescription = "Non letto".takeIf { !event.seen },
+                                        trailing = { if (!event.seen) UnseenDot() },
                                     )
                                 }
                             }
-                            recommendations.isLoading -> item(key = "b-recommended-loading") {
-                                HomeDiscoverLoading()
+                        }
+
+                        HomeBlock.DISCOVER -> {
+                            item(key = "b-discover-header") {
+                                HomeSectionTitle(title = "Scopri")
                             }
-                            recommendations.error != null -> item(key = "b-recommended-error") {
-                                HomeDiscoverError(
-                                    message = recommendations.error,
-                                    onRetry = onLoadRecommendations,
-                                )
+                            item(key = "b-discover-genres") {
+                                HomeGenreRow(onOpenGenre = onOpenGenre)
+                            }
+                            val sectionsError = discovery.sectionsError
+                            when {
+                                hasDiscoverSections -> {
+                                    discoverySection("Tendenze", discovery.trending, onPickDiscover, onShowDiscoverInfo)
+                                    discoverySection("Più votati", discovery.topRated, onPickDiscover, onShowDiscoverInfo)
+                                    discoverySection("Novità", discovery.newest, onPickDiscover, onShowDiscoverInfo)
+                                }
+                                discovery.isLoadingSections -> item(key = "b-discover-loading") { HomeDiscoverLoading() }
+                                sectionsError != null -> item(key = "b-discover-error") {
+                                    HomeDiscoverError(message = sectionsError, onRetry = onLoadDiscover)
+                                }
                             }
                         }
-                    }
 
-                    HomeBlock.STATS -> item(key = "b-stats") {
-                        HomeSection(
-                            title = "Statistiche",
-                            trailingActionLabel = "Vedi tutto",
-                            onTrailingAction = onOpenStats,
-                        ) {
-                            when (density) {
-                                CardDensity.COMPACT -> HomeStatsCompactRow(
-                                    stats = stats,
-                                    streak = streak,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
-                                CardDensity.NORMAL -> HomeStatsGrid(
-                                    stats = stats,
-                                    streak = streak,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                )
-                                CardDensity.LARGE -> Column(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    HomeStatsGrid(stats = stats, streak = streak)
-                                    Card(
-                                        shape = MaterialTheme.shapes.large,
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        ),
-                                    ) {
-                                        WeekBarChart(
-                                            days = lastWeek,
-                                            modifier = Modifier.padding(14.dp),
+                        HomeBlock.RECOMMENDED -> {
+                            item(key = "b-recommended-header") {
+                                HomeSectionTitle(title = "Consigliati per te")
+                            }
+                            when {
+                                recommendations.items.isNotEmpty() -> item(key = "b-recommended-row") {
+                                    HomeCarousel(recommendations.items) { manga ->
+                                        DiscoveryCard(
+                                            manga = manga,
+                                            onClick = { onPickDiscover(manga) },
+                                            onShowInfo = { onShowDiscoverInfo(manga) },
                                         )
+                                    }
+                                }
+                                recommendations.isLoading -> item(key = "b-recommended-loading") {
+                                    HomeDiscoverLoading()
+                                }
+                                recommendations.error != null -> item(key = "b-recommended-error") {
+                                    HomeDiscoverError(
+                                        message = recommendations.error,
+                                        onRetry = onLoadRecommendations,
+                                    )
+                                }
+                            }
+                        }
+
+                        HomeBlock.STATS -> item(key = "b-stats") {
+                            HomeSection(
+                                title = "Statistiche",
+                                trailingActionLabel = "Vedi tutto",
+                                onTrailingAction = onOpenStats,
+                            ) {
+                                when (density) {
+                                    CardDensity.COMPACT -> HomeStatsCompactRow(
+                                        stats = stats,
+                                        streak = streak,
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                    )
+                                    CardDensity.NORMAL -> HomeStatsGrid(
+                                        stats = stats,
+                                        streak = streak,
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                    )
+                                    CardDensity.LARGE -> Column(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        HomeStatsGrid(stats = stats, streak = streak)
+                                        Card(
+                                            shape = MaterialTheme.shapes.large,
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                            ),
+                                        ) {
+                                            WeekBarChart(
+                                                days = lastWeek,
+                                                modifier = Modifier.padding(14.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    HomeBlock.HISTORY -> item(key = "b-history") {
-                        HomeSection(
-                            title = "Letti di recente",
-                            trailingActionLabel = "Vedi tutto",
-                            onTrailingAction = onOpenHistory,
-                        ) {
-                            HomeCarousel(readingHistory) { entry ->
-                                MangaRowCard(
-                                    coverModel = entry.series?.coverFile,
-                                    title = entry.memory.seriesTitle,
-                                    subtitle = entry.memory.chapterLabel,
-                                    caption = entry.memory.progressLabel(),
-                                    onClick = entry.chapter?.let { chapter -> { onResume(chapter) } },
-                                    onClickLabel = "Riapri il capitolo",
-                                    inCarousel = true,
-                                )
+                        HomeBlock.HISTORY -> item(key = "b-history") {
+                            HomeSection(
+                                title = "Letti di recente",
+                                trailingActionLabel = "Vedi tutto",
+                                onTrailingAction = onOpenHistory,
+                            ) {
+                                HomeCarousel(readingHistory) { entry ->
+                                    MangaRowCard(
+                                        coverModel = entry.series?.coverFile,
+                                        title = entry.memory.seriesTitle,
+                                        subtitle = entry.memory.chapterLabel,
+                                        caption = entry.memory.progressLabel(),
+                                        onClick = entry.chapter?.let { chapter -> { onResume(chapter) } },
+                                        onClickLabel = "Riapri il capitolo",
+                                        inCarousel = true,
+                                    )
+                                }
                             }
                         }
                     }

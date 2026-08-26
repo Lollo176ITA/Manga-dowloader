@@ -391,6 +391,7 @@ class MangaViewModel internal constructor(
     private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
+    private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
@@ -2773,10 +2774,18 @@ class MangaViewModel internal constructor(
 
     // --- Tab Scopri (AniList) -------------------------------------------------------------
 
-    /** Carica le tre sezioni a caroselli (tendenze, più votati, novità). Idempotente. */
+    /**
+     * Carica le tre sezioni a caroselli (tendenze, più votati, novità). Idempotente nella
+     * sessione e, grazie a [homeFeedCacheStore], anche **tra un avvio e l'altro**: la vetrina
+     * si rinnova una volta al giorno alle 9 (vedi [isHomeFeedFresh]), non a ogni apertura
+     * dell'app. [forceRefresh] è il pull-to-refresh: scavalca la cache e la riscrive.
+     */
     fun loadDiscovery(forceRefresh: Boolean = false) {
         val current = _state.value.discovery
         if (!forceRefresh && (current.loaded || current.isLoadingSections)) {
+            return
+        }
+        if (!forceRefresh && restoreCachedDiscovery()) {
             return
         }
         discoveryJob?.cancel()
@@ -2791,6 +2800,14 @@ class MangaViewModel internal constructor(
                         Triple(trending.await(), topRated.await(), newest.await())
                     }
                 }
+                homeFeedCacheStore.writeDiscover(
+                    HomeDiscoverCache(
+                        trending = sections.first,
+                        topRated = sections.second,
+                        newest = sections.third,
+                        fetchedAtMillis = System.currentTimeMillis(),
+                    ),
+                )
                 updateState {
                     copy(
                         discovery = discovery.copy(
@@ -2836,6 +2853,10 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(recommendations = recommendations.copy(items = emptyList(), loaded = true))
             }
+            return
+        }
+        val seedSignature = recommendationSeedSignature(seeds)
+        if (!forceRefresh && restoreCachedRecommendations(seedSignature)) {
             return
         }
         val excludeTitles = buildSet {
@@ -2884,6 +2905,13 @@ class MangaViewModel internal constructor(
                         )
                     }
                 }
+                homeFeedCacheStore.writeRecommendations(
+                    HomeRecommendationsCache(
+                        items = items,
+                        fetchedAtMillis = System.currentTimeMillis(),
+                        seedSignature = seedSignature,
+                    ),
+                )
                 updateState {
                     copy(
                         recommendations = recommendations.copy(
@@ -2907,6 +2935,67 @@ class MangaViewModel internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Pull-to-refresh della Home: rinnova le vetrine AniList **adesso**, senza aspettare il
+     * rollover delle 9. Sotto controllo parentale i due blocchi non esistono, quindi non c'è
+     * niente da rinfrescare e la rete non va toccata.
+     */
+    fun refreshHomeFeeds() {
+        if (_state.value.settings.parentalControlEnabled) return
+        loadDiscovery(forceRefresh = true)
+        loadRecommendations(forceRefresh = true)
+    }
+
+    /**
+     * Ripubblica la Scopri salvata su disco se non ha ancora passato il rollover delle 9.
+     * Ritorna `true` se lo stato è stato riempito, cioè se non serve andare in rete.
+     */
+    private fun restoreCachedDiscovery(): Boolean {
+        val cache = homeFeedCacheStore.readDiscover()
+        if (!isHomeFeedFresh(cache.fetchedAtMillis, System.currentTimeMillis())) {
+            return false
+        }
+        updateState {
+            copy(
+                discovery = discovery.copy(
+                    trending = cache.trending,
+                    topRated = cache.topRated,
+                    newest = cache.newest,
+                    isLoadingSections = false,
+                    loaded = true,
+                    sectionsError = null,
+                ),
+            )
+        }
+        return true
+    }
+
+    /**
+     * Come [restoreCachedDiscovery], ma i Consigliati dipendono anche da **cosa leggi**: una
+     * cache costruita su semi diversi da quelli di adesso (hai aggiunto un preferito, hai
+     * iniziato una serie) è da buttare anche se è di stamattina.
+     */
+    private fun restoreCachedRecommendations(seedSignature: String): Boolean {
+        val cache = homeFeedCacheStore.readRecommendations()
+        if (cache.seedSignature != seedSignature) {
+            return false
+        }
+        if (!isHomeFeedFresh(cache.fetchedAtMillis, System.currentTimeMillis())) {
+            return false
+        }
+        updateState {
+            copy(
+                recommendations = recommendations.copy(
+                    items = cache.items,
+                    isLoading = false,
+                    loaded = true,
+                    error = null,
+                ),
+            )
+        }
+        return true
     }
 
     /** Apre la pagina del genere e ne avvia il caricamento. */

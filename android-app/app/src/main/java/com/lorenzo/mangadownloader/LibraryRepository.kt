@@ -31,6 +31,8 @@ data class DownloadedChapter(
     val readerPageIndex: Int?,
     val readerPageCount: Int?,
     val lastReadAtMillis: Long? = null,
+    /** Quando la fonte ha pubblicato il capitolo, se lo sapevamo al download. */
+    val publishedAtMillis: Long? = null,
 )
 
 data class ReaderPagePosition(
@@ -71,6 +73,14 @@ data class SeriesMetadataChapter(
     val volumeText: String? = null,
     val labelPrefix: String = "Capitolo",
     val variantTag: String? = null,
+    /**
+     * Data di pubblicazione dichiarata dalla fonte al momento del download (epoch millis).
+     * Salvata qui perché la lista dei capitoli scaricati si legge **offline**, quando la fonte
+     * non è interrogabile. `null` per i capitoli scaricati da fonti che non la pubblicano e
+     * per quelli già su disco da prima di questo campo: il JSON ha default, quindi i
+     * `series.json` esistenti continuano a leggersi senza migrazione.
+     */
+    val publishedAtMillis: Long? = null,
 )
 
 object DownloadStorage {
@@ -347,6 +357,7 @@ object LibraryScanner {
                     readerPageIndex = pagePosition?.pageIndex,
                     readerPageCount = pagePosition?.pageCount,
                     lastReadAtMillis = pagePosition?.lastReadAtMillis,
+                    publishedAtMillis = chapterMeta?.publishedAtMillis,
                 )
             }
             .sortedWith(DownloadStorage.chapterComparator())
@@ -799,6 +810,7 @@ class LibraryRepository(
                     volumeText = chapter.volumeText,
                     labelPrefix = chapter.labelPrefix,
                     variantTag = chapter.variantTag,
+                    publishedAtMillis = chapter.publishedAtMillis,
                 )
             },
         )
@@ -844,6 +856,7 @@ class LibraryRepository(
                     ),
                     volumeText = preserved?.volumeText,
                     labelPrefix = preserved?.labelPrefix ?: "Capitolo",
+                    publishedAtMillis = preserved?.publishedAtMillis,
                 )
             },
         )

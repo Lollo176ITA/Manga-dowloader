@@ -35,17 +35,18 @@ class SpreadHalfTransformation(private val half: PageHalf) : Transformation() {
 }
 
 /**
- * Ruota di 90° in senso orario le sole pagine doppie: la facciata destra finisce in basso,
- * quindi lo schermo si legge inclinando il telefono verso sinistra. Le pagine normali passano
+ * Ruota di 90° le sole pagine doppie: si leggono girando il telefono. Il verso arriva
+ * dall'ordine di lettura (vedi [SpreadRotation]), perché è lui a decidere quale facciata
+ * finisce in alto e quindi in che direzione scorre la lettura. Le pagine normali passano
  * intatte, così la modalità si può tenere accesa per tutto il capitolo.
  */
-object SpreadRotateTransformation : Transformation() {
+class SpreadRotateTransformation(private val rotation: SpreadRotation) : Transformation() {
 
-    override val cacheKey: String = "spread-rotate-90"
+    override val cacheKey: String = "spread-rotate-${rotation.name}"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
         if (!isSpreadPage(input.width, input.height)) return input
-        val matrix = Matrix().apply { postRotate(90f) }
+        val matrix = Matrix().apply { postRotate(rotation.degrees) }
         return Bitmap.createBitmap(input, 0, 0, input.width, input.height, matrix, true)
     }
 }

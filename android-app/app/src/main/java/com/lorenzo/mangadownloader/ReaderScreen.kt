@@ -112,7 +112,7 @@ fun ReaderScreen(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     pageSpacing: Dp,
     navBarVisible: Boolean,
     padding: PaddingValues,
@@ -154,7 +154,7 @@ fun ReaderScreen(
                 isLoading = isLoading,
                 readingMode = readingMode,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
-                rotateSpreadPages = rotateSpreadPages,
+                spreadRotation = spreadRotation,
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
@@ -268,7 +268,7 @@ private fun ReaderContent(
     isLoading: Boolean,
     readingMode: ReadingMode,
     doubleTapZoomEnabled: Boolean,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -312,7 +312,7 @@ private fun ReaderContent(
                 chapter = chapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
-                rotateSpreadPages = rotateSpreadPages,
+                spreadRotation = spreadRotation,
                 pageSpacing = pageSpacing,
                 rightToLeft = readingMode.isRightToLeft,
                 padding = padding,
@@ -332,7 +332,7 @@ private fun ReaderContent(
                 nextChapter = nextChapter,
                 pages = pages,
                 doubleTapZoomEnabled = doubleTapZoomEnabled,
-                rotateSpreadPages = rotateSpreadPages,
+                spreadRotation = spreadRotation,
                 pageSpacing = pageSpacing,
                 padding = padding,
                 initialPageIndex = initialPageIndex,
@@ -355,7 +355,7 @@ private fun VerticalReader(
     nextChapter: ReaderChapter?,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     pageSpacing: Dp,
     padding: PaddingValues,
     initialPageIndex: Int,
@@ -445,7 +445,7 @@ private fun VerticalReader(
                     furthestPageIndex = reachedPageIndex
                 }
                 onPageVisible(reachedPageIndex, pages.size, allowCompletion)
-                prefetchReaderPages(context, pages, reachedPageIndex, rotateSpreadPages)
+                prefetchReaderPages(context, pages, reachedPageIndex, spreadRotation)
             }
     }
 
@@ -700,7 +700,7 @@ private fun VerticalReader(
                     page = page,
                     contentDescription = chapter.title,
                     contentScale = ContentScale.FillWidth,
-                    rotateSpreadPages = rotateSpreadPages,
+                    spreadRotation = spreadRotation,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = if (index > 0 && !continuesTallPage) pageSpacing else 0.dp),
@@ -743,7 +743,7 @@ private fun PagedReader(
     chapter: ReaderChapter,
     pages: List<ReaderPage>,
     doubleTapZoomEnabled: Boolean,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     pageSpacing: Dp,
     rightToLeft: Boolean,
     padding: PaddingValues,
@@ -786,7 +786,7 @@ private fun PagedReader(
                 }
                 onPageVisible(pageIndex, pages.size, hasMoved)
                 onAtLastPageChange(pageIndex == pages.lastIndex)
-                prefetchReaderPages(context, pages, pageIndex, rotateSpreadPages)
+                prefetchReaderPages(context, pages, pageIndex, spreadRotation)
             }
     }
 
@@ -817,7 +817,7 @@ private fun PagedReader(
                     page = pages[index],
                     contentDescription = chapter.title,
                     doubleTapZoomEnabled = doubleTapZoomEnabled,
-                    rotateSpreadPages = rotateSpreadPages,
+                    spreadRotation = spreadRotation,
                     onToggleFullscreen = onToggleFullscreen,
                 )
             }
@@ -933,7 +933,7 @@ private fun ZoomablePage(
     page: ReaderPage,
     contentDescription: String,
     doubleTapZoomEnabled: Boolean,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     onToggleFullscreen: () -> Unit,
 ) {
     val minScale = 1f
@@ -1025,7 +1025,7 @@ private fun ZoomablePage(
             page = page,
             contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
-            rotateSpreadPages = rotateSpreadPages,
+            spreadRotation = spreadRotation,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -1056,7 +1056,7 @@ private fun ReaderPageImage(
     page: ReaderPage,
     contentDescription: String,
     contentScale: ContentScale,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
     modifier: Modifier = Modifier,
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
@@ -1081,8 +1081,8 @@ private fun ReaderPageImage(
         return
     }
 
-    val model = remember(page.stableKey, retryAttempt, rotateSpreadPages) {
-        readerImageRequest(context, page, retryAttempt, rotateSpreadPages)
+    val model = remember(page.stableKey, retryAttempt, spreadRotation) {
+        readerImageRequest(context, page, retryAttempt, spreadRotation)
     }
     SubcomposeAsyncImage(
         model = model,
@@ -1164,7 +1164,7 @@ private fun readerImageRequest(
     context: Context,
     page: ReaderPage,
     retryAttempt: Int = 0,
-    rotateSpreadPages: Boolean = false,
+    spreadRotation: SpreadRotation? = null,
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
     when (page) {
@@ -1191,7 +1191,7 @@ private fun readerImageRequest(
     val half = (page as? ReaderPage.Local)?.half
     when {
         half != null -> builder.transformations(SpreadHalfTransformation(half))
-        rotateSpreadPages -> builder.transformations(SpreadRotateTransformation)
+        spreadRotation != null -> builder.transformations(SpreadRotateTransformation(spreadRotation))
     }
     if (retryAttempt > 0) {
         builder.memoryCacheKeyExtra("retry", retryAttempt.toString())
@@ -1209,7 +1209,7 @@ private fun prefetchReaderPages(
     context: Context,
     pages: List<ReaderPage>,
     fromIndex: Int,
-    rotateSpreadPages: Boolean,
+    spreadRotation: SpreadRotation?,
 ) {
     val first = fromIndex + 1
     val last = (fromIndex + ReaderPrefetchPagesAhead).coerceAtMost(pages.lastIndex)
@@ -1218,7 +1218,7 @@ private fun prefetchReaderPages(
         context.imageLoader.enqueue(
             // Stessa richiesta che farà la pagina quando toccherà a lei, rotazione compresa:
             // con parametri diversi la cache non verrebbe riusata e il prefetch sarebbe sprecato.
-            readerImageRequest(context, page, rotateSpreadPages = rotateSpreadPages),
+            readerImageRequest(context, page, spreadRotation = spreadRotation),
         )
     }
 }

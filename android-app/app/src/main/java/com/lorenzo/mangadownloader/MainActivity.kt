@@ -396,9 +396,13 @@ private fun MangaDownloaderAppContent(
     // Durante la lettura i tocchi sono rari (pagine lunghe, tavole dense): senza questo
     // flag il timeout di sistema spegne lo schermo a metà pagina. Attivo solo a reader
     // aperto (e con l'impostazione dedicata accesa); onDispose lo ripulisce sempre.
+    // Con le pagine doppie ruotate il telefono si gira per leggerle: se ruotasse anche
+    // l'app, l'immagine tornerebbe sdraiata e la modalità non servirebbe a niente.
+    val readerLocksPortrait = state.readerChapter != null &&
+        state.readerSpreadPageMode == SpreadPageMode.ROTATE
     AppSystemEffects(
         activity = activity,
-        allowLandscapeRotation = state.settings.allowLandscapeRotation,
+        allowLandscapeRotation = state.settings.allowLandscapeRotation && !readerLocksPortrait,
         biometricRequest = state.biometricPromptRequest,
         readerOpen = state.readerChapter != null,
         readerFullscreen = isReaderFullscreen,
@@ -519,6 +523,7 @@ private fun MangaDownloaderAppContent(
                     onOpenSettings = viewModel::openSettings,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
+                    onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
@@ -565,8 +570,9 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
-                    rotateSpreadPages =
-                        state.settings.spreadPageMode == SpreadPageMode.ROTATE,
+                    spreadRotation = state.readerSpreadPageMode
+                        .takeIf { it == SpreadPageMode.ROTATE }
+                        ?.let { state.readerReadingMode.spreadRotation },
                     pageSpacing = state.settings.readerPageSpacingDp.dp,
                     navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,

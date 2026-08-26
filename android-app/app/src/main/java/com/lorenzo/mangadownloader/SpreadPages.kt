@@ -31,6 +31,19 @@ enum class SpreadPageMode(val menuLabel: String, val shortLabel: String) {
 enum class PageHalf { LEFT, RIGHT }
 
 /**
+ * Verso in cui ruotare una pagina doppia in [SpreadPageMode.ROTATE]. Decide quale facciata
+ * finisce in alto, cioè da quale si comincia: scorrendo verso il basso si legge dall'alto,
+ * quindi il verso deve seguire l'ordine di lettura o le due facciate arrivano scambiate.
+ */
+enum class SpreadRotation(val degrees: Float) {
+    /** Facciata sinistra in alto: l'ordine di lettura occidentale. */
+    CLOCKWISE(90f),
+
+    /** Facciata destra in alto: l'ordine di lettura dei manga. */
+    COUNTER_CLOCKWISE(-90f),
+}
+
+/**
  * Rapporto larghezza/altezza oltre il quale una pagina è considerata doppia. Una facciata
  * singola sta intorno a 0,7 e una doppia intorno a 1,4: la soglia sta in mezzo, abbastanza
  * alta da non spezzare copertine o illustrazioni quasi quadrate.

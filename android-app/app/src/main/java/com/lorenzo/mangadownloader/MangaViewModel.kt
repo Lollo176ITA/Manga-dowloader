@@ -316,6 +316,7 @@ data class MangaUiState(
     val readerPages: List<ReaderPage> = emptyList(),
     val readerInitialPageIndex: Int = 0,
     val readerReadingMode: ReadingMode = ReadingMode.VERTICAL,
+    val readerSpreadPageMode: SpreadPageMode = SpreadPageMode.SPLIT,
     val readerSeriesKey: String? = null,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
@@ -1278,11 +1279,41 @@ class MangaViewModel internal constructor(
     }
 
     fun setSpreadPageMode(mode: SpreadPageMode) {
+        // Default globale, applicato alle serie senza una preferenza esplicita.
         if (mode == _state.value.settings.spreadPageMode) return
         updateSettings { it.copy(spreadPageMode = mode) }
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey
+        if (seriesKey != null && prefs.contains(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey)) {
+            return
+        }
+        updateState { copy(readerSpreadPageMode = mode) }
         // Il capitolo aperto è già stato espanso (o no) secondo la modalità precedente:
         // ricaricarlo è l'unico modo perché il cambio si veda subito invece che al prossimo.
-        _state.value.readerChapter?.let(::openReaderChapter)
+        state.readerChapter?.let(::openReaderChapter)
+    }
+
+    /**
+     * Override ricordato per la serie attualmente in lettura: le pagine doppie di un volume
+     * non si trattano come quelle di un webtoon, e la scelta giusta cambia da manga a manga.
+     */
+    fun setReaderSpreadPageMode(mode: SpreadPageMode) {
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey ?: return
+        prefs.edit {
+            putString(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey, mode.name)
+        }
+        if (mode == state.readerSpreadPageMode) return
+        updateState { copy(readerSpreadPageMode = mode) }
+        // Riaprire il capitolo lo ri-espande con la nuova modalità; il segno di lettura è
+        // salvato con il numero di pagine di allora, quindi restoredIndex lo ritraduce.
+        state.readerChapter?.let(::openReaderChapter)
+    }
+
+    private fun resolveSpreadPageMode(seriesKey: String): SpreadPageMode {
+        val stored = prefs.getString(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey, null)
+        return stored?.let { runCatching { SpreadPageMode.valueOf(it) }.getOrNull() }
+            ?: _state.value.settings.spreadPageMode
     }
 
     /**
@@ -1295,7 +1326,7 @@ class MangaViewModel internal constructor(
         pages: List<ReaderPage>,
         seriesKey: String,
     ): ReaderPageExpansion {
-        if (_state.value.settings.spreadPageMode != SpreadPageMode.SPLIT) {
+        if (resolveSpreadPageMode(seriesKey) != SpreadPageMode.SPLIT) {
             return unexpandedReaderPages(pages)
         }
         val rightFirst = resolveReadingMode(seriesKey).splitsSpreadRightFirst
@@ -1959,6 +1990,7 @@ class MangaViewModel internal constructor(
             !prefs.contains(KEY_READING_MODE_SERIES_PREFIX + seriesKey)
         ) {
             updateState { copy(readerReadingMode = mode) }
+            reopenIfSpreadsAreSplit(seriesKey)
         }
     }
 
@@ -1973,6 +2005,18 @@ class MangaViewModel internal constructor(
         val currentPage = (state.readerChapter?.readerPageIndex ?: state.readerInitialPageIndex)
             .coerceAtLeast(0)
         updateState { copy(readerReadingMode = mode, readerInitialPageIndex = currentPage) }
+        reopenIfSpreadsAreSplit(seriesKey)
+    }
+
+    /**
+     * Il senso di lettura decide anche in che ordine stanno le due metà di una pagina doppia
+     * divisa: cambiandolo a capitolo aperto, l'elenco pagine già espanso va rifatto o le
+     * facciate restano invertite fino alla riapertura. Solo con [SpreadPageMode.SPLIT]: le
+     * altre due modalità non toccano l'elenco pagine e si aggiornano da sole ridisegnando.
+     */
+    private fun reopenIfSpreadsAreSplit(seriesKey: String) {
+        if (resolveSpreadPageMode(seriesKey) != SpreadPageMode.SPLIT) return
+        _state.value.readerChapter?.let(::openReaderChapter)
     }
 
     private fun seriesKeyForDownloaded(relativePath: String): String =
@@ -2014,6 +2058,7 @@ class MangaViewModel internal constructor(
                 readerInitialPageIndex = savedPageIndex,
                 readerSeriesKey = seriesKey,
                 readerReadingMode = resolveReadingMode(seriesKey),
+                readerSpreadPageMode = resolveSpreadPageMode(seriesKey),
                 isLoadingReader = true,
                 errorMessage = null,
             )
@@ -2107,6 +2152,7 @@ class MangaViewModel internal constructor(
                 readerInitialPageIndex = savedPageIndex,
                 readerSeriesKey = seriesKey,
                 readerReadingMode = resolveReadingMode(seriesKey),
+                readerSpreadPageMode = resolveSpreadPageMode(seriesKey),
                 isLoadingReader = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = streamingReadChapterIds,
@@ -4020,6 +4066,7 @@ class MangaViewModel internal constructor(
     companion object {
         // Chiavi non-impostazioni che restano nel ViewModel (gli store gestiscono le altre).
         private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
+        private const val KEY_SPREAD_PAGE_MODE_SERIES_PREFIX = "spread_page_mode_series::"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L

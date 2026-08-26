@@ -29,6 +29,18 @@ enum class ReadingMode(val menuLabel: String, val shortLabel: String) {
      * modalità — non ne producono mai.
      */
     val splitsSpreadRightFirst: Boolean get() = this != PAGED
+
+    /**
+     * Verso in cui ruotare una pagina doppia lasciata intera (vedi [SpreadRotation]). Stessa
+     * regola di [splitsSpreadRightFirst]: la facciata da leggere per prima deve finire in
+     * alto, così scorrendo verso il basso l'ordine resta quello giusto.
+     */
+    val spreadRotation: SpreadRotation
+        get() = if (splitsSpreadRightFirst) {
+            SpreadRotation.COUNTER_CLOCKWISE
+        } else {
+            SpreadRotation.CLOCKWISE
+        }
 }
 
 data class ReaderChapter(

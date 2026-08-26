@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Done
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -301,6 +303,9 @@ fun SeriesHeader(
     status: String? = null,
     statusColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onDownloadAll: (() -> Unit)? = null,
+    // Slot opzionale renderizzato nella colonna a destra della cover, sotto lo stato
+    // (es. il selettore fonte nella schermata dettaglio).
+    belowStatus: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -338,6 +343,10 @@ fun SeriesHeader(
                     color = statusColor,
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            belowStatus?.let { content ->
+                Spacer(modifier = Modifier.height(10.dp))
+                content()
             }
         }
         onDownloadAll?.let { downloadAll ->
@@ -464,6 +473,9 @@ fun FavoriteCard(
     onLongClick: (() -> Unit)? = null,
     onMoreActions: (() -> Unit)? = null,
     readingState: FavoriteReadingState? = null,
+    // La fonte non compare finché non c'è qualcosa da dire: nessun avviso = card pulita,
+    // perché il preferito è il manga, non il manga-su-una-fonte.
+    notice: FavoriteSourceNotice? = null,
 ) {
     MangaPosterCard(
         coverModel = favorite.coverUrl,
@@ -472,6 +484,7 @@ fun FavoriteCard(
         onClickLabel = "Apri",
         onLongClick = onLongClick,
         onLongClickLabel = "Altre azioni",
+        bottomStartBadge = notice?.let { { FavoriteNoticeBadge(notice = it) } },
         topEndBadge = onMoreActions?.let { actions ->
             {
                 IconButton(
@@ -508,6 +521,47 @@ fun FavoriteCard(
 }
 
 /**
+ * Avviso sull'approvvigionamento di un preferito, in basso a sinistra sulla copertina.
+ *
+ * Solo icona: nella griglia a 3 colonne un'etichetta di testo verrebbe troncata. Il testo
+ * completo resta accessibile — è il `contentDescription` letto da TalkBack, e compare per
+ * esteso nel dialog delle azioni (pressione lunga).
+ */
+@Composable
+fun FavoriteNoticeBadge(
+    notice: FavoriteSourceNotice,
+    modifier: Modifier = Modifier,
+) {
+    val container = when (notice.kind) {
+        FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.errorContainer
+        FavoriteNoticeKind.SOURCE_SWITCHED -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val content = when (notice.kind) {
+        FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.onErrorContainer
+        FavoriteNoticeKind.SOURCE_SWITCHED -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(container)
+            .padding(4.dp),
+    ) {
+        Icon(
+            imageVector = notice.icon(),
+            contentDescription = notice.label,
+            tint = content,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+/** Icona dell'avviso: "scambio" per il cambio mirror, "nuvola barrata" per l'irraggiungibile. */
+fun FavoriteSourceNotice.icon(): ImageVector = when (kind) {
+    FavoriteNoticeKind.SOURCE_SWITCHED -> Icons.Default.SwapHoriz
+    FavoriteNoticeKind.UNREACHABLE -> Icons.Default.CloudOff
+}
+
+/**
  * Icona dello stato di lettura di un preferito: una progressione "libro chiuso → libro
  * aperto → fatto", così le tre icone si leggono come una storia unica.
  */
@@ -523,6 +577,25 @@ fun FavoriteReadingState.iconTint(): Color = when (this) {
     FavoriteReadingState.TO_START -> MaterialTheme.colorScheme.onSurfaceVariant
     FavoriteReadingState.IN_PROGRESS -> MaterialTheme.colorScheme.primary
     FavoriteReadingState.COMPLETED -> ReadGreen
+}
+
+/**
+ * Data di uscita del capitolo, in coda alla riga e in `labelSmall`: è un dettaglio di contorno,
+ * non deve competere col numero del capitolo. Non si mostra nulla quando la fonte non la
+ * pubblica (Mangapill, TCB Scans) o quando il capitolo è stato scaricato prima che l'app la
+ * salvasse — vedi [ChapterEntry.publishedAtMillis].
+ */
+@Composable
+private fun ChapterDateLabel(publishedAtMillis: Long?) {
+    val label = publishedAtMillis?.let { millis ->
+        remember(millis) { formatChapterDate(millis, System.currentTimeMillis()) }
+    } ?: return
+    Text(
+        text = label,
+        modifier = Modifier.padding(start = 12.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -555,6 +628,7 @@ fun ChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
+            ChapterDateLabel(chapter.publishedAtMillis)
             if (isDownloaded || isRead) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -659,6 +733,7 @@ fun DownloadedChapterRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
+            ChapterDateLabel(chapter.publishedAtMillis)
             Box(
                 modifier = Modifier.width(32.dp),
                 contentAlignment = Alignment.Center,

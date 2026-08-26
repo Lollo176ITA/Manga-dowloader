@@ -132,6 +132,7 @@ data class FavoriteBackupEntry(
     val mangaUrl: String = "",
     val coverUrl: String? = null,
     val addedAt: Long = 0L,
+    val seriesKey: String? = null,
 )
 
 /**
@@ -157,6 +158,7 @@ data class SettingsBackup(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: String = ReadingMode.VERTICAL.name,
+    val spreadPageMode: String = SpreadPageMode.SPLIT.name,
     val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
     val keepScreenOnEnabled: Boolean = true,
@@ -170,6 +172,7 @@ data class SettingsBackup(
     val hiddenHomeBlocks: List<String> = emptyList(),
     val cardDensity: String = CardDensity.NORMAL.name,
     val showHomeTab: Boolean = true,
+    val disabledSourceIds: List<String> = emptyList(),
 )
 
 enum class BackupRestoreMode { MERGE, REPLACE }
@@ -222,6 +225,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     privacyBrightnessEnabled = privacyBrightnessEnabled,
     readerBrightness = readerBrightness,
     readingMode = readingMode.name,
+    spreadPageMode = spreadPageMode.name,
     readerPageSpacingDp = readerPageSpacingDp,
     doubleTapZoomEnabled = doubleTapZoomEnabled,
     keepScreenOnEnabled = keepScreenOnEnabled,
@@ -235,6 +239,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
     cardDensity = cardDensity.name,
     showHomeTab = showHomeTab,
+    disabledSourceIds = disabledSourceIds.toList(),
 )
 
 /**
@@ -272,6 +277,8 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     privacyBrightnessEnabled = privacyBrightnessEnabled,
     readerBrightness = readerBrightness.coerceIn(0f, 1f),
     readingMode = runCatching { ReadingMode.valueOf(readingMode) }.getOrDefault(current.readingMode),
+    spreadPageMode = runCatching { SpreadPageMode.valueOf(spreadPageMode) }
+        .getOrDefault(current.spreadPageMode),
     readerPageSpacingDp = readerPageSpacingDp.coerceIn(0, MAX_READER_PAGE_SPACING_DP),
     doubleTapZoomEnabled = doubleTapZoomEnabled,
     keepScreenOnEnabled = keepScreenOnEnabled,
@@ -287,6 +294,12 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
     cardDensity = runCatching { CardDensity.valueOf(cardDensity) }.getOrDefault(current.cardDensity),
     showHomeTab = showHomeTab,
+    // Id non più in catalogo scartati; un backup che disabilitasse TUTTE le fonti viene
+    // azzerato (deve sempre restare almeno una fonte attiva).
+    disabledSourceIds = disabledSourceIds
+        .filter { id -> MangaSourceCatalog.descriptors.any { it.id == id } }
+        .toSet()
+        .let { ids -> if (ids.size >= MangaSourceCatalog.descriptors.size) emptySet() else ids },
 )
 
 fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =
@@ -296,6 +309,7 @@ fun FavoriteManga.toBackupEntry(): FavoriteBackupEntry =
         mangaUrl = mangaUrl,
         coverUrl = coverUrl,
         addedAt = addedAt,
+        seriesKey = canonicalKey(),
     )
 
 /** Converte una entry di backup in [FavoriteManga], risolvendo la fonte come fa `FavoritesStore`. */
@@ -303,28 +317,35 @@ fun FavoriteBackupEntry.toFavoriteManga(): FavoriteManga? {
     val cleanTitle = title.trim()
     val cleanUrl = mangaUrl.trim()
     if (cleanTitle.isBlank() || cleanUrl.isBlank()) return null
+    val resolvedSourceId = MangaSourceCatalog.resolveSourceId(sourceId, cleanUrl)
     return FavoriteManga(
-        sourceId = MangaSourceCatalog.resolveSourceId(sourceId, cleanUrl),
+        sourceId = resolvedSourceId,
         title = cleanTitle,
         mangaUrl = cleanUrl,
         coverUrl = coverUrl,
         addedAt = addedAt,
+        // Backup scritti prima dello schema per-serie: chiave derivata dal titolo.
+        seriesKey = seriesKey?.trim()?.takeIf(String::isNotBlank)
+            ?: SeriesIdentity.keyForTitle(cleanTitle)
+            ?: MangaSourceCatalog.identityKey(resolvedSourceId, cleanUrl),
     )
 }
 
-/** MERGE dei preferiti: tiene i correnti in testa, aggiunge solo i nuovi (dedup per identityKey). */
+/**
+ * MERGE dei preferiti: tiene i correnti in testa e aggiunge solo i nuovi. La dedup è **per
+ * serie** (chiave canonica + alias titolo), non per fonte: un backup fatto quando leggevi
+ * One Piece da un'altra fonte non deve ricreare una seconda voce della stessa serie.
+ */
 fun mergeFavorites(
     current: List<FavoriteManga>,
     incoming: List<FavoriteBackupEntry>,
 ): List<FavoriteManga> {
     val merged = current.toMutableList()
-    val keys = current.mapTo(mutableSetOf()) {
-        MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl)
-    }
+    val keys = current.flatMapTo(mutableSetOf()) { it.matchKeys() }
     for (entry in incoming) {
         val favorite = entry.toFavoriteManga() ?: continue
-        val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
-        if (keys.add(key)) {
+        if (favorite.matchKeys().none { it in keys }) {
+            keys += favorite.matchKeys()
             merged += favorite
         }
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -95,17 +96,22 @@ private fun SettingsSubheader(text: String) {
     )
 }
 
-/** Riga impostazione con titolo, descrizione e interruttore. */
+/**
+ * Riga impostazione con titolo, interruttore e — quando serve — una descrizione: [description]
+ * è opzionale, così le impostazioni che si spiegano da sole restano su una riga sola.
+ */
 @Composable
 private fun SettingRow(
     title: String,
-    description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    description: String? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Senza descrizione il testo da solo non arriva ai 48dp di touch target.
+            .heightIn(min = 48.dp)
             // L'intera riga commuta l'interruttore (non solo il piccolo Switch a destra)
             // e TalkBack la annuncia come un unico elemento "titolo, descrizione, attivato".
             // Lo Switch resta senza handler proprio: un solo nodo interattivo per riga.
@@ -123,17 +129,59 @@ private fun SettingRow(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Spacer(modifier = Modifier.width(12.dp))
         Switch(
             checked = checked,
             onCheckedChange = null,
         )
+    }
+}
+
+/**
+ * Riga impostazione senza interruttore: apre un'altra schermata ([onClick] valorizzato) oppure
+ * mostra solo un'informazione. [description] è opzionale, come in [SettingRow].
+ *
+ * Stesso bordo sinistro di [SettingRow]: prima ognuna di queste righe si apriva con uno
+ * spaziatore da 12dp che le rientrava rispetto a quelle con lo switch, e dentro la stessa
+ * card la differenza si leggeva come due tipi di elemento diversi.
+ */
+@Composable
+private fun SettingsActionRow(
+    title: String,
+    onClick: (() -> Unit)? = null,
+    description: String? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Senza descrizione il testo da solo non arriva ai 48dp di touch target.
+            .heightIn(min = 48.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            if (description != null) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -174,7 +222,6 @@ fun ThemeModeContent(
         Spacer(modifier = Modifier.height(16.dp))
         SettingRow(
             title = "Colori dinamici",
-            description = "Usa i colori del sistema (Material You)",
             checked = useDynamicColor,
             onCheckedChange = onToggleDynamicColor,
         )
@@ -230,6 +277,49 @@ fun ReadingModeContent(
     }
 }
 
+/**
+ * Come trattare le pagine doppie. Sta subito sotto alla modalità di lettura perché è da
+ * quella che dipende l'ordine delle due metà: nella modalità occidentale si legge prima la
+ * sinistra, altrove prima la destra.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SpreadPageModeContent(
+    currentMode: SpreadPageMode,
+    onSelectMode: (SpreadPageMode) -> Unit,
+) {
+    Column {
+        SettingsSubheader("Pagine doppie")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SpreadPageMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = currentMode == mode,
+                    onClick = { onSelectMode(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = SpreadPageMode.entries.size,
+                    ),
+                    label = { Text(mode.shortLabel) },
+                )
+            }
+        }
+        Text(
+            text = when (currentMode) {
+                SpreadPageMode.FIT ->
+                    "Le facciate affiancate restano in un'unica immagine, rimpicciolita per starci."
+                SpreadPageMode.SPLIT ->
+                    "Le facciate affiancate diventano due pagine, nell'ordine di lettura giusto."
+                SpreadPageMode.ROTATE ->
+                    "Le facciate affiancate vengono ruotate: si leggono girando il telefono, " +
+                        "che resta bloccato in verticale."
+            } + " Puoi cambiarla per la singola serie dal lettore.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderPageSpacingContent(
@@ -264,7 +354,6 @@ fun DoubleTapZoomContent(
 ) {
     SettingRow(
         title = "Doppio tap per zoomare",
-        description = "Tocca due volte una pagina per ingrandirla. Lo zoom con due dita resta sempre attivo.",
         checked = enabled,
         onCheckedChange = onToggle,
     )
@@ -277,7 +366,6 @@ fun KeepScreenOnContent(
 ) {
     SettingRow(
         title = "Mantieni schermo acceso",
-        description = "Durante la lettura lo schermo non si spegne da solo.",
         checked = enabled,
         onCheckedChange = onToggle,
     )
@@ -290,7 +378,6 @@ fun ShowHomeTabContent(
 ) {
     SettingRow(
         title = "Mostra la tab Home",
-        description = "Se disattivata, l'app si apre sulla Ricerca.",
         checked = enabled,
         onCheckedChange = onToggle,
     )
@@ -375,26 +462,11 @@ fun SmartCleanupContent(
 fun StorageManagerContent(
     onOpenStorageManager: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenStorageManager),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Gestisci memoria",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Vedi quanto spazio occupa ogni manga ed elimina ciò che non ti serve",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    SettingsActionRow(
+        title = "Gestisci memoria",
+        description = "Vedi quanto spazio occupa ogni manga ed elimina ciò che non ti serve",
+        onClick = onOpenStorageManager,
+    )
 }
 
 /** Sezione "Informazioni": versione installata + accesso alle Novità (changelog). */
@@ -404,45 +476,16 @@ fun InfoContent(
     onOpenChangelog: () -> Unit,
 ) {
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Versione",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "MangApp $appVersion",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        SettingsActionRow(
+            title = "Versione",
+            description = "MangApp $appVersion",
+        )
         SettingsDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenChangelog),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Novità",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "Scopri cosa è cambiato nelle ultime versioni",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        SettingsActionRow(
+            title = "Novità",
+            description = "Scopri cosa è cambiato nelle ultime versioni",
+            onClick = onOpenChangelog,
+        )
     }
 }
 
@@ -451,26 +494,11 @@ fun InfoContent(
 fun BackupContent(
     onOpenBackup: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenBackup),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Backup e ripristino",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Esporta o importa preferiti e impostazioni in un file",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    SettingsActionRow(
+        title = "Backup e ripristino",
+        description = "Esporta o importa preferiti e impostazioni in un file",
+        onClick = onOpenBackup,
+    )
 }
 
 /** Riga azione che apre la schermata "Aiutaci a migliorare" (segnalazioni e proposte). */
@@ -478,51 +506,21 @@ fun BackupContent(
 fun ReportProblemContent(
     onOpenReportProblem: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenReportProblem),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Aiutaci a migliorare",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Segnala un bug, proponi una funzionalità o lascia un feedback (con foto o vocale)",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    SettingsActionRow(
+        title = "Aiutaci a migliorare",
+        description = "Segnala un bug, proponi una funzionalità o lascia un feedback " +
+            "(con foto o vocale)",
+        onClick = onOpenReportProblem,
+    )
 }
 
 /** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
 @Composable
 fun RestartTutorialContent(onRestart: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onRestart),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Rivedi il tutorial",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "Riavvia il tour guidato che mostra le funzioni principali dell'app",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    SettingsActionRow(
+        title = "Rivedi il tutorial",
+        onClick = onRestart,
+    )
 }
 
 /**
@@ -535,9 +533,11 @@ fun AniListAccountContent(
     viewerName: String?,
     isConnecting: Boolean,
     syncEnabled: Boolean,
+    favoritesSyncEnabled: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onToggleSync: (Boolean) -> Unit,
+    onToggleFavoritesSync: (Boolean) -> Unit,
 ) {
     Column {
         Row(
@@ -577,6 +577,14 @@ fun AniListAccountContent(
                 description = "A fine capitolo aggiorna stato e progresso sulla tua lista AniList",
                 checked = syncEnabled,
                 onCheckedChange = onToggleSync,
+            )
+            SettingsDivider()
+            SettingRow(
+                title = "Sincronizza preferiti",
+                description = "Unisce i preferiti dell'app e quelli di AniList. " +
+                    "Non rimuove mai niente da nessuna delle due parti.",
+                checked = favoritesSyncEnabled,
+                onCheckedChange = onToggleFavoritesSync,
             )
         }
     }
@@ -681,17 +689,36 @@ fun LabsContent(
             )
             Spacer(modifier = Modifier.height(16.dp))
             SettingRow(
-                title = "Luminosità lettore (privacy)",
-                description = "Riduci la luminosità nel lettore per leggere in privato",
+                title = "Luminosità lettore",
+                description = "Riduci la luminosità nel lettore",
                 checked = privacyBrightnessEnabled,
                 onCheckedChange = onTogglePrivacyBrightness,
             )
             Spacer(modifier = Modifier.height(16.dp))
             SettingRow(
                 title = "Rotazione schermo",
-                description = "Permetti la rotazione in orizzontale (sperimentale)",
+                description = "Permetti la rotazione in orizzontale",
                 checked = allowLandscapeRotation,
                 onCheckedChange = onToggleAllowLandscapeRotation,
+            )
+        }
+    }
+}
+
+/** Elenco delle fonti registrate con uno switch ciascuna (sezione impostazioni "Fonti"). */
+@Composable
+fun SourceTogglesContent(
+    disabledSourceIds: Set<String>,
+    onToggle: (String, Boolean) -> Unit,
+) {
+    Column {
+        MangaSourceCatalog.descriptors.forEachIndexed { index, descriptor ->
+            if (index > 0) SettingsDivider()
+            SettingRow(
+                title = descriptor.displayName,
+                description = "Lingua: ${descriptor.language.displayName}",
+                checked = descriptor.id !in disabledSourceIds,
+                onCheckedChange = { enabled -> onToggle(descriptor.id, enabled) },
             )
         }
     }

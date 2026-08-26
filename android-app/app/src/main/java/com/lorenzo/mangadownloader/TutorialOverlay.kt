@@ -331,10 +331,15 @@ private fun InteractivePhaseObservers(
             onAdvancePhase(TutorialPhase.AwaitingResultTap, TutorialPhase.AwaitingFavorite)
         }
     }
-    LaunchedEffect(phase, state.favoriteMangaKeys, sample) {
+    LaunchedEffect(phase, state.favoriteSeriesKeys, sample) {
         if (phase != TutorialPhase.AwaitingFavorite || sample == null) return@LaunchedEffect
-        val key = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
-        if (key in state.favoriteMangaKeys) {
+        // Il preferito è la serie: si riconosce dalla chiave-titolo del campione, non dalla
+        // fonte con cui il tutorial l'ha proposto.
+        val matched = state.favoriteSeriesKeys.containsAny(
+            SeriesIdentity.keyForTitle(sample.title),
+            MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl),
+        )
+        if (matched) {
             onAdvancePhase(TutorialPhase.AwaitingFavorite, TutorialPhase.AwaitingDownload)
         }
     }

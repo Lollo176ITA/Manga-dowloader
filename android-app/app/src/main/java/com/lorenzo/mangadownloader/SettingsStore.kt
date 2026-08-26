@@ -18,6 +18,8 @@ class SettingsStore(private val prefs: SharedPreferences) {
             parentalPinHash = prefs.getString(KEY_PARENTAL_PIN_HASH, null),
             tutorialCompleted = prefs.getBoolean(KEY_TUTORIAL_COMPLETED, false),
             aniListSyncEnabled = prefs.getBoolean(KEY_ANILIST_SYNC_ENABLED, true),
+            aniListFavoritesSyncEnabled =
+                prefs.getBoolean(KEY_ANILIST_FAVORITES_SYNC_ENABLED, true),
         )
         val storedJson = prefs.getString(KEY_SETTINGS_JSON, null)
         val portableSettings = storedJson
@@ -78,6 +80,10 @@ class SettingsStore(private val prefs: SharedPreferences) {
             putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
+            putBoolean(
+                KEY_ANILIST_FAVORITES_SYNC_ENABLED,
+                settings.aniListFavoritesSyncEnabled,
+            )
         }
     }
 
@@ -119,6 +125,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_FAVORITE_SORT = "favorite_sort"
         const val KEY_LIBRARY_SORT = "library_sort"
         const val KEY_ANILIST_SYNC_ENABLED = "anilist_sync_enabled"
+        const val KEY_ANILIST_FAVORITES_SYNC_ENABLED = "anilist_favorites_sync_enabled"
         const val KEY_HOME_BLOCK_ORDER = "home_block_order"
         const val KEY_HOME_HIDDEN_BLOCKS = "home_hidden_blocks"
     }

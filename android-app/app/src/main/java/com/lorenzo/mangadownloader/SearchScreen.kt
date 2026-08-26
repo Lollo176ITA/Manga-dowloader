@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -39,16 +40,24 @@ fun SearchScreen(
     onQueryChange: (String) -> Unit,
     onClearRecentSearches: () -> Unit,
     onRefresh: () -> Unit,
-    onSelect: (MangaSearchResult) -> Unit,
-    onToggleFavorite: (MangaSearchResult) -> Unit,
+    onSelectSeries: (GroupedSearchResult) -> Unit,
+    // La stella agisce sulla SERIE (il gruppo), non sul singolo risultato di una fonte.
+    onToggleFavorite: (GroupedSearchResult) -> Unit,
     onShowInfo: (MangaSearchResult) -> Unit,
     onDismissInfo: () -> Unit,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
     val trimmed = state.query.trim()
-    val scope = state.settings.searchScope
     val pullState = rememberPullToRefreshState()
+
+    // Lingue effettivamente interrogabili: quelle con almeno una fonte attiva. Con una sola
+    // lingua rimasta lo scope è di fatto "tutte le fonti attive", a prescindere da cosa era
+    // stato salvato in precedenza — le caption devono dirlo, non mentire su un filtro morto.
+    val availableLanguages = remember(state.settings.disabledSourceIds) {
+        MangaSourceCatalog.languagesWithEnabledSources(state.settings.disabledSourceIds)
+    }
+    val scope = if (availableLanguages.size > 1) state.settings.searchScope else SearchScope.ALL
 
     val tutorialAnchorFor = LocalTutorialAnchor.current
     Column(
@@ -65,29 +74,32 @@ fun SearchScreen(
             onSearch = onRefresh,
         )
 
-        // Ambito sempre visibile e cambiabile a 1 tap. L'utente sceglie per lingua
-        // (Tutte · Italiano · English), non per server: i nomi delle fonti non dicono
-        // nulla a chi non le conosce.
-        SearchScopeChips(
-            scope = scope,
-            onSelectLanguage = onSelectLanguage,
-            onSelectAllSources = onSelectAllSources,
-        )
+        // Ambito cambiabile a 1 tap. L'utente sceglie per lingua (Tutte · Italiano · English),
+        // non per server: i nomi delle fonti non dicono nulla a chi non le conosce. Con una
+        // sola lingua attiva non c'è nulla da scegliere e la riga sparisce.
+        if (availableLanguages.size > 1) {
+            SearchScopeChips(
+                scope = scope,
+                languages = availableLanguages,
+                onSelectLanguage = onSelectLanguage,
+                onSelectAllSources = onSelectAllSources,
+            )
+        }
 
         PullToRefreshBox(
-            isRefreshing = state.isSearching && state.results.isNotEmpty(),
+            isRefreshing = state.isSearching && state.groupedResults.isNotEmpty(),
             onRefresh = onRefresh,
             state = pullState,
             modifier = Modifier.fillMaxSize(),
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
-                    state.isSearching && state.results.isEmpty() -> {
+                    state.isSearching && state.groupedResults.isEmpty() -> {
                         FullScreenLoading()
                     }
                     // Errore di rete/fonte con lista vuota: stato dedicato con Riprova,
                     // non un falso "Nessun risultato" (stesso pattern della tab Scopri).
-                    state.searchError != null && state.results.isEmpty() -> {
+                    state.searchError != null && state.groupedResults.isEmpty() -> {
                         EmptyState(
                             icon = Icons.Default.CloudOff,
                             title = "Ricerca non riuscita",
@@ -96,15 +108,12 @@ fun SearchScreen(
                             onAction = onRefresh,
                         )
                     }
-                    state.results.isNotEmpty() -> {
+                    state.groupedResults.isNotEmpty() -> {
                         val anchorFor = LocalTutorialAnchor.current
-                        val firstKey = MangaSourceCatalog.identityKey(
-                            state.results.first().sourceId,
-                            state.results.first().mangaUrl,
-                        )
+                        val firstKey = state.groupedResults.first().seriesKey
                         Column(modifier = Modifier.fillMaxSize()) {
                             Text(
-                                text = "${state.results.size} risultati ${scope.resultsCaption()}",
+                                text = "${state.groupedResults.size} risultati ${scope.resultsCaption()}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 16.dp, top = 4.dp),
@@ -117,29 +126,30 @@ fun SearchScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 items(
-                                    state.results,
-                                    key = { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) },
-                                ) { result ->
-                                    val resultKey = MangaSourceCatalog.identityKey(
-                                        result.sourceId,
-                                        result.mangaUrl,
-                                    )
-                                    val cardModifier = if (resultKey == firstKey) {
+                                    state.groupedResults,
+                                    key = { it.seriesKey },
+                                ) { group ->
+                                    val primary = group.primary
+                                    val cardModifier = if (group.seriesKey == firstKey) {
                                         anchorFor(TutorialAnchor.SEARCH_RESULT_FIRST)
                                     } else {
                                         Modifier
                                     }
                                     Box(modifier = cardModifier) {
                                         ResultCard(
-                                            result = result,
-                                            isFavorite = resultKey in state.favoriteMangaKeys,
-                                            onClick = { onSelect(result) },
-                                            onToggleFavorite = { onToggleFavorite(result) },
-                                            onShowInfo = { onShowInfo(result) },
-                                            // Lo stesso titolo può arrivare da più fonti:
-                                            // il badge le rende distinguibili senza aprire il
-                                            // dettaglio (due edizioni diverse, non un doppione).
-                                            sourceLabel = MangaSourceCatalog.shortDisplayName(result.sourceId),
+                                            result = primary.copy(title = group.title, coverUrl = group.coverUrl),
+                                            isFavorite = group.seriesKey in state.favoriteSeriesKeys,
+                                            onClick = { onSelectSeries(group) },
+                                            onToggleFavorite = { onToggleFavorite(group) },
+                                            onShowInfo = { onShowInfo(primary) },
+                                            // Una card = una serie: se la serie è su più fonti
+                                            // il badge dice quante, altrimenti la sigla fonte
+                                            // come prima (due edizioni diverse restano distinte).
+                                            sourceLabel = if (group.results.size > 1) {
+                                                "${group.results.size} fonti"
+                                            } else {
+                                                MangaSourceCatalog.shortDisplayName(primary.sourceId)
+                                            },
                                         )
                                     }
                                 }
@@ -214,12 +224,13 @@ private fun SearchScope.emptyResultsPlace(): String = when (language) {
 }
 
 /**
- * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per lingua
- * (Italiano/English), che attivano la ricerca aggregata sulle fonti corrispondenti.
+ * Riga di FilterChip per l'ambito della ricerca: "Tutte" più una chip per ciascuna delle
+ * [languages] con fonti attive, che attivano la ricerca aggregata sulle fonti corrispondenti.
  */
 @Composable
 private fun SearchScopeChips(
     scope: SearchScope,
+    languages: List<MangaSourceLanguage>,
     onSelectLanguage: (MangaSourceLanguage) -> Unit,
     onSelectAllSources: () -> Unit,
 ) {
@@ -235,7 +246,7 @@ private fun SearchScopeChips(
                 label = { Text("Tutte") },
             )
         }
-        items(MangaSourceLanguage.entries, key = { "lang_${it.name}" }) { language ->
+        items(languages, key = { "lang_${it.name}" }) { language ->
             FilterChip(
                 selected = scope.language == language,
                 onClick = { onSelectLanguage(language) },

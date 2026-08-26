@@ -18,12 +18,18 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                 if (title.isBlank() || mangaUrl.isBlank()) {
                     null
                 } else {
+                    val sourceId = MangaSourceCatalog.resolveSourceId(entry.sourceId, mangaUrl)
                     FavoriteManga(
-                        sourceId = MangaSourceCatalog.resolveSourceId(entry.sourceId, mangaUrl),
+                        sourceId = sourceId,
                         title = title,
                         mangaUrl = mangaUrl,
                         coverUrl = entry.coverUrl,
                         addedAt = entry.addedAt,
+                        // Preferiti salvati prima dello schema per-serie: chiave derivata dal
+                        // titolo, la stessa che avrebbero avuto da `seriesKeyFor` senza link.
+                        seriesKey = entry.seriesKey?.trim()?.takeIf(String::isNotBlank)
+                            ?: SeriesIdentity.keyForTitle(title)
+                            ?: MangaSourceCatalog.identityKey(sourceId, mangaUrl),
                     )
                 }
             }
@@ -37,12 +43,17 @@ class FavoritesStore(private val prefs: SharedPreferences) {
                 mangaUrl = it.mangaUrl,
                 coverUrl = it.coverUrl,
                 addedAt = it.addedAt,
+                seriesKey = it.canonicalKey(),
             )
         }
         prefs.writeJson(KEY_FAVORITES_JSON, payload)
     }
 
-    /** Forma su disco di un preferito; i campi combaciano col formato storico. */
+    /**
+     * Forma su disco di un preferito; i campi combaciano col formato storico. [seriesKey] è
+     * additivo con default null: una versione precedente dell'app lo ignora e continua a
+     * leggere il resto.
+     */
     @Serializable
     private data class FavoriteEntryJson(
         val sourceId: String? = null,
@@ -50,6 +61,7 @@ class FavoritesStore(private val prefs: SharedPreferences) {
         val mangaUrl: String = "",
         val coverUrl: String? = null,
         val addedAt: Long = 0L,
+        val seriesKey: String? = null,
     )
 
     private companion object {

@@ -18,6 +18,29 @@ enum class ReadingMode(val menuLabel: String, val shortLabel: String) {
 
     /** Vero solo per la modalità manga: lo swipe e l'ordine pagine vanno da destra a sinistra. */
     val isRightToLeft: Boolean get() = this == PAGED_RTL
+
+    /**
+     * In quale ordine mostrare le due metà di una pagina doppia divisa: `true` per l'ordine
+     * di lettura dei manga, prima la metà destra.
+     *
+     * Vale ovunque tranne che in [PAGED], l'unica modalità in cui l'utente ha dichiarato di
+     * leggere da sinistra. Anche nello scroll verticale, quindi: le pagine doppie arrivano
+     * dai volumi manga, mentre le strisce webtoon — l'altro contenuto tipico di quella
+     * modalità — non ne producono mai.
+     */
+    val splitsSpreadRightFirst: Boolean get() = this != PAGED
+
+    /**
+     * Verso in cui ruotare una pagina doppia lasciata intera (vedi [SpreadRotation]). Stessa
+     * regola di [splitsSpreadRightFirst]: la facciata da leggere per prima deve finire in
+     * alto, così scorrendo verso il basso l'ordine resta quello giusto.
+     */
+    val spreadRotation: SpreadRotation
+        get() = if (splitsSpreadRightFirst) {
+            SpreadRotation.COUNTER_CLOCKWISE
+        } else {
+            SpreadRotation.CLOCKWISE
+        }
 }
 
 data class ReaderChapter(
@@ -53,8 +76,16 @@ sealed class ReaderPage {
         override val sourceId: String? = null,
         /** Indice del frammento da recuperare dall'immagine remota completa. */
         val remoteSegmentIndex: Int? = null,
+        /**
+         * Metà da mostrare quando il file è una pagina doppia divisa (vedi [SpreadPages]).
+         * `null` per le pagine normali, che si mostrano intere.
+         */
+        val half: PageHalf? = null,
     ) : ReaderPage() {
-        override val stableKey: String = file.absolutePath
+        // Le due metà della stessa pagina sono due voci distinte del pager e della lista:
+        // senza il suffisso condividerebbero la chiave, che deve essere unica.
+        override val stableKey: String =
+            file.absolutePath + (half?.let { "#${it.name}" } ?: "")
 
         /** Vero se il file locale non è utilizzabile (sparito o vuoto). */
         val isFileBroken: Boolean get() = !file.isFile || file.length() == 0L

@@ -227,6 +227,11 @@ class HastaTeamSource(
                 numberValue = numberText.toBigDecimalOrNull() ?: BigDecimal(numberText),
                 url = chapterUrl,
                 slug = slug,
+                // `published_on` è l'uscita vera; `updated_at` cambia a ogni ritocco del
+                // capitolo e darebbe date molto più recenti di quanto il capitolo sia.
+                publishedAtMillis = chapterDateFromIso(
+                    item["published_on"]?.jsonPrimitive?.contentOrNull,
+                ),
             )
         }
 

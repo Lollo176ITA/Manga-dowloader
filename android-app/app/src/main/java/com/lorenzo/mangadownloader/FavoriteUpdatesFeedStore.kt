@@ -25,16 +25,25 @@ data class FavoriteUpdateEvent(
     val coverUrl: String? = null,
     val timestampMillis: Long = 0L,
     val seen: Boolean = false,
+    /**
+     * Identità della serie ([SeriesIdentity]): è su questa che si de-duplica, così lo stesso
+     * capitolo rilevato da due mirror diversi resta una riga sola. Vuota solo negli eventi
+     * scritti prima di questo schema (li riempie [FavoritesSeriesMigration]).
+     */
+    val seriesKey: String = "",
 )
+
+/** Chiave di de-duplicazione di un evento: la serie, con l'identityKey come ripiego legacy. */
+fun FavoriteUpdateEvent.dedupKey(): String = seriesKey.ifBlank { identityKey }
 
 /** Quantità massima di eventi tenuti nel feed: tiene piccolo il blob JSON in SharedPreferences. */
 const val MAX_FEED_EVENTS = 200
 
 /**
  * Aggiunge un evento in testa al feed (più recente per primo). Funzione **pura** (testabile
- * senza Android/rete). De-duplica su `identityKey + chapterNumber` così una ri-rilevazione dello
- * stesso capitolo (es. dopo una scrittura andata storta) non crea righe doppie, e tronca a
- * [maxEvents] scartando i più vecchi.
+ * senza Android/rete). De-duplica su `serie + chapterNumber` così una ri-rilevazione dello
+ * stesso capitolo (dopo una scrittura andata storta, o perché il fallback l'ha ritrovato su
+ * un altro mirror) non crea righe doppie, e tronca a [maxEvents] scartando i più vecchi.
  */
 fun appendUpdateEvent(
     existing: List<FavoriteUpdateEvent>,
@@ -42,7 +51,7 @@ fun appendUpdateEvent(
     maxEvents: Int = MAX_FEED_EVENTS,
 ): List<FavoriteUpdateEvent> {
     val withoutDuplicate = existing.filterNot {
-        it.identityKey == event.identityKey && it.chapterNumber == event.chapterNumber
+        it.dedupKey() == event.dedupKey() && it.chapterNumber == event.chapterNumber
     }
     return (listOf(event) + withoutDuplicate).take(maxEvents.coerceAtLeast(1))
 }

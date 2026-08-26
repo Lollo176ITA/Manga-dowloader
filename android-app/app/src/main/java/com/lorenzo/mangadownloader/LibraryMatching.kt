@@ -9,18 +9,21 @@ object LibraryMatching {
 
     /**
      * Chiavi dei capitoli già scaricati per la serie [details]: l'id stabile del capitolo
-     * più una chiave per-numero (`number:<label>`), così il dettaglio può marcare come
-     * "scaricato" anche capitoli con URL diverso ma stesso numero.
+     * più una chiave per-numero (`number:<label>`, con `@<variante>` in coda quando il
+     * capitolo appartiene a un gruppo secondario), così il dettaglio può marcare come
+     * "scaricato" anche capitoli con URL diverso ma stesso numero, senza però confondere
+     * fra loro due omonimi della stessa fonte.
      */
     fun downloadedChapterKeys(
         details: MangaDetails,
         library: List<DownloadedSeries>,
+        extraBindings: List<SeriesSourceBinding> = emptyList(),
     ): Set<String> {
-        val matchingSeries = matchingDownloadedSeries(details, library) ?: return emptySet()
+        val matchingSeries = matchingDownloadedSeries(details, library, extraBindings) ?: return emptySet()
         return buildSet {
             matchingSeries.chapters.forEach { chapter ->
                 add(chapter.chapterId)
-                add("number:${DownloadStorage.normalizedChapterLabel(chapter.numberText)}")
+                add(DownloadStorage.chapterNumberKey(chapter.numberText, chapter.variantTag))
             }
         }
     }
@@ -29,8 +32,9 @@ object LibraryMatching {
     fun downloadedReadChapterIds(
         details: MangaDetails,
         library: List<DownloadedSeries>,
+        extraBindings: List<SeriesSourceBinding> = emptyList(),
     ): Set<String> {
-        return matchingDownloadedSeries(details, library)?.let { series ->
+        return matchingDownloadedSeries(details, library, extraBindings)?.let { series ->
             buildSet {
                 addAll(series.readChapterIds)
                 series.chapters
@@ -40,10 +44,15 @@ object LibraryMatching {
         }.orEmpty()
     }
 
-    /** La serie scaricata che corrisponde a [details] per identità o titolo, se presente. */
+    /**
+     * La serie scaricata che corrisponde a [details] per identità o titolo, se presente.
+     * [extraBindings] sono i binding del SeriesLink (serie multi-fonte): una serie scaricata
+     * da QUALUNQUE fonte collegata matcha, anche con titolo/URL diversi da quelli attivi.
+     */
     fun matchingDownloadedSeries(
         details: MangaDetails,
         library: List<DownloadedSeries>,
+        extraBindings: List<SeriesSourceBinding> = emptyList(),
     ): DownloadedSeries? {
         val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
         val detailsTitleKey = MangaSourceCatalog.identityKeyOrNull(
@@ -54,6 +63,9 @@ object LibraryMatching {
         val detailsKeys = buildSet {
             add(detailsKey)
             detailsTitleKey?.let(::add)
+            extraBindings.forEach { binding ->
+                add(MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl))
+            }
         }
         return library.firstOrNull { series ->
             val seriesKey = MangaSourceCatalog.identityKeyOrNull(

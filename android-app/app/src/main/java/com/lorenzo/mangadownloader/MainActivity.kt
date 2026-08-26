@@ -171,14 +171,18 @@ private fun MangaDownloaderAppContent(
         contract = ActivityResultContracts.RequestPermission(),
     ) { }
 
-    // Il permesso notifiche può cambiare fuori dall'app (impostazioni di sistema):
-    // ricontrollato a ogni ritorno in foreground, così l'avviso sotto "Notifiche
-    // preferiti" resta veritiero anche dopo una revoca.
+    // Cose che possono cambiare fuori dall'app e vanno ricontrollate a ogni ritorno in
+    // foreground: il permesso notifiche (revocabile dalle impostazioni di sistema, altrimenti
+    // l'avviso sotto "Notifiche preferiti" mentirebbe) e l'account AniList, visto che il
+    // ritorno in primo piano è tipicamente il rientro dal browser dell'OAuth.
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationsPermissionTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, viewModel) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) notificationsPermissionTick++
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsPermissionTick++
+                viewModel.syncAniListAccountState()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -392,9 +396,13 @@ private fun MangaDownloaderAppContent(
     // Durante la lettura i tocchi sono rari (pagine lunghe, tavole dense): senza questo
     // flag il timeout di sistema spegne lo schermo a metà pagina. Attivo solo a reader
     // aperto (e con l'impostazione dedicata accesa); onDispose lo ripulisce sempre.
+    // Con le pagine doppie ruotate il telefono si gira per leggerle: se ruotasse anche
+    // l'app, l'immagine tornerebbe sdraiata e la modalità non servirebbe a niente.
+    val readerLocksPortrait = state.readerChapter != null &&
+        state.readerSpreadPageMode == SpreadPageMode.ROTATE
     AppSystemEffects(
         activity = activity,
-        allowLandscapeRotation = state.settings.allowLandscapeRotation,
+        allowLandscapeRotation = state.settings.allowLandscapeRotation && !readerLocksPortrait,
         biometricRequest = state.biometricPromptRequest,
         readerOpen = state.readerChapter != null,
         readerFullscreen = isReaderFullscreen,
@@ -515,6 +523,7 @@ private fun MangaDownloaderAppContent(
                     onOpenSettings = viewModel::openSettings,
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
+                    onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
@@ -561,6 +570,9 @@ private fun MangaDownloaderAppContent(
                     isLoading = state.isLoadingReader,
                     readingMode = state.readerReadingMode,
                     doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
+                    spreadRotation = state.readerSpreadPageMode
+                        .takeIf { it == SpreadPageMode.ROTATE }
+                        ?.let { state.readerReadingMode.spreadRotation },
                     pageSpacing = state.settings.readerPageSpacingDp.dp,
                     navBarVisible = !isReaderFullscreen,
                     padding = innerPadding,
@@ -680,6 +692,8 @@ private fun MangaDownloaderAppContent(
                     },
                     onDisconnectAniList = viewModel::disconnectAniList,
                     onToggleAniListSync = viewModel::setAniListSyncEnabled,
+                    onToggleAniListFavoritesSync =
+                        viewModel::setAniListFavoritesSyncEnabled,
                     onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
                     onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
@@ -687,9 +701,11 @@ private fun MangaDownloaderAppContent(
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
                     onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
+                    onSelectSpreadPageMode = viewModel::setSpreadPageMode,
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
                     onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
+                    onSetSourceEnabled = viewModel::setSourceEnabled,
                     onToggleShowHomeTab = viewModel::setShowHomeTab,
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
@@ -721,19 +737,16 @@ private fun MangaDownloaderAppContent(
                 ChangelogScreen(padding = innerPadding)
             }
             Screen.Detail -> if (selectedManga != null) {
-                val downloadedChapterKeys = remember(selectedManga, state.library) {
-                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library)
+                val linkBindings = state.selectedSeriesLink?.sources.orEmpty()
+                val downloadedChapterKeys = remember(selectedManga, state.library, linkBindings) {
+                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library, linkBindings)
                 }
-                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds) {
+                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds, linkBindings) {
                     state.selectedMangaReadChapterIds +
-                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library)
+                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library, linkBindings)
                 }
-                val aniListTracking = remember(selectedManga, state.aniList.trackings) {
-                    MangaSourceCatalog.identityKeyOrNull(
-                        selectedManga.sourceId,
-                        selectedManga.mangaUrl,
-                        selectedManga.title,
-                    )?.let { state.aniList.trackings[it] }
+                val aniListTracking = remember(selectedManga, state.aniList.trackings, state.selectedSeriesKey) {
+                    state.selectedSeriesKey?.let { state.aniList.trackings[it] }
                 }
                 DetailScreen(
                     details = selectedManga,
@@ -743,6 +756,10 @@ private fun MangaDownloaderAppContent(
                     readChapterIds = readChapterIds,
                     streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     autoDownloadEnabled = state.settings.autoDownloadEnabled,
+                    showSourceSelector = state.selectedSeriesLink != null,
+                    sourceOptions = state.sourceOptions,
+                    onOpenSourceMenu = viewModel::loadSourceOptions,
+                    onSwitchSource = viewModel::switchSource,
                     showAniListTracking = state.aniList.viewer != null,
                     aniListTracking = aniListTracking,
                     onLinkAniList = viewModel::openAniListMatch,
@@ -783,6 +800,7 @@ private fun MangaDownloaderAppContent(
                             onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
                             onLoadDiscover = viewModel::loadDiscovery,
                             onLoadRecommendations = viewModel::loadRecommendations,
+                            onRefreshFeeds = viewModel::refreshHomeFeeds,
                             onOpenGenre = viewModel::openDiscoverGenre,
                             onSearchFirst = goToSearchTab,
                             onStartTutorial = {
@@ -801,8 +819,8 @@ private fun MangaDownloaderAppContent(
                             onQueryChange = viewModel::onQueryChange,
                             onClearRecentSearches = viewModel::clearRecentSearches,
                             onRefresh = viewModel::submitSearch,
-                            onSelect = viewModel::selectManga,
-                            onToggleFavorite = viewModel::toggleFavoriteFromResult,
+                            onSelectSeries = viewModel::selectSeries,
+                            onToggleFavorite = viewModel::toggleFavoriteFromGroup,
                             onShowInfo = viewModel::showMangaInfo,
                             onDismissInfo = viewModel::dismissMangaInfo,
                             onSelectLanguage = viewModel::selectLanguageSearch,
@@ -815,6 +833,7 @@ private fun MangaDownloaderAppContent(
                             sort = state.settings.favoriteSort,
                             statusByKey = state.favoriteStatusByKey,
                             seenByKey = state.favoriteSeenStates,
+                            noticesByKey = state.favoriteNotices,
                             readingStateByKey = favoriteReadingStates,
                             padding = innerPadding,
                             onQueryChange = viewModel::onFavoritesQueryChange,

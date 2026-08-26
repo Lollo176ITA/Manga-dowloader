@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.MaterialTheme
 
 @Composable
@@ -130,6 +131,13 @@ fun AvailableUpdateDialog(
                 onDismiss()
             }
         },
+        // Il tap fuori non chiude: il controllo aggiornamenti è throttlato a una volta al
+        // giorno, quindi un tocco a vuoto farebbe sparire l'avviso fino al giorno dopo.
+        // Per uscire ci sono "Più tardi" o il tasto indietro (bloccati durante l'installazione).
+        properties = DialogProperties(
+            dismissOnBackPress = !isInstalling,
+            dismissOnClickOutside = false,
+        ),
         title = { Text("Aggiornamento disponibile") },
         shape = MaterialTheme.shapes.extraLarge,
         text = {
@@ -314,6 +322,9 @@ fun FavoriteActionsDialog(
     onRead: () -> Unit,
     onRemoveFromFavorites: () -> Unit,
     onDismiss: () -> Unit,
+    // Avviso sull'approvvigionamento: qui c'è lo spazio per il testo esteso che sulla card
+    // sta solo come icona.
+    notice: FavoriteSourceNotice? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -321,6 +332,18 @@ fun FavoriteActionsDialog(
         shape = MaterialTheme.shapes.extraLarge,
         text = {
             Column {
+                notice?.let {
+                    Text(
+                        text = it.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when (it.kind) {
+                            FavoriteNoticeKind.UNREACHABLE -> MaterialTheme.colorScheme.error
+                            FavoriteNoticeKind.SOURCE_SWITCHED ->
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 FavoriteActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = "Leggi",

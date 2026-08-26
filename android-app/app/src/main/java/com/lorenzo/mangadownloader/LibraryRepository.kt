@@ -23,6 +23,7 @@ data class DownloadedChapter(
     val numberValue: BigDecimal?,
     val volumeText: String?,
     val labelPrefix: String,
+    val variantTag: String? = null,
     val file: File,
     val relativePath: String,
     val chapterId: String,
@@ -30,6 +31,8 @@ data class DownloadedChapter(
     val readerPageIndex: Int?,
     val readerPageCount: Int?,
     val lastReadAtMillis: Long? = null,
+    /** Quando la fonte ha pubblicato il capitolo, se lo sapevamo al download. */
+    val publishedAtMillis: Long? = null,
 )
 
 data class ReaderPagePosition(
@@ -69,6 +72,15 @@ data class SeriesMetadataChapter(
     val id: String? = null,
     val volumeText: String? = null,
     val labelPrefix: String = "Capitolo",
+    val variantTag: String? = null,
+    /**
+     * Data di pubblicazione dichiarata dalla fonte al momento del download (epoch millis).
+     * Salvata qui perché la lista dei capitoli scaricati si legge **offline**, quando la fonte
+     * non è interrogabile. `null` per i capitoli scaricati da fonti che non la pubblicano e
+     * per quelli già su disco da prima di questo campo: il JSON ha default, quindi i
+     * `series.json` esistenti continuano a leggersi senza migrazione.
+     */
+    val publishedAtMillis: Long? = null,
 )
 
 object DownloadStorage {
@@ -77,6 +89,13 @@ object DownloadStorage {
 
     private val chapterFileRegex = Regex("""^chapter_(.+)\.cbz$""", RegexOption.IGNORE_CASE)
     private val numericRegex = Regex("""\d+(?:\.\d+)?""")
+
+    /**
+     * Separa numero e variante nel nome file (`chapter_001__group_2.cbz`). Doppio underscore
+     * perché [safeFilename] collassa le sequenze di caratteri non ammessi in un solo `_`,
+     * quindi non può produrlo da sé e resta un delimitatore affidabile.
+     */
+    private const val VARIANT_SEPARATOR = "__"
 
     /**
      * Soglia minima di spazio libero richiesta prima di scaricare un capitolo.
@@ -117,16 +136,39 @@ object DownloadStorage {
     fun buildChapterFileName(chapter: ChapterEntry): String {
         val label = normalizedChapterLabel(chapter.numberText)
         val padded = if (label.all(Char::isDigit)) label.padStart(3, '0') else label
-        return "chapter_${safeFilename(padded)}.cbz"
+        // Il gruppo principale non ha variante → nome file invariato rispetto alle versioni
+        // precedenti, così i .cbz già scaricati restano associati al loro capitolo.
+        val variant = chapter.normalizedVariantTag()
+            ?.let { "$VARIANT_SEPARATOR${safeFilename(it)}" }
+            .orEmpty()
+        return "chapter_${safeFilename(padded)}$variant.cbz"
     }
 
     fun normalizedChapterLabel(raw: String): String {
         return raw.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: raw.trim()
     }
 
+    /**
+     * Chiave "per numero" usata per marcare come scaricato/letto lo stesso capitolo arrivato
+     * da un URL diverso (tipicamente un'altra fonte). La variante entra nella chiave, altrimenti
+     * due capitoli omonimi della stessa fonte si marcherebbero a vicenda.
+     */
+    fun chapterNumberKey(numberLabel: String, variantTag: String?): String {
+        val normalizedVariant = variantTag?.trim()?.takeIf(String::isNotBlank)
+        val suffix = normalizedVariant?.let { "@$it" }.orEmpty()
+        return "number:${normalizedChapterLabel(numberLabel)}$suffix"
+    }
+
     fun parseChapterLabelFromFileName(fileName: String): String? {
         val raw = chapterFileRegex.matchEntire(fileName)?.groupValues?.getOrNull(1) ?: return null
-        return normalizedChapterLabel(raw)
+        return normalizedChapterLabel(raw.substringBefore(VARIANT_SEPARATOR))
+    }
+
+    /** La variante codificata nel nome file, se presente (`chapter_001__group_1.cbz`). */
+    fun parseChapterVariantFromFileName(fileName: String): String? {
+        val raw = chapterFileRegex.matchEntire(fileName)?.groupValues?.getOrNull(1) ?: return null
+        if (!raw.contains(VARIANT_SEPARATOR)) return null
+        return raw.substringAfter(VARIANT_SEPARATOR).trim().takeIf(String::isNotBlank)
     }
 
     fun parseChapterValueOrNull(raw: String): BigDecimal? {
@@ -294,12 +336,20 @@ object LibraryScanner {
                     ?.trim()
                     ?.takeIf(String::isNotBlank)
                     ?: "Capitolo"
+                // Senza metadati la variante si recupera dal nome file, così un .cbz di un
+                // gruppo secondario non viene riattribuito a quello principale.
+                val variantTag = chapterMeta?.variantTag?.trim()?.takeIf(String::isNotBlank)
+                    ?: DownloadStorage.parseChapterVariantFromFileName(file.name)
+                val baseTitle = variantTag
+                    ?.let { "$labelPrefix $normalized ($it)" }
+                    ?: "$labelPrefix $normalized"
                 DownloadedChapter(
-                    title = volumeText?.let { "$it - $labelPrefix $normalized" } ?: "$labelPrefix $normalized",
+                    title = volumeText?.let { "$it - $baseTitle" } ?: baseTitle,
                     numberText = normalized,
                     numberValue = DownloadStorage.parseChapterValueOrNull(normalized),
                     volumeText = volumeText,
                     labelPrefix = labelPrefix,
+                    variantTag = variantTag,
                     file = file,
                     relativePath = relativePath,
                     chapterId = chapterId,
@@ -307,6 +357,7 @@ object LibraryScanner {
                     readerPageIndex = pagePosition?.pageIndex,
                     readerPageCount = pagePosition?.pageCount,
                     lastReadAtMillis = pagePosition?.lastReadAtMillis,
+                    publishedAtMillis = chapterMeta?.publishedAtMillis,
                 )
             }
             .sortedWith(DownloadStorage.chapterComparator())
@@ -451,13 +502,23 @@ class LibraryRepository(
     }
 
     fun streamingReadChapterIds(sourceId: String, mangaUrl: String): Set<String> {
-        return prefs.getStringSet(streamingReadPrefKey(sourceId, mangaUrl), emptySet())
-            ?.toSet()
+        return streamingReadChapterIds(seriesKey = null, sourceId = sourceId, mangaUrl = mangaUrl)
+    }
+
+    /**
+     * Id dei capitoli letti in streaming: unione del set per-serie (chiave canonica, con
+     * chiavi `number:<label>` che sopravvivono al cambio fonte) e del set legacy per-fonte.
+     */
+    fun streamingReadChapterIds(seriesKey: String?, sourceId: String, mangaUrl: String): Set<String> {
+        val legacy = prefs.getStringSet(streamingReadPrefKey(sourceId, mangaUrl), emptySet()).orEmpty()
+        val perSeries = seriesKey
+            ?.let { prefs.getStringSet(streamingReadSeriesPrefKey(it), emptySet()).orEmpty() }
             .orEmpty()
+        return legacy + perSeries
     }
 
     fun streamingReadChapterIds(plan: DownloadPlan): Set<String> {
-        return streamingReadChapterIds(plan.sourceId, plan.mangaUrl)
+        return streamingReadChapterIds(seriesKey = null, sourceId = plan.sourceId, mangaUrl = plan.mangaUrl)
     }
 
     fun markStreamingChapterRead(
@@ -465,12 +526,46 @@ class LibraryRepository(
         mangaUrl: String,
         chapter: ChapterEntry,
     ): String {
+        return markStreamingChapterRead(seriesKey = null, sourceId = sourceId, mangaUrl = mangaUrl, chapter = chapter)
+    }
+
+    /**
+     * Segna un capitolo streaming come letto: scrive l'id stabile nel set legacy per-fonte
+     * e, se c'è una [seriesKey], anche id stabile + chiave `number:<label>` nel set
+     * per-serie, così il progresso segue la serie a prescindere dal server.
+     */
+    fun markStreamingChapterRead(
+        seriesKey: String?,
+        sourceId: String,
+        mangaUrl: String,
+        chapter: ChapterEntry,
+    ): String {
         val chapterId = DownloadStorage.stableChapterId(chapter)
-        val updated = streamingReadChapterIds(sourceId, mangaUrl) + chapterId
+        val numberKey = DownloadStorage.chapterNumberKey(chapter.displayNumber(), chapter.variantTag)
         prefs.edit {
-            putStringSet(streamingReadPrefKey(sourceId, mangaUrl), updated)
+            val legacyKey = streamingReadPrefKey(sourceId, mangaUrl)
+            putStringSet(legacyKey, prefs.getStringSet(legacyKey, emptySet()).orEmpty() + chapterId)
+            seriesKey?.let { key ->
+                val seriesPrefKey = streamingReadSeriesPrefKey(key)
+                putStringSet(
+                    seriesPrefKey,
+                    prefs.getStringSet(seriesPrefKey, emptySet()).orEmpty() + chapterId + numberKey,
+                )
+            }
         }
         return chapterId
+    }
+
+    /** Sposta il set streaming per-serie da una chiave all'altra (promozione title:→anilist:). */
+    fun migrateStreamingSeriesKey(oldKey: String, newKey: String) {
+        val oldPrefKey = streamingReadSeriesPrefKey(oldKey)
+        val existing = prefs.getStringSet(oldPrefKey, emptySet()).orEmpty()
+        if (existing.isEmpty()) return
+        val newPrefKey = streamingReadSeriesPrefKey(newKey)
+        prefs.edit {
+            putStringSet(newPrefKey, prefs.getStringSet(newPrefKey, emptySet()).orEmpty() + existing)
+            remove(oldPrefKey)
+        }
     }
 
     suspend fun deleteChapters(
@@ -714,6 +809,8 @@ class LibraryRepository(
                     id = chapter.chapterId,
                     volumeText = chapter.volumeText,
                     labelPrefix = chapter.labelPrefix,
+                    variantTag = chapter.variantTag,
+                    publishedAtMillis = chapter.publishedAtMillis,
                 )
             },
         )
@@ -759,6 +856,7 @@ class LibraryRepository(
                     ),
                     volumeText = preserved?.volumeText,
                     labelPrefix = preserved?.labelPrefix ?: "Capitolo",
+                    publishedAtMillis = preserved?.publishedAtMillis,
                 )
             },
         )
@@ -804,6 +902,10 @@ class LibraryRepository(
     private fun readerReadAtPrefKey(relativePath: String): String = "reader_read_at::$relativePath"
     private fun streamingReadPrefKey(sourceId: String, mangaUrl: String): String {
         return "streaming_read::${MangaSourceCatalog.identityKey(sourceId, mangaUrl)}"
+    }
+
+    private fun streamingReadSeriesPrefKey(seriesKey: String): String {
+        return "streaming_read_series::$seriesKey"
     }
 
     companion object {

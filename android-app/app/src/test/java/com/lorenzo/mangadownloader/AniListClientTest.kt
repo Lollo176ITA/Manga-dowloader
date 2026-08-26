@@ -78,6 +78,38 @@ class AniListClientTest {
     }
 
     @Test
+    fun parseMediaResponse_leggeNativeESynonyms() {
+        val json = """
+            {"data":{"Page":{"media":[{
+                "id":53390,
+                "title":{"romaji":"Shingeki no Kyojin","english":"Attack on Titan","native":"進撃の巨人"},
+                "synonyms":["L'attacco dei giganti","AoT"],
+                "coverImage":{"large":"https://img/aot.jpg"},
+                "genres":["Action"],"averageScore":84,"description":"...","status":"FINISHED"
+            }]}}}
+        """.trimIndent()
+        val parsed = AniListClient.parseMediaResponse(json).single()
+        assertEquals("進撃の巨人", parsed.titleNative)
+        assertEquals(listOf("L'attacco dei giganti", "AoT"), parsed.synonyms)
+        assertEquals(
+            listOf("Attack on Titan", "Shingeki no Kyojin", "進撃の巨人", "L'attacco dei giganti", "AoT"),
+            parsed.allTitles(),
+        )
+    }
+
+    @Test
+    fun parseMediaResponse_nativeESynonymsAssentiRestanoVuoti() {
+        val json = """
+            {"data":{"Page":{"media":[{
+                "id":1,"title":{"romaji":"X","english":null}
+            }]}}}
+        """.trimIndent()
+        val parsed = AniListClient.parseMediaResponse(json).single()
+        assertNull(parsed.titleNative)
+        assertTrue(parsed.synonyms.isEmpty())
+    }
+
+    @Test
     fun parseMediaResponse_emptyOnErrorResponse() {
         val errorResponse = """{ "errors": [ { "message": "Boom" } ] }"""
         assertTrue(AniListClient.parseMediaResponse(errorResponse).isEmpty())
@@ -201,5 +233,66 @@ class AniListClientTest {
         assertEquals(162, saved?.progress)
         // Su AniList 0 significa "nessun voto": non va riportato come voto reale.
         assertNull(saved?.score)
+    }
+
+    @Test
+    fun parseFavouriteMangaResponse_mapsNodesAndPagination() {
+        val response = """
+            {
+              "data": {
+                "User": {
+                  "favourites": {
+                    "manga": {
+                      "pageInfo": { "hasNextPage": true },
+                      "nodes": [
+                        {
+                          "id": 30002,
+                          "title": { "romaji": "Berserk", "english": "Berserk", "native": "ベルセルク" },
+                          "synonyms": ["Berserk: Ougon Jidai-hen"],
+                          "coverImage": { "large": "https://img/berserk.jpg" },
+                          "genres": ["Action"],
+                          "averageScore": 93,
+                          "description": null,
+                          "status": "RELEASING",
+                          "chapters": null,
+                          "format": "MANGA"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val (favourites, hasNextPage) = AniListClient.parseFavouriteMangaResponse(response)
+
+        assertEquals(1, favourites.size)
+        assertEquals(30002, favourites.single().id)
+        assertEquals(listOf("Berserk: Ougon Jidai-hen"), favourites.single().synonyms)
+        assertTrue("la paginazione va seguita finché hasNextPage è true", hasNextPage)
+    }
+
+    @Test
+    fun parseFavouriteMangaResponse_toleratesMissingUser() {
+        val (favourites, hasNextPage) = AniListClient.parseFavouriteMangaResponse(
+            """{ "data": { "User": null } }""",
+        )
+
+        assertEquals(emptyList<AniListManga>(), favourites)
+        assertEquals(false, hasNextPage)
+    }
+
+    @Test
+    fun parseToggleFavouriteResponse_reportsWhetherTheMangaIsNowFavourite() {
+        val added = """
+            { "data": { "ToggleFavourite": { "manga": { "nodes": [{ "id": 30002 }] } } } }
+        """.trimIndent()
+        val removed = """
+            { "data": { "ToggleFavourite": { "manga": { "nodes": [{ "id": 11061 }] } } } }
+        """.trimIndent()
+
+        assertTrue(AniListClient.parseToggleFavouriteResponse(added, mediaId = 30002))
+        assertEquals(false, AniListClient.parseToggleFavouriteResponse(removed, mediaId = 30002))
     }
 }

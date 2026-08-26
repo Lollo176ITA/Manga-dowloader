@@ -99,7 +99,7 @@ class MangapillSource(
         }
 
         private fun parseSearchResults(document: Document): List<MangaSearchResult> {
-            val accumulated = linkedMapOf<String, Pair<String?, String?>>()
+            val accumulated = linkedMapOf<String, SearchCardData>()
 
             for (anchor in document.select("""a[href^="/manga/"]""")) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
@@ -114,23 +114,33 @@ class MangapillSource(
                         ?.let { attr -> img.absUrl(attr) }
                 }
 
-                val anchorText = anchor.text().trim()
-                val titleCandidate = firstNonBlankTrimmed(
-                    image?.attr("alt"),
+                // L'alt della copertina è composto dal sito come "titolo + titolo
+                // alternativo" (spesso identici: "One Piece One Piece"), quindi il
+                // titolo affidabile è il div visibile della card; l'alt vale solo
+                // come ultima risorsa, dimezzato quando le due metà coincidono.
+                val heading = anchor.selectFirst("div.line-clamp-2")?.text()?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                val fallback = firstNonBlankTrimmed(
                     anchor.attr("title"),
-                    anchorText.takeIf { it.isNotBlank() },
+                    anchor.text(),
+                    image?.attr("alt")?.let(::collapseDoubledTitle),
                 )
 
-                val prior = accumulated[mangaUrl]
-                accumulated[mangaUrl] = Pair(
-                    prior?.first ?: titleCandidate,
-                    prior?.second ?: cover,
-                )
+                val entry = accumulated.getOrPut(mangaUrl) { SearchCardData() }
+                if (entry.cover == null) {
+                    entry.cover = cover
+                }
+                if (heading != null && !entry.titleFromHeading) {
+                    entry.title = heading
+                    entry.titleFromHeading = true
+                } else if (entry.title == null) {
+                    entry.title = fallback
+                }
             }
 
-            return accumulated.entries.mapNotNull { (mangaUrl, pair) ->
-                val (titleRaw, cover) = pair
-                val title = titleRaw?.trim().orEmpty().ifBlank {
+            return accumulated.entries.mapNotNull { (mangaUrl, entry) ->
+                val cover = entry.cover
+                val title = entry.title?.trim().orEmpty().ifBlank {
                     mangaUrl.substringAfterLast('/').replace('-', ' ').trim()
                 }
                 if (title.isBlank()) {
@@ -144,6 +154,29 @@ class MangapillSource(
                     )
                 }
             }
+        }
+
+        /** Titolo e cover accumulati per URL canonico dai vari anchor della stessa card. */
+        private class SearchCardData(
+            var title: String? = null,
+            var titleFromHeading: Boolean = false,
+            var cover: String? = null,
+        )
+
+        /**
+         * Se [text] è la stessa stringa ripetuta due volte separata da uno spazio,
+         * ne restituisce una sola metà (altrimenti la stringa trimmata invariata).
+         */
+        private fun collapseDoubledTitle(text: String): String {
+            val trimmed = text.trim()
+            val half = trimmed.length / 2
+            if (trimmed.length % 2 == 1 &&
+                trimmed[half] == ' ' &&
+                trimmed.regionMatches(0, trimmed, half + 1, half)
+            ) {
+                return trimmed.substring(0, half)
+            }
+            return trimmed
         }
 
         private fun parseMangaDetails(document: Document, canonical: String): MangaDetails {
@@ -162,7 +195,9 @@ class MangapillSource(
         }
 
         private fun parseChapterEntries(document: Document): List<ChapterEntry> {
-            val entries = linkedMapOf<String, ChapterEntry>()
+            // Raccolta grezza: URL → (numero, gruppo). Mangapill può pubblicare la stessa
+            // serie da più gruppi di scanlation, con capitoli numerati uguali ma URL diversi.
+            val raw = linkedMapOf<String, Pair<String, String>>()
 
             for (link in document.select("""#chapters a[href^="/chapters/"]""")) {
                 if (link.attr("href").trim().isBlank()) {
@@ -174,22 +209,50 @@ class MangapillSource(
                     ?: chapterNumberInUrl.find(chapterUrl)?.groupValues?.getOrNull(1)
                     ?: continue
 
+                raw[chapterUrl] = numberText to groupLabel(title)
+            }
+
+            if (raw.isEmpty()) {
+                throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
+            }
+
+            // Il gruppo più numeroso è quello "principale" e resta senza variante: il suo nome
+            // file e le sue chiavi restano identici alle versioni precedenti dell'app, così i
+            // capitoli già scaricati non diventano orfani. Solo gli altri vengono qualificati.
+            val mainGroup = raw.values
+                .groupingBy { (_, group) -> group }
+                .eachCount()
+                .maxByOrNull { (_, count) -> count }
+                ?.key
+
+            val entries = raw.map { (chapterUrl, data) ->
+                val (numberText, group) = data
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
                     ?: throw IllegalArgumentException("Numero capitolo non valido: $numberText")
 
-                entries[chapterUrl] = ChapterEntry(
+                ChapterEntry(
                     numberText = numberText,
                     numberValue = numberValue,
                     url = chapterUrl,
                     slug = chapterUrl.substringAfterLast('/'),
+                    variantTag = group.takeIf { it != mainGroup },
                 )
             }
 
-            if (entries.isEmpty()) {
-                throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
-            }
+            return entries.sortedBy { it.numberValue }
+        }
 
-            return entries.values.sortedBy { it.numberValue }
+        /**
+         * Il gruppo di scanlation dedotto dal titolo dell'anchor: Mangapill antepone
+         * `Group N` solo dal secondo in poi (`" Group 2 Chapter 1"`), quindi un titolo senza
+         * prefisso è per convenzione il primo gruppo.
+         */
+        private fun groupLabel(title: String): String {
+            val prefix = chapterNumberInTitle.find(title)
+                ?.let { title.substring(0, it.range.first) }
+                ?.trim()
+                .orEmpty()
+            return prefix.ifBlank { "Group 1" }
         }
 
         private fun parsePageImageUrls(document: Document, chapterUrl: String): List<String> {

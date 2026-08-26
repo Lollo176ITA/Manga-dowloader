@@ -29,6 +29,25 @@ class BackupSchemaTest {
     }
 
     @Test
+    fun disabledSourceIds_roundTripEScartaIdIgnoti() {
+        val settings = AppSettings(disabledSourceIds = setOf(MangaSourceIds.VYMANGA))
+        val restored = decodeSettingsBackup(encodeSettingsBackup(settings.toBackup()))!!
+            .applyTo(AppSettings())
+        assertEquals(setOf(MangaSourceIds.VYMANGA), restored.disabledSourceIds)
+
+        val tampered = settings.toBackup()
+            .copy(disabledSourceIds = listOf("fonte_inesistente", MangaSourceIds.VYMANGA))
+        assertEquals(setOf(MangaSourceIds.VYMANGA), tampered.applyTo(AppSettings()).disabledSourceIds)
+    }
+
+    @Test
+    fun disabledSourceIds_backupCheDisabilitaTutteLeFontiVieneAzzerato() {
+        val allIds = MangaSourceCatalog.descriptors.map { it.id }
+        val tampered = AppSettings().toBackup().copy(disabledSourceIds = allIds)
+        assertEquals(emptySet<String>(), tampered.applyTo(AppSettings()).disabledSourceIds)
+    }
+
+    @Test
     fun decode_returnsNullOnMalformedJson() {
         assertNull(decodeBackup("{ not json"))
     }
@@ -155,6 +174,21 @@ class BackupSchemaTest {
         )
         val merged = mergeFavorites(current, incoming)
         assertEquals(listOf("A", "B"), merged.map { it.title })
+    }
+
+    /**
+     * Un backup fatto quando la serie si leggeva da un'altra fonte non deve ricreare una
+     * seconda voce: il preferito è la serie, e la dedup del merge lo rispetta.
+     */
+    @Test
+    fun mergeFavorites_dedupesAcrossSources() {
+        val current = listOf(
+            FavoriteManga("mangapill", "One Piece", "https://mangapill.com/manga/1", null),
+        )
+        val incoming = listOf(
+            FavoriteBackupEntry("vymanga", "One Piece", "https://vymanga.com/manga/9", null),
+        )
+        assertEquals(listOf("One Piece"), mergeFavorites(current, incoming).map { it.title })
     }
 
     @Test

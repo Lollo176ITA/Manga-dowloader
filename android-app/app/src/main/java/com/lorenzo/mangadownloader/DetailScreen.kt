@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -52,6 +53,11 @@ fun DetailScreen(
     readChapterIds: Set<String>,
     streamingReaderEnabled: Boolean,
     autoDownloadEnabled: Boolean,
+    // Selettore fonte: visibile solo per serie con un SeriesLink (multi-fonte).
+    showSourceSelector: Boolean,
+    sourceOptions: List<SourceOptionUi>,
+    onOpenSourceMenu: () -> Unit,
+    onSwitchSource: (SourceOptionUi) -> Unit,
     // Tracking AniList: la riga compare solo con l'account collegato (vedi AniListTrackingRow).
     showAniListTracking: Boolean,
     aniListTracking: AniListTracking?,
@@ -103,6 +109,18 @@ fun DetailScreen(
                     MangaPublicationStatus.COMPLETED -> ReadGreen
                     MangaPublicationStatus.DROPPED -> MaterialTheme.colorScheme.error
                     MangaPublicationStatus.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                belowStatus = if (showSourceSelector) {
+                    {
+                        SourceSelector(
+                            activeSourceId = details.sourceId,
+                            options = sourceOptions,
+                            onOpenMenu = onOpenSourceMenu,
+                            onSwitchSource = onSwitchSource,
+                        )
+                    }
+                } else {
+                    null
                 },
             )
 
@@ -259,6 +277,81 @@ fun DetailScreen(
     }
 }
 
+/**
+ * Selettore della fonte attiva, nell'header a destra della cover sotto lo stato.
+ * Aprendo il menu si caricano (lazy) le info comparative per fonte: capitoli disponibili
+ * e ultimo uscito. Elenca tutte le fonti collegate alla serie, incluse quelle disattivate
+ * dalle impostazioni: la disattivazione restringe la ricerca, non ciò che hai già.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SourceSelector(
+    activeSourceId: String,
+    options: List<SourceOptionUi>,
+    onOpenMenu: () -> Unit,
+    onSwitchSource: (SourceOptionUi) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { open ->
+            expanded = open
+            if (open) onOpenMenu()
+        },
+    ) {
+        OutlinedTextField(
+            value = "${MangaSourceCatalog.displayName(activeSourceId)} · " +
+                MangaSourceCatalog.languageOf(activeSourceId).displayName,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+            readOnly = true,
+            singleLine = true,
+            label = { Text("Fonte") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            shape = MaterialTheme.shapes.large,
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                "${MangaSourceCatalog.displayName(option.sourceId)} · " +
+                                    MangaSourceCatalog.languageOf(option.sourceId).displayName,
+                            )
+                            Text(
+                                text = when {
+                                    option.isLoading -> "Carico…"
+                                    option.hasError -> "Non raggiungibile"
+                                    option.chapterCount != null ->
+                                        "${option.chapterCount} capitoli" +
+                                            (option.lastChapterLabel?.let { " · ultimo: $it" } ?: "")
+                                    else -> ""
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (option.hasError) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        if (!option.hasError && option.sourceId != activeSourceId) {
+                            onSwitchSource(option)
+                        }
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun VolumeHeaderRow(title: String) {
     Text(
@@ -307,7 +400,7 @@ private fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterLis
 
 private fun ChapterEntry.isDownloaded(downloadedChapterKeys: Set<String>): Boolean {
     val stableId = DownloadStorage.stableChapterId(this)
-    val numberKey = "number:${DownloadStorage.normalizedChapterLabel(displayNumber())}"
+    val numberKey = DownloadStorage.chapterNumberKey(displayNumber(), variantTag)
     return stableId in downloadedChapterKeys || numberKey in downloadedChapterKeys
 }
 
@@ -332,7 +425,8 @@ fun downloadRangeSummary(
 }
 
 private fun ChapterEntry.isRead(readChapterIds: Set<String>): Boolean {
-    return DownloadStorage.stableChapterId(this) in readChapterIds
+    val numberKey = DownloadStorage.chapterNumberKey(displayNumber(), variantTag)
+    return DownloadStorage.stableChapterId(this) in readChapterIds || numberKey in readChapterIds
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

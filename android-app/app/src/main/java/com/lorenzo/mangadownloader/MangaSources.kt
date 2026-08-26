@@ -73,6 +73,9 @@ object MangaSourceIds {
     const val HASTA_TEAM = "hasta_team"
     const val MANGA_WORLD = "manga_world"
     const val VYMANGA = "vymanga"
+    const val ASURA_SCANS = "asura_scans"
+    const val DEMONIC_SCANS = "demonic_scans"
+    const val TCB_SCANS = "tcb_scans"
     const val DEFAULT = MANGAPILL
 }
 
@@ -82,6 +85,9 @@ object MangaSourceCatalog {
         MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT", MangaSourceLanguage.ITA),
         MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW", MangaSourceLanguage.ITA),
         MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.ASURA_SCANS, "Asura Scans", "AS", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.DEMONIC_SCANS, "DemonicScans", "DS", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.TCB_SCANS, "TCB Scans", "TC", MangaSourceLanguage.ENG),
     )
 
     /** Fonti interrogate dalla ricerca aggregata per [scope]: tutte, o solo quelle della lingua. */
@@ -89,6 +95,35 @@ object MangaSourceCatalog {
         require(scope != SearchScope.SOURCE) { "SOURCE deve essere convertito durante la migrazione" }
         val language = scope.language ?: return descriptors
         return descriptors.filter { it.language == language }
+    }
+
+    /**
+     * Come [descriptorsForScope], escludendo le fonti disabilitate dall'utente. Se la lingua
+     * dello scope non ha più fonti attive (scope salvato da prima che l'utente le spegnesse),
+     * ripiega su **tutte le fonti attive**, non su quelle disattivate della lingua: una fonte
+     * spenta in impostazioni non va mai interrogata. Se l'utente spegnesse tutto, l'elenco
+     * completo resta l'ultima rete di sicurezza: la ricerca non deve interrogare zero fonti.
+     */
+    fun descriptorsForScope(
+        scope: SearchScope,
+        disabledSourceIds: Set<String>,
+    ): List<MangaSourceDescriptor> {
+        val enabled = descriptors.filterNot { it.id in disabledSourceIds }.ifEmpty { descriptors }
+        val language = scope.language ?: return enabled
+        return enabled.filter { it.language == language }.ifEmpty { enabled }
+    }
+
+    /**
+     * Lingue che hanno almeno una fonte attiva, nell'ordine di [MangaSourceLanguage]. La tab
+     * Cerca mostra una chip per ciascuna: filtrare per una lingua senza fonti attive non
+     * cambierebbe nulla. Con una sola lingua rimasta la riga di chip sparisce del tutto,
+     * perché "Tutte" e quell'unica lingua interrogherebbero le stesse fonti.
+     */
+    fun languagesWithEnabledSources(disabledSourceIds: Set<String>): List<MangaSourceLanguage> {
+        val enabled = descriptors.filterNot { it.id in disabledSourceIds }.ifEmpty { descriptors }
+        return MangaSourceLanguage.entries.filter { language ->
+            enabled.any { it.language == language }
+        }
     }
 
     /** Lingua della fonte [sourceId] (con fallback sulla fonte di default se sconosciuta). */
@@ -143,6 +178,9 @@ object MangaSourceCatalog {
             HastaTeamSource.handlesUrl(normalizedUrl) -> MangaSourceIds.HASTA_TEAM
             MangaWorldSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGA_WORLD
             VyMangaSource.handlesUrl(normalizedUrl) -> MangaSourceIds.VYMANGA
+            AsuraScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.ASURA_SCANS
+            DemonicScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.DEMONIC_SCANS
+            TcbScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.TCB_SCANS
             else -> null
         }
     }
@@ -193,6 +231,9 @@ object MangaSourceCatalog {
             MangaSourceIds.HASTA_TEAM -> HastaTeamSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.MANGA_WORLD -> MangaWorldSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.VYMANGA -> VyMangaSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.ASURA_SCANS -> AsuraScansSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.DEMONIC_SCANS -> DemonicScansSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.TCB_SCANS -> TcbScansSource.canonicalSeriesUrl(normalizedUrl)
             else -> normalizedUrl
         } ?: normalizedUrl
     }
@@ -233,6 +274,9 @@ class MangaSourceRegistry(
         MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient, libraryRepository),
         MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient, libraryRepository),
         MangaSourceIds.VYMANGA to VyMangaSource(context, networkClient, libraryRepository),
+        MangaSourceIds.ASURA_SCANS to AsuraScansSource(context, networkClient, libraryRepository),
+        MangaSourceIds.DEMONIC_SCANS to DemonicScansSource(context, networkClient, libraryRepository),
+        MangaSourceIds.TCB_SCANS to TcbScansSource(context, networkClient, libraryRepository),
     )
 
     val descriptors: List<MangaSourceDescriptor>
@@ -336,6 +380,8 @@ abstract class BaseMangaSource(
                 ),
                 volumeText = chapter.volumeText,
                 labelPrefix = chapter.labelPrefix,
+                variantTag = chapter.normalizedVariantTag(),
+                publishedAtMillis = chapter.publishedAtMillis,
             )
         }
         val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(plan)

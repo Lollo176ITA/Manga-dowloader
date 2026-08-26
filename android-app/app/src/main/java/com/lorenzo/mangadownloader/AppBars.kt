@@ -28,6 +28,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconToggleButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -62,6 +63,7 @@ fun AppTopBar(
     onOpenSettings: () -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
+    onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
     unseenUpdatesCount: Int,
     onOpenUpdates: () -> Unit,
     onMarkAllUpdatesSeen: () -> Unit,
@@ -159,16 +161,22 @@ fun AppTopBar(
             if (readerChapter != null) {
                 ReaderModeAction(
                     currentMode = state.readerReadingMode,
+                    currentSpreadMode = state.readerSpreadPageMode,
                     onSelectMode = onSelectReadingMode,
+                    onSelectSpreadMode = onSelectSpreadPageMode,
                     modifier = anchorFor(TutorialAnchor.READER_FULLSCREEN),
                 )
             }
 
             if (selectedManga != null) {
-                val isFavorite = MangaSourceCatalog.identityKey(
-                    selectedManga.sourceId,
-                    selectedManga.mangaUrl,
-                ) in state.favoriteMangaKeys
+                // La domanda è "questa SERIE è tra i preferiti?", non "questa copia su questa
+                // fonte lo è": altrimenti la stella risulterebbe vuota aprendo da un altro
+                // mirror e il tap, che agisce per serie, toglierebbe il preferito invece di
+                // aggiungerlo. Stessa chiave usata dalle card della ricerca.
+                val isFavorite = state.favoriteSeriesKeys.containsAny(
+                    state.selectedSeriesKey,
+                    SeriesIdentity.keyForTitle(selectedManga.title),
+                )
                 FavoriteToggleAction(
                     isFavorite = isFavorite,
                     onToggle = onToggleFavorite,
@@ -180,10 +188,10 @@ fun AppTopBar(
             // metterlo tra i preferiti. Solo con un URL d'origine (l'identità del preferito).
             val seriesMangaUrl = selectedSeries?.mangaUrl?.takeIf { it.isNotBlank() }
             if (screen == Screen.DownloadedSeries && selectedSeries != null && seriesMangaUrl != null) {
-                val isSeriesFavorite = MangaSourceCatalog.identityKey(
-                    selectedSeries.sourceId,
-                    seriesMangaUrl,
-                ) in state.favoriteMangaKeys
+                val isSeriesFavorite = state.favoriteSeriesKeys.containsAny(
+                    SeriesIdentity.keyForTitle(selectedSeries.title),
+                    MangaSourceCatalog.identityKey(selectedSeries.sourceId, seriesMangaUrl),
+                )
                 FavoriteToggleAction(
                     isFavorite = isSeriesFavorite,
                     onToggle = onToggleFavoriteSeries,
@@ -236,7 +244,9 @@ fun AppTopBar(
 @Composable
 private fun ReaderModeAction(
     currentMode: ReadingMode,
+    currentSpreadMode: SpreadPageMode,
     onSelectMode: (ReadingMode) -> Unit,
+    onSelectSpreadMode: (SpreadPageMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -244,29 +254,70 @@ private fun ReaderModeAction(
         IconButton(onClick = { expanded = true }) {
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                contentDescription = "Modalità di lettura",
+                contentDescription = "Come leggere questo manga",
             )
         }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
+            // Entrambe le scelte valgono solo per la serie aperta: il default per le nuove
+            // serie sta nelle Impostazioni. Stanno nello stesso menu perché si leggono
+            // insieme — l'ordine delle due facciate dipende dal senso di lettura scelto qui.
+            ReaderMenuSectionLabel("Modalità di lettura")
             ReadingMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = { Text(mode.menuLabel) },
-                    trailingIcon = if (mode == currentMode) {
-                        { Icon(Icons.Default.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
+                ReaderMenuChoice(
+                    label = mode.menuLabel,
+                    selected = mode == currentMode,
                     onClick = {
                         expanded = false
                         onSelectMode(mode)
                     },
                 )
             }
+            HorizontalDivider()
+            ReaderMenuSectionLabel("Pagine doppie")
+            SpreadPageMode.entries.forEach { mode ->
+                ReaderMenuChoice(
+                    label = mode.menuLabel,
+                    selected = mode == currentSpreadMode,
+                    onClick = {
+                        expanded = false
+                        onSelectSpreadMode(mode)
+                    },
+                )
+            }
         }
     }
+}
+
+/** Intestazione di un gruppo di scelte dentro il menu del lettore. */
+@Composable
+private fun ReaderMenuSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+}
+
+/** Voce di scelta del menu del lettore, con la spunta su quella attiva. */
+@Composable
+private fun ReaderMenuChoice(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = if (selected) {
+            { Icon(Icons.Default.Check, contentDescription = null) }
+        } else {
+            null
+        },
+        onClick = onClick,
+    )
 }
 
 @Composable

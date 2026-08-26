@@ -181,6 +181,40 @@ class LibraryScannerTest {
         assertEquals(MangaSourceIds.HASTA_TEAM, parsed?.sourceId)
     }
 
+    @Test
+    fun scan_carriesTheChapterPublishDateFromMetadata() {
+        val root = createTempDirectory()
+        val seriesDir = File(root, "solo-leveling").apply { mkdirs() }
+        File(seriesDir, "chapter_200.cbz").writeText("chapter200")
+        File(seriesDir, "chapter_201.cbz").writeText("chapter201")
+
+        SeriesMetadataJson.write(
+            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            SeriesMetadata(
+                sourceId = MangaSourceIds.DEMONIC_SCANS,
+                title = "Solo Leveling",
+                chapters = listOf(
+                    SeriesMetadataChapter(
+                        numberText = "200",
+                        fileName = "chapter_200.cbz",
+                        publishedAtMillis = 1697414400000L,
+                    ),
+                    // Capitolo scaricato prima che l'app salvasse la data, o da una fonte
+                    // che non la pubblica: resta senza, e la schermata offline non mostra nulla.
+                    SeriesMetadataChapter(
+                        numberText = "201",
+                        fileName = "chapter_201.cbz",
+                    ),
+                ),
+            ),
+        )
+
+        val chapters = LibraryScanner.scan(root, isRead = { false }).single().chapters
+
+        assertEquals(1697414400000L, chapters.first().publishedAtMillis)
+        assertNull(chapters.last().publishedAtMillis)
+    }
+
     private fun createTempDirectory(): File {
         return Files.createTempDirectory("manga-library-test").toFile().apply {
             deleteOnExit()

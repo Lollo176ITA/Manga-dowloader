@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -91,17 +92,37 @@ data class AniListMatchUiState(
     val isLinking: Boolean = false,
 )
 
+/**
+ * Voce del selettore fonte nella scheda manga: una fonte collegata alla serie con le info
+ * comparative caricate in lazy (capitoli disponibili, ultimo uscito). [hasError] marca la
+ * singola voce come non raggiungibile senza rompere le altre.
+ */
+data class SourceOptionUi(
+    val sourceId: String,
+    val mangaUrl: String,
+    val chapterCount: Int? = null,
+    val lastChapterLabel: String? = null,
+    val isLoading: Boolean = false,
+    val hasError: Boolean = false,
+)
+
+/**
+ * Un preferito è **una serie**, non una serie-su-una-fonte: la sua identità è [seriesKey]
+ * ([SeriesIdentity]). [sourceId]/[mangaUrl] restano, ma valgono solo come "da dove la sto
+ * leggendo adesso" e cambiano quando cambi fonte dal selettore o quando il fallback del
+ * `FavoriteUpdatesWorker` promuove un altro mirror.
+ *
+ * [seriesKey] è vuota solo nelle istanze costruite al volo prima di risolverla: leggila
+ * sempre con `canonicalKey()`, mai direttamente.
+ */
 data class FavoriteManga(
     val sourceId: String,
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
     val addedAt: Long = 0L,
+    val seriesKey: String = "",
 )
-
-/** Chiavi d'identità dei preferiti (ordine d'inserimento preservato), per `favoriteMangaKeys`. */
-private fun List<FavoriteManga>.identityKeys(): Set<String> =
-    mapTo(linkedSetOf()) { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) }
 
 /** Mappa `identityKey -> stato pubblicazione` derivata dalla baseline notifiche (per sort/filtro). */
 private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPublicationStatus> =
@@ -137,6 +158,10 @@ data class AppSettings(
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
+    // Come trattare le pagine doppie (le facciate affiancate distribuite come
+    // un'immagine sola): dividerle è il default, perché intere — su un telefono
+    // tenuto in verticale — lasciano a ogni facciata metà larghezza.
+    val spreadPageMode: SpreadPageMode = SpreadPageMode.SPLIT,
     val readerPageSpacingDp: Int = DEFAULT_READER_PAGE_SPACING_DP,
     val doubleTapZoomEnabled: Boolean = false,
     val keepScreenOnEnabled: Boolean = true,
@@ -150,6 +175,10 @@ data class AppSettings(
     // Push automatico del progresso su AniList a fine capitolo (ha effetto solo con
     // l'account collegato). Default attivo: collegare l'account esprime già l'intento.
     val aniListSyncEnabled: Boolean = true,
+    // Riconciliazione dei preferiti con i favourites AniList, in unione e senza rimozioni
+    // (vedi [planAniListFavoritesSync]). Attiva di default per la stessa ragione del sync
+    // di lettura: chi collega l'account vuole che le due parti si parlino.
+    val aniListFavoritesSyncEnabled: Boolean = true,
     // Personalizzazione della Home: ordine dei blocchi e insieme di quelli nascosti.
     val homeBlockOrder: List<HomeBlock> = DEFAULT_HOME_BLOCK_ORDER,
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
@@ -157,6 +186,8 @@ data class AppSettings(
     val cardDensity: CardDensity = CardDensity.NORMAL,
     // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
     val showHomeTab: Boolean = true,
+    // Fonti escluse da ricerca aggregata e selettore fonte. Vuoto = tutte attive.
+    val disabledSourceIds: Set<String> = emptySet(),
 )
 
 enum class ParentalAction {
@@ -233,14 +264,28 @@ data class MangaUiState(
     val libraryQuery: String = "",
     val recentSearches: List<String> = emptyList(),
     val results: List<MangaSearchResult> = emptyList(),
+    // Risultati raggruppati per serie (una card per serie): è ciò che la tab Cerca mostra.
+    val groupedResults: List<GroupedSearchResult> = emptyList(),
     val discovery: DiscoveryUiState = DiscoveryUiState(),
     val recommendations: RecommendationsUiState = RecommendationsUiState(),
     val favorites: List<FavoriteManga> = emptyList(),
-    val favoriteMangaKeys: Set<String> = emptySet(),
+    /**
+     * Identità delle serie tra i preferiti (chiave canonica + alias titolo). È l'**unica**
+     * domanda che la UI fa sui preferiti — "questa serie ce l'ho?" — indipendentemente dalla
+     * fonte da cui la stai guardando: è ciò che tiene la stella coerente tra ricerca e scheda.
+     */
+    val favoriteSeriesKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
+    // Mappe indicizzate per SeriesKey (vedi FavoritesSeriesMigration): sopravvivono al
+    // cambio fonte, che per un preferito è un evento normale.
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
+    /** Avvisi per-serie mostrati sulla card: vuoto finché l'approvvigionamento funziona. */
+    val favoriteNotices: Map<String, FavoriteSourceNotice> = emptyMap(),
     val isSearching: Boolean = false,
+    // Contatore delle richieste di ricerca esplicite (vedi [SearchTrigger]): distingue due
+    // richieste con query e ambito identici, che devono comunque produrre due fetch.
+    val searchRequestId: Int = 0,
     // Fallimento dell'ultima ricerca (rete assente, fonte down): mostrato dalla tab Cerca
     // come stato dedicato con "Riprova", invece di un falso "Nessun risultato".
     val searchError: String? = null,
@@ -248,6 +293,12 @@ data class MangaUiState(
     // offre "Riprova" che rilancia selectManga senza dover ripetere la ricerca.
     val errorRetrySearchResult: MangaSearchResult? = null,
     val selected: MangaDetails? = null,
+    // Link serie→fonti della scheda aperta (null per percorsi legacy senza link).
+    val selectedSeriesLink: SeriesLink? = null,
+    // SeriesKey canonica della scheda aperta: àncora di tracking AniList e progressi.
+    val selectedSeriesKey: String? = null,
+    // Voci del selettore fonte, popolate in lazy alla prima apertura del menu.
+    val sourceOptions: List<SourceOptionUi> = emptyList(),
     val selectedMangaReadChapterIds: Set<String> = emptySet(),
     val isLoadingDetails: Boolean = false,
     val mangaInfoDialog: MangaInfoDialogState? = null,
@@ -265,6 +316,7 @@ data class MangaUiState(
     val readerPages: List<ReaderPage> = emptyList(),
     val readerInitialPageIndex: Int = 0,
     val readerReadingMode: ReadingMode = ReadingMode.VERTICAL,
+    val readerSpreadPageMode: SpreadPageMode = SpreadPageMode.SPLIT,
     val readerSeriesKey: String? = null,
     val isLoadingReader: Boolean = false,
     val availableUpdate: AppUpdateInfo? = null,
@@ -334,8 +386,12 @@ class MangaViewModel internal constructor(
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
     private val aniListStore = AniListStore(prefs)
+    private val aniListFavoritesSyncStore = AniListFavoritesSyncStore(prefs)
+    private val seriesLinksStore = SeriesLinksStore(prefs)
+    private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
+    private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
@@ -348,14 +404,23 @@ class MangaViewModel internal constructor(
     )
 
     /**
-     * Cache in memoria delle trame (descrizioni) per `identityKey`: il pulsante info diventa
+     * Cache in memoria delle trame (descrizioni) per **SeriesKey**: il pulsante info diventa
      * istantaneo dopo il primo fetch o dopo aver aperto il manga, senza ri-scaricare la pagina.
      * Per i **preferiti** è anche persistita su disco ([favoriteDescriptionsStore]) e ricaricata
      * all'avvio, così la loro info è pronta anche dopo il riavvio. È solo testo.
      */
     private val mangaDescriptionCache = mutableMapOf<String, String>()
 
-    private val initialFavorites = favoritesStore.read()
+    // I preferiti passano da chiave-fonte a chiave-serie prima di qualunque lettura (vedi
+    // FavoritesSeriesMigration): one-shot e idempotente, la rifà anche il worker se arriva prima.
+    private val initialFavorites = FavoritesSeriesMigration(
+        prefs = prefs,
+        favoritesStore = favoritesStore,
+        favoriteUpdatesStore = favoriteUpdatesStore,
+        favoriteDescriptionsStore = favoriteDescriptionsStore,
+        favoriteUpdatesFeedStore = favoriteUpdatesFeedStore,
+        seriesLinksStore = seriesLinksStore,
+    ).migrateIfNeeded()
     private val initialSettings = settingsStore.read()
     private val initialFavoriteSeen = favoriteUpdatesStore.read()
     private val initialReadingMemory = readingMemoryStore.read()
@@ -379,9 +444,12 @@ class MangaViewModel internal constructor(
             readingMemory = initialReadingMemory,
             readingDiary = initialReadingDiary,
             favorites = initialFavorites,
-            favoriteMangaKeys = initialFavorites.identityKeys(),
+            favoriteSeriesKeys = favoriteSeriesKeys(initialFavorites),
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
+            favoriteNotices = favoriteSourceHealthStore.read()
+                .mapNotNull { (key, health) -> favoriteSourceNotice(health)?.let { key to it } }
+                .toMap(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
             aniList = AniListUiState(
                 viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null },
@@ -403,6 +471,14 @@ class MangaViewModel internal constructor(
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+
+    // Media AniList "pinnato" dal ponte Scopri: messo in testa ai candidati del matcher così
+    // il raggruppamento è ancorato al mediaId anche se la ricerca AniList fallisce.
+    private var pendingAniListPick: AniListManga? = null
+
+    /** Cache di sessione dei dettagli per-fonte del selettore, chiave = identityKey. */
+    private val sourceOptionDetailsCache = mutableMapOf<String, MangaDetails>()
+    private var sourceOptionsJob: Job? = null
     private var discoveryJob: Job? = null
     private var recommendationsJob: Job? = null
     private var genreJob: Job? = null
@@ -415,6 +491,7 @@ class MangaViewModel internal constructor(
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
     private var aniListMatchJob: Job? = null
+    private var aniListFavoritesSyncJob: Job? = null
     private var nextBiometricRequestId = 1L
 
     init {
@@ -430,6 +507,9 @@ class MangaViewModel internal constructor(
         }
         // Progressi AniList rimasti in sospeso (offline/errore): riprova all'avvio.
         flushPendingAniListSync()
+        // Preferiti aggiunti su AniList da un altro dispositivo (o dal sito): li porta
+        // dentro, e porta fuori quelli aggiunti qui mentre l'account era scollegato.
+        syncAniListFavorites()
         // Le cartelle dei preferiti sono state rimosse (lo stato di lettura è automatico):
         // ripulisce le chiavi legacy rimaste su disco dalle versioni precedenti.
         prefs.edit {
@@ -438,14 +518,23 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * Rilancia la ricerca aggregata quando cambia ciò che la definisce (vedi [SearchTrigger]):
+     * la query, l'ambito, **l'insieme delle fonti attive** e il contatore delle richieste
+     * esplicite. Includere le fonti attive evita che dopo un cambio in impostazioni restino a
+     * schermo risultati di fonti appena spente (o manchino quelli di una appena accesa): i
+     * risultati mostrati devono venire dalle fonti che l'utente ha ora. Il debounce collassa
+     * una raffica di toggle in una sola ricerca.
+     */
     @OptIn(FlowPreview::class)
     private fun observeQueryChanges() {
         viewModelScope.launch {
             _state
-                .map { it.query.trim() to it.settings.searchScope }
+                .map { it.searchTrigger() }
                 .distinctUntilChanged()
                 .debounce(DEBOUNCE_MS)
-                .collect { (query, _) ->
+                .collect { trigger ->
+                    val query = trigger.query
                     if (query.isNotEmpty()) {
                         runAggregatedSearch(query)
                     } else {
@@ -453,6 +542,7 @@ class MangaViewModel internal constructor(
                         updateState {
                             copy(
                                 results = emptyList(),
+                                groupedResults = emptyList(),
                                 isSearching = false,
                                 searchError = null,
                                 errorMessage = null,
@@ -464,6 +554,10 @@ class MangaViewModel internal constructor(
     }
 
     fun onQueryChange(text: String) {
+        if (text != _state.value.query) {
+            // Una modifica manuale della query invalida il pin del ponte Scopri.
+            pendingAniListPick = null
+        }
         updateState { copy(query = text) }
     }
 
@@ -496,6 +590,22 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(favoriteSort = sort) }
     }
 
+    /** Attiva/disattiva una fonte. L'ultima fonte attiva non è disabilitabile. */
+    fun setSourceEnabled(sourceId: String, enabled: Boolean) {
+        updateSettings { settings ->
+            val updated = if (enabled) {
+                settings.disabledSourceIds - sourceId
+            } else {
+                settings.disabledSourceIds + sourceId
+            }
+            if (updated.size >= MangaSourceCatalog.descriptors.size) {
+                settings
+            } else {
+                settings.copy(disabledSourceIds = updated)
+            }
+        }
+    }
+
     fun setFavoriteFilterReadingState(state: FavoriteReadingState?) {
         updateState { copy(favoriteFilterReadingState = state) }
     }
@@ -509,11 +619,33 @@ class MangaViewModel internal constructor(
         viewModelScope.launch {
             updateState { copy(errorMessage = "Preparo i primi capitoli di ${favorite.title}…") }
             try {
-                val details = withContext(Dispatchers.IO) {
-                    sourceRegistry.resolve(favorite.sourceId, favorite.mangaUrl)
-                        .fetchMangaDetails(favorite.mangaUrl)
+                // Stessa regola del worker: se il mirror abituale non risponde si prova il
+                // successivo, invece di far fallire la scorciatoia "Leggi".
+                val fetched = fetchFromFirstAvailable(
+                    favoriteSourceCandidates(
+                        favorite = favorite,
+                        link = seriesLinksStore.linkFor(favorite.canonicalKey()),
+                        disabledSourceIds = _state.value.settings.disabledSourceIds,
+                    ),
+                ) { binding ->
+                    withContext(Dispatchers.IO) {
+                        sourceRegistry.resolve(binding.sourceId, binding.mangaUrl)
+                            .fetchMangaDetails(binding.mangaUrl)
+                    }
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                if (fetched == null) {
+                    updateState {
+                        copy(errorMessage = "${favorite.title} non è raggiungibile da nessuna fonte")
+                    }
+                    return@launch
+                }
+                val details = fetched.details
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 val firstChapters = firstChaptersForReading(details.chapters, READ_NOW_CHAPTER_COUNT)
                 if (firstChapters.isEmpty()) {
                     updateState { copy(errorMessage = "Nessun capitolo disponibile per ${details.title}") }
@@ -677,7 +809,7 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(
                     favorites = result.favorites,
-                    favoriteMangaKeys = result.favorites.identityKeys(),
+                    favoriteSeriesKeys = favoriteSeriesKeys(result.favorites),
                     favoriteSeenStates = restoredSeen,
                     favoriteStatusByKey = restoredSeen.toStatusMap(),
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
@@ -1147,6 +1279,66 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(doubleTapZoomEnabled = enabled) }
     }
 
+    fun setSpreadPageMode(mode: SpreadPageMode) {
+        // Default globale, applicato alle serie senza una preferenza esplicita.
+        if (mode == _state.value.settings.spreadPageMode) return
+        updateSettings { it.copy(spreadPageMode = mode) }
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey
+        if (seriesKey != null && prefs.contains(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey)) {
+            return
+        }
+        updateState { copy(readerSpreadPageMode = mode) }
+        // Il capitolo aperto è già stato espanso (o no) secondo la modalità precedente:
+        // ricaricarlo è l'unico modo perché il cambio si veda subito invece che al prossimo.
+        state.readerChapter?.let(::openReaderChapter)
+    }
+
+    /**
+     * Override ricordato per la serie attualmente in lettura: le pagine doppie di un volume
+     * non si trattano come quelle di un webtoon, e la scelta giusta cambia da manga a manga.
+     */
+    fun setReaderSpreadPageMode(mode: SpreadPageMode) {
+        val state = _state.value
+        val seriesKey = state.readerSeriesKey ?: return
+        prefs.edit {
+            putString(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey, mode.name)
+        }
+        if (mode == state.readerSpreadPageMode) return
+        updateState { copy(readerSpreadPageMode = mode) }
+        // Riaprire il capitolo lo ri-espande con la nuova modalità; il segno di lettura è
+        // salvato con il numero di pagine di allora, quindi restoredIndex lo ritraduce.
+        state.readerChapter?.let(::openReaderChapter)
+    }
+
+    private fun resolveSpreadPageMode(seriesKey: String): SpreadPageMode {
+        val stored = prefs.getString(KEY_SPREAD_PAGE_MODE_SERIES_PREFIX + seriesKey, null)
+        return stored?.let { runCatching { SpreadPageMode.valueOf(it) }.getOrNull() }
+            ?: _state.value.settings.spreadPageMode
+    }
+
+    /**
+     * L'elenco pagine da consegnare al reader, con le pagine doppie già divise se
+     * l'impostazione lo chiede. Le proporzioni si leggono dall'intestazione dei file su un
+     * dispatcher I/O: costa una manciata di microsecondi a pagina, e solo per le pagine locali
+     * (di una pagina ancora solo remota non si conoscono le dimensioni senza scaricarla).
+     */
+    private suspend fun expandedReaderPages(
+        pages: List<ReaderPage>,
+        seriesKey: String,
+    ): ReaderPageExpansion {
+        if (resolveSpreadPageMode(seriesKey) != SpreadPageMode.SPLIT) {
+            return unexpandedReaderPages(pages)
+        }
+        val rightFirst = resolveReadingMode(seriesKey).splitsSpreadRightFirst
+        return withContext(Dispatchers.IO) {
+            val bounds = mutableMapOf<String, PageBounds?>()
+            expandSpreadPages(pages = pages, rightFirst = rightFirst) { local ->
+                bounds.getOrPut(local.file.absolutePath) { readPageBounds(local.file) }
+            }
+        }
+    }
+
     fun setKeepScreenOnEnabled(enabled: Boolean) {
         updateSettings { it.copy(keepScreenOnEnabled = enabled) }
     }
@@ -1269,7 +1461,7 @@ class MangaViewModel internal constructor(
             updateState {
                 copy(
                     favorites = current,
-                    favoriteMangaKeys = current.identityKeys(),
+                    favoriteSeriesKeys = favoriteSeriesKeys(current),
                 )
             }
         }
@@ -1295,21 +1487,223 @@ class MangaViewModel internal constructor(
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
-        toggleFavorite(result.toFavoriteManga())
+        toggleFavorite(
+            result.toFavoriteManga(
+                seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title),
+            ),
+        )
+    }
+
+    /**
+     * Stella su una card raggruppata della ricerca. Il preferito nasce con la chiave della
+     * **serie** e con tutti i mirror del gruppo già agganciati, così il fallback del worker ha
+     * alternative fin dal primo giro. I titoli di tutte le fonti del gruppo entrano tra le
+     * chiavi di confronto: se la serie era già tra i preferiti sotto il titolo di un'altra
+     * fonte, questo tap la toglie invece di crearne una copia.
+     */
+    fun toggleFavoriteFromGroup(group: GroupedSearchResult) {
+        val alreadyFavorite = group.seriesKey in _state.value.favoriteSeriesKeys
+        if (!alreadyFavorite) {
+            seriesLinksStore.mergeFromGroup(group, now = System.currentTimeMillis())
+        }
+        val primary = group.primary
+        toggleFavorite(
+            manga = FavoriteManga(
+                sourceId = primary.sourceId,
+                title = group.title,
+                mangaUrl = primary.mangaUrl,
+                coverUrl = group.coverUrl ?: primary.coverUrl,
+                seriesKey = group.seriesKey,
+            ),
+            extraMatchKeys = group.results.mapNotNullTo(mutableSetOf()) {
+                SeriesIdentity.keyForTitle(it.title)
+            },
+        )
+    }
+
+    /**
+     * Tap su una card raggruppata: persiste/aggiorna il [SeriesLink] (unico momento in cui
+     * il raggruppamento effimero della ricerca diventa stato) e apre la scheda sulla fonte
+     * iniziale (preferita → lingua dello scope → prima).
+     */
+    fun selectSeries(group: GroupedSearchResult) {
+        val link = seriesLinksStore.mergeFromGroup(group, now = System.currentTimeMillis())
+        updateState { copy(selectedSeriesLink = link, sourceOptions = emptyList()) }
+        val binding = link.initialBinding(_state.value.settings.searchScope)
+        val bindingResult = group.results.firstOrNull { it.sourceId == binding.sourceId }
+            ?: group.primary
+        selectManga(bindingResult)
+    }
+
+    /**
+     * Popola le voci del selettore fonte (lazy, alla prima apertura del menu): per ogni
+     * binding del link, capitoli disponibili e ultimo capitolo, in parallelo. Il fallimento
+     * di una fonte marca solo quella voce, senza rompere le altre. Le fonti disabilitate
+     * ma già collegate restano visibili: non si nasconde ciò che l'utente ha già.
+     */
+    fun loadSourceOptions() {
+        val link = _state.value.selectedSeriesLink ?: return
+        val current = _state.value.sourceOptions
+        if (current.isNotEmpty() && current.none { it.isLoading }) return
+        sourceOptionsJob?.cancel()
+        updateState {
+            copy(
+                sourceOptions = link.sources.map { binding ->
+                    val cached = sourceOptionDetailsCache[
+                        MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl),
+                    ]
+                    SourceOptionUi(
+                        sourceId = binding.sourceId,
+                        mangaUrl = binding.mangaUrl,
+                        chapterCount = cached?.chapters?.size,
+                        lastChapterLabel = cached?.chapters?.lastOrNull()?.displayShortLabel(),
+                        isLoading = cached == null,
+                    )
+                },
+            )
+        }
+        sourceOptionsJob = viewModelScope.launch {
+            link.sources.forEach { binding ->
+                val key = MangaSourceCatalog.identityKey(binding.sourceId, binding.mangaUrl)
+                if (sourceOptionDetailsCache.containsKey(key)) return@forEach
+                launch {
+                    val details = withContext(Dispatchers.IO) {
+                        runCatching {
+                            sourceRegistry.resolve(binding.sourceId, binding.mangaUrl)
+                                .fetchMangaDetails(binding.mangaUrl)
+                        }.getOrNull()
+                    }
+                    if (details != null) {
+                        sourceOptionDetailsCache[key] = details
+                    }
+                    updateState {
+                        copy(
+                            sourceOptions = sourceOptions.map { option ->
+                                if (option.sourceId == binding.sourceId && option.mangaUrl == binding.mangaUrl) {
+                                    option.copy(
+                                        chapterCount = details?.chapters?.size,
+                                        lastChapterLabel = details?.chapters?.lastOrNull()?.displayShortLabel(),
+                                        isLoading = false,
+                                        hasError = details == null,
+                                    )
+                                } else {
+                                    option
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Chiavi con cui riconoscere i preferiti (ordine preservato): per ciascuno la chiave
+     * canonica **e** l'alias titolo, così la stella si accende anche quando la stessa serie
+     * arriva sotto l'altra forma di chiave (vedi [FavoriteManga.matchKeys]).
+     */
+    private fun favoriteSeriesKeys(favorites: List<FavoriteManga>): Set<String> =
+        favorites.flatMapTo(linkedSetOf()) { it.matchKeys() }
+
+    /**
+     * Sposta il preferito di [seriesKey] sul mirror indicato. No-op se quella serie non è tra
+     * i preferiti: il cambio fonte resta comunque registrato nel link.
+     */
+    private fun updateFavoriteBinding(seriesKey: String, sourceId: String, mangaUrl: String) {
+        val current = _state.value.favorites
+        val index = current.indexOfFirst { seriesKey in it.matchKeys() }
+        if (index < 0) return
+        val existing = current[index]
+        if (existing.sourceId == sourceId && existing.mangaUrl == mangaUrl) return
+        val updated = current.toMutableList()
+        updated[index] = existing.copy(sourceId = sourceId, mangaUrl = mangaUrl)
+        favoritesStore.persist(updated)
+        updateState {
+            copy(favorites = updated, favoriteSeriesKeys = favoriteSeriesKeys(updated))
+        }
+    }
+
+    /**
+     * SeriesKey della serie corrente: dal link selezionato se contiene questo binding,
+     * altrimenti derivata da (fonte, url, titolo) via [SeriesLinksStore.seriesKeyFor].
+     */
+    private fun currentSeriesKey(sourceId: String, mangaUrl: String, title: String): String {
+        _state.value.selectedSeriesLink?.let { link ->
+            val key = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+            if (link.sources.any { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == key }) {
+                return link.seriesKey
+            }
+        }
+        return seriesLinksStore.seriesKeyFor(sourceId, mangaUrl, title)
+    }
+
+    /** Cambio fonte dal selettore: ricarica la scheda e ricorda la scelta per la serie. */
+    fun switchSource(option: SourceOptionUi) {
+        val link = _state.value.selectedSeriesLink ?: return
+        if (option.sourceId == _state.value.selected?.sourceId) return
+        seriesLinksStore.setPreferredSource(link.seriesKey, option.sourceId)
+        updateState {
+            copy(selectedSeriesLink = link.copy(preferredSourceId = option.sourceId))
+        }
+        // Se la serie è tra i preferiti, la scelta vale anche per lei: `sourceId`/`mangaUrl`
+        // del preferito sono "da dove la leggo adesso", quindi riaprirla dai Preferiti deve
+        // portare sulla fonte appena scelta, non su quella con cui era stata aggiunta.
+        updateFavoriteBinding(link.seriesKey, option.sourceId, option.mangaUrl)
+        selectManga(
+            MangaSearchResult(
+                sourceId = option.sourceId,
+                title = link.canonicalTitle,
+                mangaUrl = option.mangaUrl,
+                coverUrl = link.coverUrl,
+            ),
+        )
     }
 
     fun selectManga(result: MangaSearchResult) {
         if (_state.value.currentTab == AppTab.SEARCH) {
             recordRecentSearch(_state.value.query)
         }
+        // Percorsi che non passano da selectSeries (preferiti, retry, tutorial): riallinea
+        // il link della serie a quello che contiene questo binding, se esiste.
+        val currentLink = _state.value.selectedSeriesLink
+        val resultKey = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
+        val linkContainsResult = currentLink?.sources
+            ?.any { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == resultKey } == true
+        if (!linkContainsResult) {
+            updateState {
+                copy(selectedSeriesLink = seriesLinksStore.linkForBinding(result.sourceId, result.mangaUrl))
+            }
+        }
         detailJob?.cancel()
-        val readChapterIds = libraryRepository.streamingReadChapterIds(result.sourceId, result.mangaUrl)
+        val seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title)
+        // Serie già tra i preferiti aperta da una fonte non ancora collegata: aggancia il
+        // mirror in silenzio. È così che l'app impara le alternative da usare nel fallback,
+        // senza chiedere niente all'utente.
+        if (seriesKey in _state.value.favoriteSeriesKeys) {
+            val link = seriesLinksStore.ensureLink(
+                seriesKey = seriesKey,
+                title = result.title,
+                coverUrl = result.coverUrl,
+                binding = SeriesSourceBinding(
+                    result.sourceId,
+                    result.mangaUrl,
+                    System.currentTimeMillis(),
+                ),
+            )
+            updateState { copy(selectedSeriesLink = link) }
+        }
+        val readChapterIds = libraryRepository.streamingReadChapterIds(
+            seriesKey,
+            result.sourceId,
+            result.mangaUrl,
+        )
         updateState {
             copy(
                 isLoadingDetails = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = readChapterIds,
                 selected = result.toDetailsStub(),
+                selectedSeriesKey = seriesKey,
             )
         }
         detailJob = viewModelScope.launch {
@@ -1317,11 +1711,16 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 // Se è un preferito, aggiorna in memoria lo stato di pubblicazione per i sort/filtri
                 // (utile quando le notifiche non hanno ancora popolato la baseline).
-                val detailsKey = MangaSourceCatalog.identityKey(details.sourceId, details.mangaUrl)
-                val updatedStatusByKey = if (detailsKey in _state.value.favoriteMangaKeys) {
+                val detailsKey = currentSeriesKey(details.sourceId, details.mangaUrl, details.title)
+                val updatedStatusByKey = if (detailsKey in _state.value.favoriteSeriesKeys) {
                     _state.value.favoriteStatusByKey + (detailsKey to details.status)
                 } else {
                     _state.value.favoriteStatusByKey
@@ -1330,6 +1729,7 @@ class MangaViewModel internal constructor(
                     copy(
                         selected = details,
                         selectedMangaReadChapterIds = libraryRepository.streamingReadChapterIds(
+                            currentSeriesKey(details.sourceId, details.mangaUrl, details.title),
                             details.sourceId,
                             details.mangaUrl,
                         ),
@@ -1353,7 +1753,7 @@ class MangaViewModel internal constructor(
 
     fun showMangaInfo(result: MangaSearchResult) {
         infoJob?.cancel()
-        val key = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
+        val key = currentSeriesKey(result.sourceId, result.mangaUrl, result.title)
         mangaDescriptionCache[key]?.let { cached ->
             // Trama già in cache (info "sempre pronta"): mostra subito, niente fetch né spinner.
             updateState {
@@ -1388,7 +1788,12 @@ class MangaViewModel internal constructor(
                 val details = withContext(Dispatchers.IO) {
                     sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
                 }
-                cacheMangaDescription(details.sourceId, details.mangaUrl, details.description)
+                cacheMangaDescription(
+                    details.sourceId,
+                    details.mangaUrl,
+                    details.title,
+                    details.description,
+                )
                 updateState {
                     copy(
                         mangaInfoDialog = MangaInfoDialogState(
@@ -1437,48 +1842,80 @@ class MangaViewModel internal constructor(
         }
     }
 
-    fun toggleFavorite(manga: FavoriteManga) {
+    /**
+     * Aggiunge/rimuove **la serie** dai preferiti. La fonte da cui arriva il tap conta solo
+     * come primo mirror da agganciare: premere la stella su One Piece letto da un'altra fonte
+     * agisce sullo stesso preferito, non ne crea un secondo.
+     */
+    fun toggleFavorite(manga: FavoriteManga, extraMatchKeys: Set<String> = emptySet()) {
         val current = _state.value.favorites.toMutableList()
-        val targetKey = MangaSourceCatalog.identityKey(manga.sourceId, manga.mangaUrl)
-        val existingIndex = current.indexOfFirst {
-            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+        val now = System.currentTimeMillis()
+        val targetSeriesKey = manga.seriesKey.takeIf(String::isNotBlank)
+            ?: seriesLinksStore.seriesKeyFor(manga.sourceId, manga.mangaUrl, manga.title)
+        val target = manga.copy(seriesKey = targetSeriesKey)
+        val matchKeys = target.matchKeys() + extraMatchKeys
+        val existingIndex = current.indexOfFirst { favorite ->
+            favorite.matchKeys().any { it in matchKeys }
         }
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
         } else {
-            current.add(0, manga.copy(addedAt = System.currentTimeMillis()))
+            current.add(0, target.copy(addedAt = now))
+            // Ogni preferito nasce con il suo link: è il contenitore dove il fallback e le
+            // aperture da altre fonti accumuleranno i mirror alternativi.
+            seriesLinksStore.ensureLink(
+                seriesKey = targetSeriesKey,
+                title = target.title,
+                coverUrl = target.coverUrl,
+                binding = SeriesSourceBinding(target.sourceId, target.mangaUrl, now),
+            )
         }
         favoritesStore.persist(current)
         updateState {
             copy(
                 favorites = current,
-                favoriteMangaKeys = current.identityKeys(),
+                favoriteSeriesKeys = favoriteSeriesKeys(current),
             )
         }
         if (existingIndex < 0) {
             // Appena aggiunto ai preferiti: se la trama è già in cache, persistila subito.
-            mangaDescriptionCache[targetKey]?.let { description ->
-                favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (targetKey to description))
+            mangaDescriptionCache[targetSeriesKey]?.let { description ->
+                favoriteDescriptionsStore.write(
+                    favoriteDescriptionsStore.read() + (targetSeriesKey to description),
+                )
             }
         }
+        // La stella è appena cambiata: riallinea AniList. Il giro precedente viene annullato,
+        // quindi una raffica di stelle toccate in fila produce una sola riconciliazione.
+        syncAniListFavorites()
     }
 
     /**
      * Mette la trama in cache (info istantanea) e, se il manga è tra i preferiti, la persiste su
      * disco così resta pronta anche dopo il riavvio dell'app.
      */
-    private fun cacheMangaDescription(sourceId: String, mangaUrl: String, description: String?) {
+    private fun cacheMangaDescription(
+        sourceId: String,
+        mangaUrl: String,
+        title: String,
+        description: String?,
+    ) {
         val text = description?.trim()?.takeIf(String::isNotBlank) ?: return
-        val key = MangaSourceCatalog.identityKey(sourceId, mangaUrl)
+        // Indicizzata per serie: cambiando fonte la trama resta quella giusta.
+        val key = currentSeriesKey(sourceId, mangaUrl, title)
         mangaDescriptionCache[key] = text
-        if (key in _state.value.favoriteMangaKeys) {
+        if (key in _state.value.favoriteSeriesKeys) {
             favoriteDescriptionsStore.write(favoriteDescriptionsStore.read() + (key to text))
         }
     }
 
     fun toggleFavoriteSelectedManga() {
         val selected = _state.value.selected ?: return
-        toggleFavorite(selected.toFavoriteManga())
+        toggleFavorite(
+            selected.toFavoriteManga(
+                seriesKey = currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title),
+            ),
+        )
     }
 
     /**
@@ -1487,7 +1924,11 @@ class MangaViewModel internal constructor(
      * (identità del preferito) — in quel caso la stella non viene proprio mostrata.
      */
     fun toggleFavoriteSelectedSeries() {
-        val favorite = _state.value.selectedDownloadedSeries?.toFavoriteManga() ?: return
+        val series = _state.value.selectedDownloadedSeries ?: return
+        val url = series.mangaUrl?.trim()?.takeIf(String::isNotBlank) ?: return
+        val favorite = series.toFavoriteManga(
+            seriesKey = currentSeriesKey(series.sourceId, url, series.title),
+        ) ?: return
         toggleFavorite(favorite)
     }
 
@@ -1550,6 +1991,7 @@ class MangaViewModel internal constructor(
             !prefs.contains(KEY_READING_MODE_SERIES_PREFIX + seriesKey)
         ) {
             updateState { copy(readerReadingMode = mode) }
+            reopenIfSpreadsAreSplit(seriesKey)
         }
     }
 
@@ -1564,6 +2006,18 @@ class MangaViewModel internal constructor(
         val currentPage = (state.readerChapter?.readerPageIndex ?: state.readerInitialPageIndex)
             .coerceAtLeast(0)
         updateState { copy(readerReadingMode = mode, readerInitialPageIndex = currentPage) }
+        reopenIfSpreadsAreSplit(seriesKey)
+    }
+
+    /**
+     * Il senso di lettura decide anche in che ordine stanno le due metà di una pagina doppia
+     * divisa: cambiandolo a capitolo aperto, l'elenco pagine già espanso va rifatto o le
+     * facciate restano invertite fino alla riapertura. Solo con [SpreadPageMode.SPLIT]: le
+     * altre due modalità non toccano l'elenco pagine e si aggiornano da sole ridisegnando.
+     */
+    private fun reopenIfSpreadsAreSplit(seriesKey: String) {
+        if (resolveSpreadPageMode(seriesKey) != SpreadPageMode.SPLIT) return
+        _state.value.readerChapter?.let(::openReaderChapter)
     }
 
     private fun seriesKeyForDownloaded(relativePath: String): String =
@@ -1581,9 +2035,11 @@ class MangaViewModel internal constructor(
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
-        val savedPageIndex = libraryRepository.readerPagePosition(chapter.relativePath)?.pageIndex
+        val savedPagePosition = libraryRepository.readerPagePosition(chapter.relativePath)
+        val savedPageIndex = savedPagePosition?.pageIndex
             ?: chapter.readerPageIndex
             ?: 0
+        val savedPageCount = savedPagePosition?.pageCount ?: chapter.readerPageCount
         val initialReaderChapter = chapter.copy(readerPageIndex = savedPageIndex).toReaderChapter()
         val seriesKey = seriesKeyForDownloaded(chapter.relativePath)
         val readerSourceId = sequenceOf(_state.value.selectedDownloadedSeries)
@@ -1603,6 +2059,7 @@ class MangaViewModel internal constructor(
                 readerInitialPageIndex = savedPageIndex,
                 readerSeriesKey = seriesKey,
                 readerReadingMode = resolveReadingMode(seriesKey),
+                readerSpreadPageMode = resolveSpreadPageMode(seriesKey),
                 isLoadingReader = true,
                 errorMessage = null,
             )
@@ -1613,15 +2070,27 @@ class MangaViewModel internal constructor(
         readerJob = viewModelScope.launch {
             try {
                 val pages = libraryRepository.extractReaderPages(chapter)
-                val restoredPageIndex = savedPageIndex.coerceIn(0, pages.lastIndex.coerceAtLeast(0))
-                libraryRepository.saveReaderPagePosition(chapter.relativePath, restoredPageIndex, pages.size)
+                val expansion = expandedReaderPages(
+                    pages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
+                    seriesKey = seriesKey,
+                )
+                val restoredPageIndex = expansion.restoredIndex(savedPageIndex, savedPageCount)
+                libraryRepository.saveReaderPagePosition(
+                    chapter.relativePath,
+                    restoredPageIndex,
+                    expansion.pages.size,
+                )
                 updateState {
                     copy(
-                        readerPages = pages.map { ReaderPage.Local(file = it, sourceId = readerSourceId) },
+                        readerPages = expansion.pages,
                         readerInitialPageIndex = restoredPageIndex,
                         isLoadingReader = false,
                     )
-                        .withReaderProgress(chapter.relativePath, pageIndex = restoredPageIndex, pageCount = pages.size)
+                        .withReaderProgress(
+                            chapter.relativePath,
+                            pageIndex = restoredPageIndex,
+                            pageCount = expansion.pages.size,
+                        )
                         .withReaderAdjacency(chapter.relativePath)
                 }
             } catch (e: CancellationException) {
@@ -1657,6 +2126,11 @@ class MangaViewModel internal constructor(
         streamingCacheJob?.cancel()
 
         val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(
+            currentSeriesKey(
+                streamingChapter.sourceId,
+                streamingChapter.mangaUrl,
+                _state.value.selected?.title.orEmpty(),
+            ),
             streamingChapter.sourceId,
             streamingChapter.mangaUrl,
         )
@@ -1679,6 +2153,7 @@ class MangaViewModel internal constructor(
                 readerInitialPageIndex = savedPageIndex,
                 readerSeriesKey = seriesKey,
                 readerReadingMode = resolveReadingMode(seriesKey),
+                readerSpreadPageMode = resolveSpreadPageMode(seriesKey),
                 isLoadingReader = true,
                 errorMessage = null,
                 selectedMangaReadChapterIds = streamingReadChapterIds,
@@ -1691,13 +2166,21 @@ class MangaViewModel internal constructor(
                     streamingCacheRepository.getCachedChapter(cacheKey)
                 }
                 if (cached != null) {
-                    val restored = cached.restoreReaderPageIndex(savedPagePosition)
-                    libraryRepository.saveReaderPagePosition(readerChapter.relativePath, restored, cached.pages.size)
+                    val expansion = expandedReaderPages(cached.toReaderPages(), seriesKey)
+                    val restored = expansion.restoredIndex(
+                        savedIndex = cached.restoreReaderPageIndex(savedPagePosition),
+                        savedCount = expansion.originalCount,
+                    )
+                    libraryRepository.saveReaderPagePosition(
+                        readerChapter.relativePath,
+                        restored,
+                        expansion.pages.size,
+                    )
                     updateState {
                         withStreamingReaderPayload(
                             expectedRelativePath = readerChapter.relativePath,
                             streamingChapter = streamingChapter,
-                            pages = cached.toReaderPages(),
+                            pages = expansion.pages,
                             restoredPageIndex = restored,
                         )
                     }
@@ -1744,23 +2227,28 @@ class MangaViewModel internal constructor(
                             ?.takeIf { it.relativePath == readerChapter.relativePath }
                             ?.readerPageIndex
                         if (currentOriginalPage != null) {
-                            val mappedPageIndex = completed
+                            val expansion = expandedReaderPages(completed.toReaderPages(), seriesKey)
+                            val cachedPageIndex = completed
                                 .readerPageIndexForOriginalPage(currentOriginalPage)
                                 ?.coerceIn(0, completed.pages.lastIndex.coerceAtLeast(0))
                                 ?: currentOriginalPage.coerceIn(
                                     0,
                                     completed.pages.lastIndex.coerceAtLeast(0),
                                 )
+                            val mappedPageIndex = expansion.restoredIndex(
+                                savedIndex = cachedPageIndex,
+                                savedCount = expansion.originalCount,
+                            )
                             libraryRepository.saveReaderPagePosition(
                                 readerChapter.relativePath,
                                 mappedPageIndex,
-                                completed.pages.size,
+                                expansion.pages.size,
                             )
                             updateState {
                                 withStreamingReaderPayload(
                                     expectedRelativePath = readerChapter.relativePath,
                                     streamingChapter = streamingChapter,
-                                    pages = completed.toReaderPages(),
+                                    pages = expansion.pages,
                                     restoredPageIndex = mappedPageIndex,
                                 )
                             }
@@ -1821,6 +2309,11 @@ class MangaViewModel internal constructor(
                 libraryRepository.markChapterRead(downloaded)
             } else if (streaming != null) {
                 streamingReadId = libraryRepository.markStreamingChapterRead(
+                    seriesKey = currentSeriesKey(
+                        streaming.sourceId,
+                        streaming.mangaUrl,
+                        _state.value.selected?.title.orEmpty(),
+                    ),
                     sourceId = streaming.sourceId,
                     mangaUrl = streaming.mangaUrl,
                     chapter = streaming.chapter,
@@ -2235,9 +2728,11 @@ class MangaViewModel internal constructor(
         updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
         searchJob = viewModelScope.launch {
             try {
-                val results = withContext(Dispatchers.IO) {
+                val settings = _state.value.settings
+                val (perSource, aniCandidates) = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        MangaSourceCatalog.descriptorsForScope(_state.value.settings.searchScope)
+                        val sources = MangaSourceCatalog
+                            .descriptorsForScope(settings.searchScope, settings.disabledSourceIds)
                             .map { descriptor ->
                                 async {
                                     runCatching {
@@ -2245,12 +2740,20 @@ class MangaViewModel internal constructor(
                                     }.getOrDefault(emptyList())
                                 }
                             }
-                            .awaitAll()
+                        // AniList in parallelo al fan-out: serve solo a raggruppare. Un suo
+                        // fallimento degrada al raggruppamento per titolo, mai a ricerca rotta.
+                        val aniList = async {
+                            runCatching { aniListClient.searchManga(query) }.getOrDefault(emptyList())
+                        }
+                        sources.awaitAll() to aniList.await()
                     }
                 }
+                val interleaved = MangaSourceCatalog.interleaveBySource(perSource)
+                val pinned = pendingAniListPick?.let(::listOf).orEmpty()
                 updateState {
                     copy(
-                        results = MangaSourceCatalog.interleaveBySource(results),
+                        results = interleaved,
+                        groupedResults = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates),
                         isSearching = false,
                     )
                 }
@@ -2271,10 +2774,18 @@ class MangaViewModel internal constructor(
 
     // --- Tab Scopri (AniList) -------------------------------------------------------------
 
-    /** Carica le tre sezioni a caroselli (tendenze, più votati, novità). Idempotente. */
+    /**
+     * Carica le tre sezioni a caroselli (tendenze, più votati, novità). Idempotente nella
+     * sessione e, grazie a [homeFeedCacheStore], anche **tra un avvio e l'altro**: la vetrina
+     * si rinnova una volta al giorno alle 9 (vedi [isHomeFeedFresh]), non a ogni apertura
+     * dell'app. [forceRefresh] è il pull-to-refresh: scavalca la cache e la riscrive.
+     */
     fun loadDiscovery(forceRefresh: Boolean = false) {
         val current = _state.value.discovery
         if (!forceRefresh && (current.loaded || current.isLoadingSections)) {
+            return
+        }
+        if (!forceRefresh && restoreCachedDiscovery()) {
             return
         }
         discoveryJob?.cancel()
@@ -2289,6 +2800,14 @@ class MangaViewModel internal constructor(
                         Triple(trending.await(), topRated.await(), newest.await())
                     }
                 }
+                homeFeedCacheStore.writeDiscover(
+                    HomeDiscoverCache(
+                        trending = sections.first,
+                        topRated = sections.second,
+                        newest = sections.third,
+                        fetchedAtMillis = System.currentTimeMillis(),
+                    ),
+                )
                 updateState {
                     copy(
                         discovery = discovery.copy(
@@ -2336,6 +2855,10 @@ class MangaViewModel internal constructor(
             }
             return
         }
+        val seedSignature = recommendationSeedSignature(seeds)
+        if (!forceRefresh && restoreCachedRecommendations(seedSignature)) {
+            return
+        }
         val excludeTitles = buildSet {
             state.favorites.forEach { add(normalizedRecommendationTitle(it.title)) }
             state.library.forEach { add(normalizedRecommendationTitle(it.title)) }
@@ -2355,7 +2878,13 @@ class MangaViewModel internal constructor(
                                 runCatching {
                                     aniListClient.searchManga(title, perPage = 5)
                                         .let { results ->
-                                            results.firstOrNull { it.format != "NOVEL" }
+                                            // Il primo risultato di AniList non è il più
+                                            // giusto: la ricerca pesca anche nei sinonimi, e
+                                            // un titolo generico può portare in testa una
+                                            // serie che non c'entra. Se qualcuno combacia
+                                            // esattamente, vince lui.
+                                            matchAniListCandidate(title, results)
+                                                ?: results.firstOrNull { it.format != "NOVEL" }
                                                 ?: results.firstOrNull()
                                         }?.id
                                 }
@@ -2376,6 +2905,13 @@ class MangaViewModel internal constructor(
                         )
                     }
                 }
+                homeFeedCacheStore.writeRecommendations(
+                    HomeRecommendationsCache(
+                        items = items,
+                        fetchedAtMillis = System.currentTimeMillis(),
+                        seedSignature = seedSignature,
+                    ),
+                )
                 updateState {
                     copy(
                         recommendations = recommendations.copy(
@@ -2399,6 +2935,67 @@ class MangaViewModel internal constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Pull-to-refresh della Home: rinnova le vetrine AniList **adesso**, senza aspettare il
+     * rollover delle 9. Sotto controllo parentale i due blocchi non esistono, quindi non c'è
+     * niente da rinfrescare e la rete non va toccata.
+     */
+    fun refreshHomeFeeds() {
+        if (_state.value.settings.parentalControlEnabled) return
+        loadDiscovery(forceRefresh = true)
+        loadRecommendations(forceRefresh = true)
+    }
+
+    /**
+     * Ripubblica la Scopri salvata su disco se non ha ancora passato il rollover delle 9.
+     * Ritorna `true` se lo stato è stato riempito, cioè se non serve andare in rete.
+     */
+    private fun restoreCachedDiscovery(): Boolean {
+        val cache = homeFeedCacheStore.readDiscover()
+        if (!isHomeFeedFresh(cache.fetchedAtMillis, System.currentTimeMillis())) {
+            return false
+        }
+        updateState {
+            copy(
+                discovery = discovery.copy(
+                    trending = cache.trending,
+                    topRated = cache.topRated,
+                    newest = cache.newest,
+                    isLoadingSections = false,
+                    loaded = true,
+                    sectionsError = null,
+                ),
+            )
+        }
+        return true
+    }
+
+    /**
+     * Come [restoreCachedDiscovery], ma i Consigliati dipendono anche da **cosa leggi**: una
+     * cache costruita su semi diversi da quelli di adesso (hai aggiunto un preferito, hai
+     * iniziato una serie) è da buttare anche se è di stamattina.
+     */
+    private fun restoreCachedRecommendations(seedSignature: String): Boolean {
+        val cache = homeFeedCacheStore.readRecommendations()
+        if (cache.seedSignature != seedSignature) {
+            return false
+        }
+        if (!isHomeFeedFresh(cache.fetchedAtMillis, System.currentTimeMillis())) {
+            return false
+        }
+        updateState {
+            copy(
+                recommendations = recommendations.copy(
+                    items = cache.items,
+                    isLoading = false,
+                    loaded = true,
+                    error = null,
+                ),
+            )
+        }
+        return true
     }
 
     /** Apre la pagina del genere e ne avvia il caricamento. */
@@ -2457,11 +3054,16 @@ class MangaViewModel internal constructor(
      */
     fun onPickAniListManga(manga: AniListManga) {
         val title = manga.searchTitle() ?: return
+        pendingAniListPick = manga
         updateSettings { it.copy(searchScope = SearchScope.ALL) }
         updateState {
             copy(
                 query = title,
+                // Richiesta esplicita: va rifatta anche se la query non cambia, altrimenti
+                // ritoccare lo stesso consigliato lascia la ricerca in caricamento per sempre.
+                searchRequestId = searchRequestId + 1,
                 results = emptyList(),
+                groupedResults = emptyList(),
                 isSearching = true,
                 searchError = null,
                 errorMessage = null,
@@ -2854,6 +3456,11 @@ class MangaViewModel internal constructor(
             val readChapterIds = selectedMangaReadChapterIds
                 .ifEmpty {
                     libraryRepository.streamingReadChapterIds(
+                        currentSeriesKey(
+                            streamingChapter.sourceId,
+                            streamingChapter.mangaUrl,
+                            selected?.title.orEmpty(),
+                        ),
                         streamingChapter.sourceId,
                         streamingChapter.mangaUrl,
                     )
@@ -2919,6 +3526,14 @@ class MangaViewModel internal constructor(
             updateState { copy(errorMessage = "Accesso ad AniList annullato o non riuscito") }
             return
         }
+        // Redirect gia' consumato e riconsegnato da Android (ricreazione dell'activity dopo un
+        // process death): rifare il login significherebbe rigiocare un token vecchio e farsi
+        // scollegare dal 401 che ne segue. Basta riallineare lo stato a cio' che e' su disco.
+        if (token == aniListStore.readHandledAuthToken()) {
+            syncAniListAccountState()
+            return
+        }
+        aniListStore.markAuthTokenHandled(token)
         updateState { copy(aniList = aniList.copy(isConnecting = true)) }
         viewModelScope.launch {
             try {
@@ -2931,8 +3546,19 @@ class MangaViewModel internal constructor(
                     )
                 }
                 flushPendingAniListSync()
+                syncAniListFavorites()
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: AniListAuthException) {
+                // Il token appena ricevuto e' stato rifiutato: e' un collegamento fallito, non
+                // una sessione scaduta. Dirlo con le parole giuste evita il messaggio assurdo
+                // "ricollega l'account" subito DOPO aver ricollegato l'account.
+                updateState {
+                    copy(
+                        aniList = aniList.copy(isConnecting = false),
+                        errorMessage = "AniList ha rifiutato l'accesso: riprova il collegamento",
+                    )
+                }
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -2941,6 +3567,37 @@ class MangaViewModel internal constructor(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Riallinea lo stato in memoria dell'account con quello persistito. E' esattamente cio' che
+     * oggi si ottiene solo chiudendo e riaprendo l'app: chiamandolo al ritorno in primo piano
+     * (cioe' al rientro dal browser dell'OAuth) un eventuale disallineamento si risolve da solo.
+     * Non tocca nulla mentre un collegamento e' in corso, per non calpestarne l'esito.
+     */
+    fun syncAniListAccountState() {
+        if (_state.value.aniList.isConnecting) return
+        val viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null }
+        if (viewer == _state.value.aniList.viewer) return
+        updateState { copy(aniList = aniList.copy(viewer = viewer)) }
+    }
+
+    /**
+     * Azione AniList richiesta senza un token valido: lo stato in memoria diceva "collegato"
+     * ma su disco non c'e' piu' nulla. Prima era un `?: return` muto, cioe' un tap che non
+     * faceva niente e non spiegava niente.
+     */
+    private fun reportAniListNotConnected() {
+        syncAniListAccountState()
+        updateState {
+            copy(
+                aniList = aniList.copy(
+                    isSavingEntry = false,
+                    match = aniList.match?.copy(isLinking = false),
+                ),
+                errorMessage = "Account AniList non collegato: ricollegalo dalle impostazioni",
+            )
         }
     }
 
@@ -2956,14 +3613,104 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(aniListSyncEnabled = enabled) }
     }
 
+    fun setAniListFavoritesSyncEnabled(enabled: Boolean) {
+        updateSettings { it.copy(aniListFavoritesSyncEnabled = enabled) }
+        // Accendendolo si vuole vedere subito l'effetto, non al prossimo avvio.
+        if (enabled) syncAniListFavorites()
+    }
+
+    /**
+     * Riconcilia i preferiti dell'app con i favourites AniList (vedi
+     * [planAniListFavoritesSync]). No-op senza account collegato o con il sync disattivato.
+     *
+     * I nuovi arrivati vengono fusi con i preferiti **correnti**, non con lo snapshot con cui
+     * il giro era partito: la riconciliazione dura quanto una ricerca su tutte le fonti, e nel
+     * frattempo l'utente può aver toccato altre stelle che non vanno perse.
+     */
+    fun syncAniListFavorites() {
+        if (!_state.value.settings.aniListFavoritesSyncEnabled) return
+        val token = aniListStore.readToken() ?: return
+        val viewerId = (_state.value.aniList.viewer ?: aniListStore.readViewer())?.id ?: return
+        val snapshot = _state.value.favorites
+        aniListFavoritesSyncJob?.cancel()
+        aniListFavoritesSyncJob = viewModelScope.launch {
+            try {
+                val synchronizer = AniListFavoritesSynchronizer(
+                    syncStore = aniListFavoritesSyncStore,
+                    seriesLinksStore = seriesLinksStore,
+                    fetchFavourites = {
+                        withContext(Dispatchers.IO) {
+                            aniListClient.fetchFavouriteManga(token, viewerId)
+                        }
+                    },
+                    toggleFavourite = { mediaId ->
+                        withContext(Dispatchers.IO) {
+                            aniListClient.toggleFavouriteManga(token, mediaId)
+                        }
+                    },
+                    searchSources = ::searchAllEnabledSources,
+                )
+                val imported = synchronizer.sync(snapshot)
+                if (imported.isEmpty()) return@launch
+                // Il confronto è con i preferiti di ADESSO, non con lo snapshot di partenza:
+                // il giro dura quanto una ricerca su tutte le fonti e nel frattempo l'utente
+                // può aver aggiunto a mano proprio una di queste serie.
+                val current = _state.value.favorites
+                val fresh = newAniListFavorites(imported, current)
+                if (fresh.isEmpty()) return@launch
+                val updated = fresh + current
+                favoritesStore.persist(updated)
+                updateState {
+                    copy(
+                        favorites = updated,
+                        favoriteSeriesKeys = favoriteSeriesKeys(updated),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AniListAuthException) {
+                handleAniListAuthError(e.token)
+            } catch (_: Exception) {
+                // Best-effort: si riprova al prossimo avvio o al prossimo preferito toccato.
+            }
+        }
+    }
+
+    /**
+     * Ricerca su **tutte** le fonti attive, ignorando l'ambito di lingua scelto per la tab
+     * Cerca: un preferito importato da AniList può stare su qualsiasi fonte, e restringerlo
+     * alla lingua della ricerca lo renderebbe introvabile senza ragione.
+     *
+     * I risultati vengono **alternati** fra le fonti come nella ricerca normale, non accodati
+     * a blocchi: chi importa prende il primo che combacia, e concatenando avrebbe sempre e
+     * solo la fonte in cima al catalogo — una scelta che non ha niente a che vedere con la
+     * serie cercata.
+     */
+    private suspend fun searchAllEnabledSources(query: String): List<MangaSearchResult> =
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                val perSource = MangaSourceCatalog
+                    .descriptorsForScope(
+                        SearchScope.ALL,
+                        _state.value.settings.disabledSourceIds,
+                    )
+                    .map { descriptor ->
+                        async {
+                            runCatching {
+                                sourceRegistry.requireById(descriptor.id).searchManga(query)
+                            }.getOrDefault(emptyList())
+                        }
+                    }
+                    .awaitAll()
+                MangaSourceCatalog.interleaveBySource(perSource)
+            }
+        }
+
     /** Apre il dialog di matching per la serie aperta nel dettaglio, cercandone il titolo. */
     fun openAniListMatch() {
         val selected = _state.value.selected ?: return
-        val key = MangaSourceCatalog.identityKeyOrNull(
-            selected.sourceId,
-            selected.mangaUrl,
-            selected.title,
-        ) ?: return
+        val key = _state.value.selectedSeriesKey
+            ?: currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title)
         val query = selected.title.trim()
         updateState {
             copy(
@@ -3039,7 +3786,10 @@ class MangaViewModel internal constructor(
      */
     fun confirmAniListMatch(media: AniListManga) {
         val match = _state.value.aniList.match ?: return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            reportAniListNotConnected()
+            return
+        }
         updateState {
             copy(aniList = aniList.copy(match = aniList.match?.copy(isLinking = true)))
         }
@@ -3048,8 +3798,14 @@ class MangaViewModel internal constructor(
                 val mediaEntry = withContext(Dispatchers.IO) {
                     aniListClient.fetchMediaEntry(media.id, token)
                 }
+                // Il legame vive SEMPRE sotto la chiave canonica del media: se il dialog era
+                // stato aperto con una chiave title:/legacy, l'eventuale voce vecchia migra.
+                val canonicalKey = SeriesIdentity.keyForAniList(media.id)
+                if (match.identityKey != canonicalKey) {
+                    saveAniListTracking(match.identityKey, null)
+                }
                 saveAniListTracking(
-                    match.identityKey,
+                    canonicalKey,
                     AniListTracking(
                         mediaId = media.id,
                         title = media.displayTitle(),
@@ -3059,11 +3815,12 @@ class MangaViewModel internal constructor(
                         score = mediaEntry.entry?.score,
                     ),
                 )
+                promoteSelectedSeriesToAniList(media.id)
                 updateState { copy(aniList = aniList.copy(match = null)) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -3079,14 +3836,38 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * L'aggancio AniList è arrivato dopo: promuove il link `title:` della serie corrente a
+     * `anilist:<id>` e migra il set dei progressi streaming sulla nuova chiave. La scheda
+     * aperta viene riallineata (link + SeriesKey).
+     */
+    private fun promoteSelectedSeriesToAniList(aniListId: Int) {
+        val canonicalKey = SeriesIdentity.keyForAniList(aniListId)
+        val currentKey = _state.value.selectedSeriesKey
+        if (currentKey != null && currentKey != canonicalKey) {
+            libraryRepository.migrateStreamingSeriesKey(currentKey, canonicalKey)
+        }
+        val link = _state.value.selectedSeriesLink
+        val promoted = when {
+            link == null -> null
+            link.seriesKey == canonicalKey -> link
+            link.seriesKey.startsWith(SeriesIdentity.TITLE_PREFIX) ->
+                seriesLinksStore.promoteToAniList(link.seriesKey, aniListId)
+            else -> link
+        }
+        updateState {
+            copy(
+                selectedSeriesLink = promoted ?: selectedSeriesLink,
+                selectedSeriesKey = canonicalKey,
+            )
+        }
+    }
+
     /** Apre il dialog del tracker (stato/progresso/voto) per la serie aperta nel dettaglio. */
     fun openAniListTracker() {
         val selected = _state.value.selected ?: return
-        val key = MangaSourceCatalog.identityKeyOrNull(
-            selected.sourceId,
-            selected.mangaUrl,
-            selected.title,
-        ) ?: return
+        val key = _state.value.selectedSeriesKey
+            ?: currentSeriesKey(selected.sourceId, selected.mangaUrl, selected.title)
         if (_state.value.aniList.trackings[key] == null) return
         updateState { copy(aniList = aniList.copy(trackerKey = key)) }
     }
@@ -3106,7 +3887,10 @@ class MangaViewModel internal constructor(
     fun saveAniListEntry(status: AniListListStatus?, progress: Int?, score: Double?) {
         val key = _state.value.aniList.trackerKey ?: return
         val tracking = _state.value.aniList.trackings[key] ?: return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            reportAniListNotConnected()
+            return
+        }
         updateState { copy(aniList = aniList.copy(isSavingEntry = true)) }
         viewModelScope.launch {
             try {
@@ -3131,7 +3915,7 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (exc: Exception) {
                 updateState {
                     copy(
@@ -3150,12 +3934,12 @@ class MangaViewModel internal constructor(
     private fun maybeSyncAniListOnChapterRead(chapter: ReaderChapter) {
         val streaming = chapter.streamingChapter
         val downloaded = chapter.downloadedChapter
-        val (sourceId, mangaUrl, chapterNumber) = when {
-            streaming != null -> Triple(
+        val (seriesKey, chapterNumber) = when {
+            streaming != null -> currentSeriesKey(
                 streaming.sourceId,
                 streaming.mangaUrl,
-                streaming.chapter.numberValue,
-            )
+                _state.value.selected?.title.orEmpty(),
+            ) to streaming.chapter.numberValue
             downloaded != null -> {
                 val series = sequenceOf(_state.value.selectedDownloadedSeries)
                     .filterNotNull()
@@ -3163,12 +3947,12 @@ class MangaViewModel internal constructor(
                     .firstOrNull { s -> s.chapters.any { it.relativePath == chapter.relativePath } }
                     ?: return
                 val url = series.mangaUrl?.takeIf(String::isNotBlank) ?: return
-                Triple(series.sourceId, url, downloaded.numberValue)
+                currentSeriesKey(series.sourceId, url, series.title) to downloaded.numberValue
             }
             else -> return
         }
         val progress = chapterNumber?.toInt()?.takeIf { it > 0 } ?: return
-        pushAniListProgress(MangaSourceCatalog.identityKey(sourceId, mangaUrl), progress)
+        pushAniListProgress(seriesKey, progress)
     }
 
     /**
@@ -3179,7 +3963,12 @@ class MangaViewModel internal constructor(
      */
     private fun pushAniListProgress(identityKey: String, progress: Int) {
         if (!_state.value.settings.aniListSyncEnabled) return
-        val token = aniListStore.readToken() ?: return
+        val token = aniListStore.readToken() ?: run {
+            // Push automatico: nessun messaggio all'utente, ma se la UI si crede ancora
+            // collegata va rimessa in pari.
+            syncAniListAccountState()
+            return
+        }
         val tracking = _state.value.aniList.trackings[identityKey] ?: return
         if (tracking.status == AniListListStatus.COMPLETED) return
         val target = maxOf(progress, tracking.pendingProgress ?: 0)
@@ -3216,7 +4005,7 @@ class MangaViewModel internal constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {
-                handleAniListAuthError()
+                handleAniListAuthError(e.token)
             } catch (_: Exception) {
                 // Offline o errore transitorio: si riprova all'avvio o al prossimo capitolo.
                 updateAniListTracking(identityKey) { it.copy(pendingProgress = target) }
@@ -3246,8 +4035,17 @@ class MangaViewModel internal constructor(
         saveAniListTracking(identityKey, transform(current))
     }
 
-    /** Token rifiutato dal server: account scollegato, l'utente deve riautorizzare. */
-    private fun handleAniListAuthError() {
+    /**
+     * Token rifiutato dal server: account scollegato, l'utente deve riautorizzare.
+     *
+     * [failedToken] e' il token con cui la richiesta era partita. Se nel frattempo l'utente si
+     * e' gia' ricollegato, il token corrente e' un altro e questo 401 riguarda una sessione
+     * ormai chiusa: ignorarlo e' l'unico modo perche' un login appena fatto sopravviva alle
+     * risposte in ritardo di quella precedente.
+     */
+    private fun handleAniListAuthError(failedToken: String?) {
+        val currentToken = aniListStore.readToken()
+        if (failedToken != null && currentToken != null && failedToken != currentToken) return
         aniListStore.clearAccount()
         updateState {
             copy(
@@ -3328,8 +4126,15 @@ class MangaViewModel internal constructor(
         settingsStore.persist(updated)
     }
 
+    /**
+     * Unico punto di scrittura dello stato. Usa `update` (compare-and-set) invece di
+     * `_state.value = _state.value.transform()`: quest'ultimo e' una lettura-modifica-scrittura
+     * che perde aggiornamenti se due chiamate si incrociano. Tutte le trasformazioni sono
+     * `copy` pure (o letture idempotenti da uno store), quindi rieseguirle in caso di contesa
+     * non ha effetti collaterali.
+     */
     private inline fun updateState(transform: MangaUiState.() -> MangaUiState) {
-        _state.value = _state.value.transform()
+        _state.update(transform)
     }
 
     private suspend fun scanLibrarySnapshot(forceRefresh: Boolean = false): List<DownloadedSeries> {
@@ -3350,6 +4155,7 @@ class MangaViewModel internal constructor(
     companion object {
         // Chiavi non-impostazioni che restano nel ViewModel (gli store gestiscono le altre).
         private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
+        private const val KEY_SPREAD_PAGE_MODE_SERIES_PREFIX = "spread_page_mode_series::"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
         private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L

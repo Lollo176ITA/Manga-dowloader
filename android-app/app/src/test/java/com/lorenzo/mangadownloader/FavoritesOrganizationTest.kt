@@ -13,7 +13,8 @@ class FavoritesOrganizationTest {
     private fun fav(title: String, n: Int, addedAt: Long = 0L) =
         FavoriteManga("mangapill", title, "https://mangapill.com/manga/$n", null, addedAt)
 
-    private fun key(f: FavoriteManga) = MangaSourceCatalog.identityKey(f.sourceId, f.mangaUrl)
+    // Le mappe di supporto dei preferiti sono indicizzate per SERIE, non per fonte.
+    private fun key(f: FavoriteManga) = f.canonicalKey()
 
     @Test
     fun sortByDateAdded_descWithLegacyZerosLast() {

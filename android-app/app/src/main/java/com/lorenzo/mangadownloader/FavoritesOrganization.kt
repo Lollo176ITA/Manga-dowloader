@@ -41,24 +41,33 @@ fun favoriteReadingState(series: DownloadedSeries?): FavoriteReadingState {
     return if (started) FavoriteReadingState.IN_PROGRESS else FavoriteReadingState.TO_START
 }
 
-/** Mappa `identityKey -> stato di lettura` per i preferiti, abbinando per chiave la libreria. Pura. */
+/**
+ * Mappa `seriesKey -> stato di lettura` per i preferiti, abbinando la libreria scaricata.
+ *
+ * L'abbinamento prova prima la fonte corrente del preferito e poi il titolo normalizzato:
+ * senza il ripiego sul titolo, un preferito passato a un altro mirror perderebbe lo stato di
+ * lettura di capitoli che sono ancora sul telefono, scaricati dalla fonte precedente. Pura.
+ */
 fun favoriteReadingStatesByKey(
     favorites: List<FavoriteManga>,
     library: List<DownloadedSeries>,
 ): Map<String, FavoriteReadingState> {
-    val seriesByKey = library
+    val seriesByBinding = library
         .mapNotNull { series ->
             series.mangaUrl?.let { url -> MangaSourceCatalog.identityKey(series.sourceId, url) to series }
         }
         .toMap()
+    val seriesByTitle = library
+        .mapNotNull { series -> SeriesIdentity.keyForTitle(series.title)?.let { it to series } }
+        .toMap()
     return favorites.associate { favorite ->
-        val key = MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
-        key to favoriteReadingState(seriesByKey[key])
+        val downloaded = seriesByBinding[favorite.identityKey()]
+            ?: SeriesIdentity.keyForTitle(favorite.title)?.let { seriesByTitle[it] }
+        favorite.canonicalKey() to favoriteReadingState(downloaded)
     }
 }
 
-private fun favoriteKey(favorite: FavoriteManga): String =
-    MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl)
+private fun favoriteKey(favorite: FavoriteManga): String = favorite.canonicalKey()
 
 private fun MangaPublicationStatus.sortRank(): Int = when (this) {
     MangaPublicationStatus.ONGOING -> 0

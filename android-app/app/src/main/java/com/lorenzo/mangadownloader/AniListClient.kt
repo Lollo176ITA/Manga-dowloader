@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import java.io.IOException
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -26,10 +27,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * va ri-cercato sulle fonti reali ([MangaSource]) tramite [searchTitle]. Per questo [AniListManga]
  * vive fuori dal [MangaSourceRegistry].
  */
+@Serializable
 data class AniListManga(
     val id: Int,
     val titleRomaji: String?,
     val titleEnglish: String?,
+    val titleNative: String? = null,
+    /** Titoli alternativi noti ad AniList (spesso includono il titolo italiano). */
+    val synonyms: List<String> = emptyList(),
     val coverUrl: String?,
     val genres: List<String>,
     val averageScore: Int?,
@@ -48,6 +53,29 @@ data class AniListManga(
 
     /** Titolo da mostrare in UI, con lo stesso ordine di preferenza di [searchTitle]. */
     fun displayTitle(): String = searchTitle() ?: "Senza titolo"
+
+    /**
+     * I titoli **veri** della serie: come si chiama, nelle tre lingue che AniList tiene.
+     * Vanno tenuti distinti dai [synonymTitles] perché valgono molto di più in un confronto:
+     * un titolo principale identifica la serie, un sinonimo può essere qualsiasi cosa.
+     */
+    fun primaryTitles(): List<String> =
+        listOfNotNull(titleEnglish, titleRomaji, titleNative)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+
+    /**
+     * I titoli alternativi noti ad AniList. Utili — spesso contengono il titolo italiano — ma
+     * inaffidabili come prova d'identità: sono compilati dalla community e su certe raccolte
+     * contengono i titoli dei singoli capitoli. Un esempio reale: la raccolta hentai
+     * `Gekka Bijin` (id 94792) ha "Pick Me Up" fra i suoi diciotto sinonimi, e la ricerca
+     * AniList per quel titolo la mette PRIMA del webtoon che si chiama davvero così.
+     */
+    fun synonymTitles(): List<String> =
+        synonyms.map(String::trim).filter(String::isNotBlank)
+
+    /** Tutti i titoli noti, in ordine di preferenza, per il matching tra fonti. */
+    fun allTitles(): List<String> = primaryTitles() + synonymTitles()
 }
 
 /**
@@ -69,8 +97,15 @@ enum class AniListSort(val apiValue: String) {
     NEWEST("START_DATE_DESC"),
 }
 
-/** Il token AniList non è (più) valido: chi chiama deve disconnettere l'account. */
-class AniListAuthException(message: String) : IOException(message)
+/**
+ * Il token AniList non è (più) valido: chi chiama deve disconnettere l'account.
+ *
+ * [token] è il token con cui la richiesta era partita. Serve a distinguere il rifiuto della
+ * sessione **corrente** da un 401 arrivato in ritardo da una richiesta partita con il token
+ * PRECEDENTE: senza questa distinzione la risposta tardiva di una sessione scaduta scollega
+ * un account appena ricollegato, e l'unico rimedio per l'utente è riavviare l'app.
+ */
+class AniListAuthException(message: String, val token: String? = null) : IOException(message)
 
 /**
  * Client minimale per l'API GraphQL di AniList. Le sezioni della schermata Scopri usano la sola
@@ -146,6 +181,47 @@ class AniListClient(
         return parseRecommendationsResponse(post(payload))
     }
 
+    /**
+     * I manga tra i **preferiti** ("favourites") dell'utente. Sono una cosa diversa dalla lista
+     * di lettura: su AniList un titolo può stare in lista senza essere un preferito e viceversa.
+     * Paginata di suo, qui la si scorre tutta: l'elenco è tipicamente di poche decine di voci.
+     */
+    fun fetchFavouriteManga(token: String, userId: Int): List<AniListManga> {
+        val collected = mutableListOf<AniListManga>()
+        var page = 1
+        while (page <= MAX_FAVOURITE_PAGES) {
+            val variables = buildJsonObject {
+                put("userId", userId)
+                put("page", page)
+                put("perPage", FAVOURITES_PER_PAGE)
+            }
+            val payload = buildJsonObject {
+                put("query", FAVOURITES_QUERY)
+                put("variables", variables)
+            }.toString()
+            val (items, hasNextPage) = parseFavouriteMangaResponse(post(payload, token))
+            collected += items
+            if (!hasNextPage) break
+            page++
+        }
+        return collected
+    }
+
+    /**
+     * Inverte lo stato "preferito" di un manga. L'API espone solo un **toggle**: non esiste un
+     * "aggiungi" idempotente, quindi chi chiama deve già sapere lo stato attuale (per questo la
+     * riconciliazione parte sempre da [fetchFavouriteManga]). Ritorna `true` se dopo la chiamata
+     * il manga risulta tra i preferiti.
+     */
+    fun toggleFavouriteManga(token: String, mediaId: Int): Boolean {
+        val variables = buildJsonObject { put("mangaId", mediaId) }
+        val payload = buildJsonObject {
+            put("query", TOGGLE_FAVOURITE_MUTATION)
+            put("variables", variables)
+        }.toString()
+        return parseToggleFavouriteResponse(post(payload, token), mediaId)
+    }
+
     /** Capitoli totali + entry dell'utente (se esiste) per un media, per seedare il tracking. */
     fun fetchMediaEntry(mediaId: Int, token: String): AniListMediaEntry {
         val variables = buildJsonObject { put("mediaId", mediaId) }
@@ -195,7 +271,7 @@ class AniListClient(
 
         httpClient.newCall(request).execute().use { response ->
             if (response.code == 401 || response.code == 403) {
-                throw AniListAuthException("Sessione AniList scaduta")
+                throw AniListAuthException("Sessione AniList scaduta", token)
             }
             if (response.code == 429) {
                 throw IOException("AniList sta limitando le richieste, riprova tra poco")
@@ -212,6 +288,13 @@ class AniListClient(
         private const val DEFAULT_PER_PAGE = 24
         private const val MATCH_PER_PAGE = 10
         private const val RECOMMENDATIONS_PER_SEED = 8
+        private const val FAVOURITES_PER_PAGE = 50
+
+        /**
+         * Tetto di sanità sullo scorrimento dei preferiti: 25 pagine da 50 sono 1250 titoli,
+         * ben oltre qualsiasi lista reale. Evita un ciclo infinito se `hasNextPage` mentisse.
+         */
+        private const val MAX_FAVOURITE_PAGES = 25
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val json = Json { ignoreUnknownKeys = true }
 
@@ -242,7 +325,8 @@ class AniListClient(
               Page(page: 1, perPage: ${'$'}perPage) {
                 media(search: ${'$'}search, type: MANGA) {
                   id
-                  title { romaji english }
+                  title { romaji english native }
+                  synonyms
                   coverImage { large }
                   genres
                   averageScore
@@ -278,6 +362,42 @@ class AniListClient(
                     }
                   }
                 }
+              }
+            }
+        """.trimIndent()
+
+        // I preferiti dell'utente. `nodes` ha la stessa forma dei media della ricerca, così
+        // il parsing è lo stesso: cambia solo il punto da cui si pesca l'array.
+        private val FAVOURITES_QUERY = """
+            query (${'$'}userId: Int, ${'$'}page: Int, ${'$'}perPage: Int) {
+              User(id: ${'$'}userId) {
+                favourites {
+                  manga(page: ${'$'}page, perPage: ${'$'}perPage) {
+                    pageInfo { hasNextPage }
+                    nodes {
+                      id
+                      title { romaji english native }
+                      synonyms
+                      coverImage { large }
+                      genres
+                      averageScore
+                      description(asHtml: false)
+                      status
+                      chapters
+                      format
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        // La mutation risponde con la prima pagina dei preferiti aggiornati: cercarci dentro
+        // il mediaId dice se ora c'è o non c'è, senza una seconda richiesta.
+        private val TOGGLE_FAVOURITE_MUTATION = """
+            mutation (${'$'}mangaId: Int) {
+              ToggleFavourite(mangaId: ${'$'}mangaId) {
+                manga { nodes { id } }
               }
             }
         """.trimIndent()
@@ -333,6 +453,7 @@ class AniListClient(
             val title = obj["title"]?.jsonObject
             val romaji = title?.get("romaji")?.jsonPrimitive?.contentOrNull?.trim()
             val english = title?.get("english")?.jsonPrimitive?.contentOrNull?.trim()
+            val native = title?.get("native")?.jsonPrimitive?.contentOrNull?.trim()
             if (romaji.isNullOrBlank() && english.isNullOrBlank()) {
                 return null
             }
@@ -340,6 +461,10 @@ class AniListClient(
                 id = id,
                 titleRomaji = romaji?.takeIf(String::isNotBlank),
                 titleEnglish = english?.takeIf(String::isNotBlank),
+                titleNative = native?.takeIf(String::isNotBlank),
+                synonyms = obj["synonyms"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                    ?: emptyList(),
                 coverUrl = obj["coverImage"]?.jsonObject?.get("large")
                     ?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
                 genres = obj["genres"]?.jsonArray
@@ -390,6 +515,52 @@ class AniListClient(
                     )
                 }
             }
+        }
+
+        /**
+         * Estrae una pagina di preferiti: i media e il flag "c'è un'altra pagina". Tollerante
+         * come [parseMediaResponse]: una risposta senza `data` dà lista vuota e nessun seguito.
+         */
+        internal fun parseFavouriteMangaResponse(jsonText: String): Pair<List<AniListManga>, Boolean> {
+            val manga = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("User")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject?.get("favourites")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject?.get("manga")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject
+                ?: return emptyList<AniListManga>() to false
+            val nodes = manga["nodes"]
+                ?.takeIf { it !is JsonNull }
+                ?.jsonArray
+                ?.mapNotNull { element -> parseMangaObject(element.jsonObject) }
+                ?: emptyList()
+            val hasNextPage = manga["pageInfo"]
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject?.get("hasNextPage")
+                ?.jsonPrimitive?.booleanOrNull
+                ?: false
+            return nodes to hasNextPage
+        }
+
+        /**
+         * `true` se dopo il toggle [mediaId] è tra i preferiti. La mutation restituisce solo la
+         * prima pagina: un id non trovato lì dentro, con la lista piena, sarebbe un falso
+         * "rimosso" — per questo chi chiama usa il valore solo come conferma, mai come verità
+         * al posto di [fetchFavouriteManga].
+         */
+        internal fun parseToggleFavouriteResponse(jsonText: String, mediaId: Int): Boolean {
+            val nodes = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("ToggleFavourite")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject?.get("manga")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonObject?.get("nodes")
+                ?.takeIf { it !is JsonNull }
+                ?.jsonArray
+                ?: return false
+            return nodes.any { it.jsonObject["id"]?.jsonPrimitive?.intOrNull == mediaId }
         }
 
         /** Estrae il [AniListViewer] dalla risposta della [VIEWER_QUERY]; `null` se assente. */

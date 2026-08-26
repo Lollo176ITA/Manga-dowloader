@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -8,6 +9,60 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MangaSourcesTest {
+
+    @Test
+    fun descriptorsForScope_escludeLeFontiDisabilitate() {
+        val ids = MangaSourceCatalog
+            .descriptorsForScope(SearchScope.ALL, disabledSourceIds = setOf(MangaSourceIds.VYMANGA))
+            .map { it.id }
+        assertFalse(MangaSourceIds.VYMANGA in ids)
+        assertTrue(MangaSourceIds.MANGAPILL in ids)
+    }
+
+    @Test
+    fun descriptorsForScope_linguaSenzaFontiAttiveRipiegaSulleAltreAttive() {
+        val disabled = MangaSourceCatalog.descriptorsForScope(SearchScope.ITA).map { it.id }.toSet()
+        val ids = MangaSourceCatalog
+            .descriptorsForScope(SearchScope.ITA, disabledSourceIds = disabled)
+            .map { it.id }
+
+        // Mai le fonti che l'utente ha spento: si ripiega sulle fonti attive (inglesi).
+        assertTrue(ids.none { it in disabled })
+        assertEquals(
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id },
+            ids,
+        )
+    }
+
+    @Test
+    fun descriptorsForScope_tutteLeFontiSpenteRipiegaSullElencoCompleto() {
+        val tutteSpente = MangaSourceCatalog.descriptors.map { it.id }.toSet()
+
+        // Rete di sicurezza: senza nessuna fonte attiva si torna al catalogo completo,
+        // continuando a rispettare lo scope. La ricerca non interroga mai zero fonti.
+        assertEquals(
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ITA).map { it.id },
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ITA, tutteSpente).map { it.id },
+        )
+        assertEquals(
+            MangaSourceCatalog.descriptors.map { it.id },
+            MangaSourceCatalog.descriptorsForScope(SearchScope.ALL, tutteSpente).map { it.id },
+        )
+    }
+
+    @Test
+    fun languagesWithEnabledSources_escludeLeLingueSenzaFontiAttive() {
+        val engIds = MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id }.toSet()
+
+        assertEquals(
+            listOf(MangaSourceLanguage.ITA, MangaSourceLanguage.ENG),
+            MangaSourceCatalog.languagesWithEnabledSources(emptySet()),
+        )
+        assertEquals(
+            listOf(MangaSourceLanguage.ITA),
+            MangaSourceCatalog.languagesWithEnabledSources(engIds),
+        )
+    }
 
     @Test
     fun mangapillCanonicalSeriesUrl_normalizesChapterUrl() {
@@ -69,6 +124,60 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangapillSearchResults_prefersVisibleHeadingOverDoubledImageAlt() {
+        // HTML reale delle card di ricerca Mangapill: l'alt della copertina è
+        // "titolo + titolo alternativo" concatenati ("One Piece One Piece"),
+        // il titolo pulito sta nel div "line-clamp-2" del secondo anchor.
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div class="my-3 grid">
+              <div>
+                <a href="/manga/2/one-piece" class="relative block">
+                  <figure>
+                    <img data-src="https://cdn.mangapill.com/i/2.webp" alt="One Piece One Piece">
+                  </figure>
+                </a>
+                <div class="flex flex-col justify-end">
+                  <a href="/manga/2/one-piece" class="mb-2">
+                    <div class="mt-3 font-black leading-tight line-clamp-2">One Piece</div>
+                  </a>
+                </div>
+              </div>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=one+piece",
+        )
+
+        assertEquals(1, results.size)
+        assertEquals("One Piece", results.first().title)
+        assertTrue(results.first().coverUrl!!.endsWith("2.webp"))
+    }
+
+    @Test
+    fun mangapillSearchResults_collapsesDoubledAltWhenHeadingMissing() {
+        // Senza il div del titolo (layout diverso/futuro) resta solo l'alt:
+        // se è la stessa stringa ripetuta due volte va dimezzato, altrimenti
+        // va tenuto intatto.
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div>
+              <a href="/manga/3259/one-piece-party">
+                <img src="https://cdn.mangapill.com/i/3259.webp" alt="One Piece Party One Piece Party">
+              </a>
+              <a href="/manga/12345/berserk">
+                <img src="https://cdn.mangapill.com/i/12345.webp" alt="Berserk">
+              </a>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=one+piece",
+        )
+
+        assertEquals(2, results.size)
+        assertEquals("One Piece Party", results.first().title)
+        assertEquals("Berserk", results[1].title)
+    }
+
+    @Test
     fun mangapillMangaDetails_sortsChaptersAscendingAndReadsCover() {
         val details = MangapillSource.parseMangaDetails(
             """
@@ -109,6 +218,64 @@ class MangaSourcesTest {
         )
 
         assertEquals(listOf("1", "2"), details.chapters.map { it.numberText })
+    }
+
+    @Test
+    fun mangapillMangaDetails_qualifiesOnlySecondaryScanlationGroup() {
+        // Mangapill pubblica più gruppi per la stessa serie: il titolo dell'anchor antepone
+        // "Group N" dal secondo in poi. Il gruppo più numeroso resta senza variante (nomi file
+        // e chiavi invariati); gli altri vengono qualificati per non collidere.
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/1-20003000/berserk-chapter-3" title=" Group 2 Chapter 3">Group 2 Chapter 3</a>
+                <a href="/chapters/1-20002000/berserk-chapter-2" title=" Group 2 Chapter 2">Group 2 Chapter 2</a>
+                <a href="/chapters/1-20001000/berserk-chapter-1" title=" Group 2 Chapter 1">Group 2 Chapter 1</a>
+                <a href="/chapters/1-10001000/berserk-chapter-1" title=" Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/1/berserk",
+        )
+
+        assertEquals(4, details.chapters.size)
+        val chapterOnes = details.chapters.filter { it.numberText == "1" }
+        assertEquals(2, chapterOnes.size)
+
+        // Il gruppo maggioritario ("Group 2", 3 capitoli) resta il principale.
+        val main = chapterOnes.first { it.url.contains("1-20001000") }
+        assertNull(main.variantTag)
+        assertEquals("Capitolo 1", main.displayShortLabel())
+        assertEquals("chapter_001.cbz", DownloadStorage.buildChapterFileName(main))
+
+        // Quello del gruppo minoritario viene qualificato: etichetta e file distinti.
+        val secondary = chapterOnes.first { it.url.contains("1-10001000") }
+        assertEquals("Group 1", secondary.variantTag)
+        assertEquals("Capitolo 1 (Group 1)", secondary.displayShortLabel())
+        assertEquals("chapter_001__Group_1.cbz", DownloadStorage.buildChapterFileName(secondary))
+    }
+
+    @Test
+    fun mangapillMangaDetails_singleGroupKeepsChaptersUnqualified() {
+        // Caso normale (un solo gruppo): nessuna variante, così nulla cambia per le serie
+        // già in libreria.
+        val details = MangapillSource.parseMangaDetails(
+            """
+            <html><body>
+              <h1>Berserk</h1>
+              <div id="chapters">
+                <a href="/chapters/12345-2/berserk-chapter-2" title="Chapter 2">Chapter 2</a>
+                <a href="/chapters/12345-1/berserk-chapter-1" title="Chapter 1">Chapter 1</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mangapill.com/manga/12345/berserk",
+        )
+
+        assertTrue(details.chapters.all { it.variantTag == null })
+        assertEquals("chapter_001.cbz", DownloadStorage.buildChapterFileName(details.chapters.first()))
     }
 
     @Test
@@ -457,7 +624,16 @@ class MangaSourcesTest {
         val eng = MangaSourceCatalog.descriptorsForScope(SearchScope.ENG).map { it.id }
 
         assertEquals(listOf(MangaSourceIds.HASTA_TEAM, MangaSourceIds.MANGA_WORLD), ita)
-        assertEquals(listOf(MangaSourceIds.MANGAPILL, MangaSourceIds.VYMANGA), eng)
+        assertEquals(
+            listOf(
+                MangaSourceIds.MANGAPILL,
+                MangaSourceIds.VYMANGA,
+                MangaSourceIds.ASURA_SCANS,
+                MangaSourceIds.DEMONIC_SCANS,
+                MangaSourceIds.TCB_SCANS,
+            ),
+            eng,
+        )
         // Ogni fonte appartiene a esattamente una lingua: ITA+ENG coprono tutto il catalogo.
         assertEquals(
             MangaSourceCatalog.descriptors.map { it.id }.toSet(),
@@ -778,5 +954,365 @@ class MangaSourcesTest {
         // nessun suffisso di resize → invariato
         val noSuffix = "https://2.bp.blogspot.com/drive-storage/CCC"
         assertEquals(noSuffix, VyMangaSource.toHighResUrl(noSuffix))
+    }
+
+    // --- Asura Scans (API JSON) ---
+
+    @Test
+    fun asuraCanonicalSeriesUrl_stripsHashAndNormalizesChapterUrl() {
+        val series = AsuraScansSource.canonicalSeriesUrl(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af",
+        )
+        val chapter = AsuraScansSource.canonicalSeriesUrl(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+
+        assertEquals("https://asurascans.com/comics/chronicles-of-the-demon-faction", series)
+        assertEquals(series, chapter)
+    }
+
+    @Test
+    fun asuraSearchResponse_mapsDataToCleanSeriesUrls() {
+        val results = AsuraScansSource.parseSearchResponse(
+            """
+            {"data":[
+              {"slug":"reborn-as-the-heavenly-demon","title":"Reborn As The Heavenly Demon","cover":"https://cdn.asurascans.com/asura-images/covers/reborn-as-the-heavenly-demon.aec242.webp","status":"ongoing","public_url":"/comics/reborn-as-the-heavenly-demon-f886a8af"}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertEquals(1, results.size)
+        assertEquals(MangaSourceIds.ASURA_SCANS, results.first().sourceId)
+        assertEquals("Reborn As The Heavenly Demon", results.first().title)
+        assertEquals("https://asurascans.com/comics/reborn-as-the-heavenly-demon", results.first().mangaUrl)
+        assertTrue(results.first().coverUrl!!.endsWith("reborn-as-the-heavenly-demon.aec242.webp"))
+    }
+
+    @Test
+    fun asuraMangaDetails_sortsChaptersExcludesPremiumAndCleansDescription() {
+        val details = AsuraScansSource.parseMangaDetails(
+            """
+            {"series":{"slug":"chronicles-of-the-demon-faction","title":"Chronicles of the Demon Faction","description":"<p>Chun Hajin.</p><p>Reincarnated.</p>","cover":"https://cdn.asurascans.com/asura-images/covers/chronicles-of-the-demon-faction.d4dcb8.webp","status":"ongoing"}}
+            """.trimIndent(),
+            """
+            {"data":[
+              {"number":3,"slug":"chapter-3","is_premium":true},
+              {"number":2,"slug":"chapter-2","is_premium":false},
+              {"number":10,"slug":"chapter-10","is_premium":false},
+              {"number":1,"slug":"chapter-1","is_premium":false}
+            ]}
+            """.trimIndent(),
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af",
+        )
+
+        assertEquals(MangaSourceIds.ASURA_SCANS, details.sourceId)
+        assertEquals("Chronicles of the Demon Faction", details.title)
+        assertEquals("https://asurascans.com/comics/chronicles-of-the-demon-faction", details.mangaUrl)
+        // premium (3) escluso, ordine numerico crescente (10 dopo 2)
+        assertEquals(listOf("1", "2", "10"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://asurascans.com/comics/chronicles-of-the-demon-faction/chapter/1",
+            details.chapters.first().url,
+        )
+        assertEquals(MangaPublicationStatus.ONGOING, details.status)
+        // Tag HTML rimossi dalla descrizione.
+        val description = details.description.orEmpty()
+        assertTrue(description.contains("Chun Hajin"))
+        assertFalse(description.contains("<p>"))
+    }
+
+    @Test
+    fun asuraChapterPages_readsPagesInOrder() {
+        val pages = AsuraScansSource.parsePageImageUrls(
+            """
+            {"data":{"is_locked":false,"chapter":{"number":1,"pages":[
+              {"url":"https://cdn.asurascans.com/asura-images/chapters/x/1/001.webp?v=1","width":1200,"height":800},
+              {"url":"https://cdn.asurascans.com/asura-images/chapters/x/1/002.webp?v=1","width":800,"height":1200}
+            ]}}}
+            """.trimIndent(),
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("001.webp?v=1"))
+        assertTrue(pages.last().endsWith("002.webp?v=1"))
+    }
+
+    @Test
+    fun asuraChapterPages_throwsWhenLocked() {
+        assertThrows(IllegalStateException::class.java) {
+            AsuraScansSource.parsePageImageUrls(
+                """{"data":{"is_locked":true,"chapter":{"pages":[]}}}""",
+            )
+        }
+    }
+
+    @Test
+    fun sourceCatalog_resolvesAsuraUrlAndIdentityKey() {
+        val resolved = MangaSourceCatalog.resolveSourceId(
+            sourceId = null,
+            url = "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.ASURA_SCANS,
+            mangaUrl = "https://asurascans.com/comics/chronicles-of-the-demon-faction-f886a8af/chapter/12",
+        )
+
+        assertEquals(MangaSourceIds.ASURA_SCANS, resolved)
+        assertEquals(
+            "asura_scans::https://asurascans.com/comics/chronicles-of-the-demon-faction",
+            identityKey,
+        )
+    }
+
+    // --- DemonicScans (scraping HTML) ---
+
+    @Test
+    fun demonicCanonicalSeriesUrl_normalizesMangaAndReaderUrls() {
+        val series = DemonicScansSource.canonicalSeriesUrl("https://demonicscans.org/manga/Solo-Leveling")
+        val reader = DemonicScansSource.canonicalSeriesUrl(
+            "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", series)
+        assertEquals(series, reader)
+    }
+
+    @Test
+    fun demonicSearchResults_mapsAnchorsWithThumbAndTitle() {
+        val results = DemonicScansSource.parseSearchResults(
+            """
+            <a href="/manga/Solo-Leveling">
+              <li class="flex flex-row">
+                <img src="https://readermc.org/images/thumbnails/Solo-Leveling.webp" class="search-thumb">
+                <div class="flex flex-col seach-right justify-space-between">
+                  <div>Solo Leveling</div>
+                  <div style="font-size:12px">Completed</div>
+                </div>
+              </li>
+            </a>
+            """.trimIndent(),
+            "https://demonicscans.org/search.php?manga=solo",
+        )
+
+        assertEquals(1, results.size)
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, results.first().sourceId)
+        assertEquals("Solo Leveling", results.first().title)
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", results.first().mangaUrl)
+        assertTrue(results.first().coverUrl!!.contains("readermc.org"))
+    }
+
+    @Test
+    fun demonicMangaDetails_buildsReaderUrlsSortedAndDedupsFirstChapter() {
+        val details = DemonicScansSource.parseMangaDetails(
+            """
+            <html><head>
+              <meta property="og:image" content="https://readermc.org/images/thumbnails/Solo-Leveling.webp">
+            </head><body>
+              <h1>Solo Leveling</h1>
+              <ul>
+                <li style="width:150px;color:#b2b2b2;">Status</li>
+                <li>Completed</li>
+              </ul>
+              <div class="white-font">10 anni fa si aprirono i Gate.</div>
+              <a href="/chaptered.php?manga=6&chapter=0">Read First Chapter</a>
+              <div id="chapters-list">
+                <a href="/chaptered.php?manga=6&chapter=2">Chapter 2</a>
+                <a href="/chaptered.php?manga=6&chapter=10">Chapter 10</a>
+                <a href="/chaptered.php?manga=6&chapter=1">Chapter 1</a>
+                <a href="/chaptered.php?manga=6&chapter=0">Chapter 0</a>
+              </div>
+            </body></html>
+            """.trimIndent(),
+            "https://demonicscans.org/manga/Solo-Leveling",
+        )
+
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, details.sourceId)
+        assertEquals("Solo Leveling", details.title)
+        assertEquals("https://demonicscans.org/manga/Solo-Leveling", details.mangaUrl)
+        // Ordine numerico crescente; capitolo 0 deduplicato (bottone + lista).
+        assertEquals(listOf("0", "1", "2", "10"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://demonicscans.org/title/Solo-Leveling/chapter/0/1",
+            details.chapters.first().url,
+        )
+        assertEquals(MangaPublicationStatus.COMPLETED, details.status)
+        assertTrue(details.description!!.contains("Gate"))
+    }
+
+    @Test
+    fun demonicReaderImages_keepsContentPagesInOrderSkippingAds() {
+        val pages = DemonicScansSource.parseReaderImageUrls(
+            """
+            <div id="chapter-container">
+              <img class="imgholder" src="/img/free_ads.jpg">
+              <img class="imgholder" src="https://mangareadon.org/Solo-Leveling/1/1.jpg">
+              <img class="imgholder" src="https://mangareadon.org/Solo-Leveling/1/2.jpg">
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(2, pages.size)
+        assertTrue(pages.first().endsWith("1.jpg"))
+        assertTrue(pages.last().endsWith("2.jpg"))
+        assertTrue(pages.none { it.contains("free_ads") })
+    }
+
+    @Test
+    fun sourceCatalog_resolvesDemonicUrlAndIdentityKey() {
+        val resolved = MangaSourceCatalog.resolveSourceId(
+            sourceId = null,
+            url = "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.DEMONIC_SCANS,
+            mangaUrl = "https://demonicscans.org/title/Solo-Leveling/chapter/100/1",
+        )
+
+        assertEquals(MangaSourceIds.DEMONIC_SCANS, resolved)
+        assertEquals("demonic_scans::https://demonicscans.org/manga/Solo-Leveling", identityKey)
+    }
+
+    // --- TCB Scans (scraping HTML, catalogo senza ricerca, URL capitolo sintetico) ---
+
+    @Test
+    fun tcbCanonicalSeriesUrl_normalizesSeriesAndSyntheticChapterUrls() {
+        val series = TcbScansSource.canonicalSeriesUrl("https://tcbonepiecechapters.com/mangas/5/one-piece")
+        val synthetic = TcbScansSource.canonicalSeriesUrl(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+        )
+
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", series)
+        assertEquals(series, synthetic)
+        // Un URL capitolo "reale" del sito non incorpora l'id/slug della serie: non è
+        // normalizzabile senza rete, quindi canonicalSeriesUrl lo rifiuta correttamente.
+        assertNull(
+            TcbScansSource.canonicalSeriesUrl(
+                "https://tcbonepiecechapters.com/chapters/7995/one-piece-chapter-1188",
+            ),
+        )
+    }
+
+    @Test
+    fun tcbParseChapterRef_extractsSeriesAndChapterFromSyntheticUrl() {
+        val ref = TcbScansSource.parseChapterRef(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+        )
+
+        assertNotNull(ref)
+        assertEquals("5", ref!!.seriesId)
+        assertEquals("one-piece", ref.seriesSlug)
+        assertEquals("7995", ref.chapterId)
+        assertEquals("one-piece-chapter-1188", ref.chapterSlug)
+    }
+
+    @Test
+    fun tcbCatalog_mergesThumbnailAndTitleAnchorsIgnoringLayoutClasses() {
+        // La seconda scheda è volutamente priva delle classi Tailwind del layout (`items-center`,
+        // `font-bold`): l'accoppiamento thumbnail/titolo deve reggersi solo sull'href condiviso.
+        val results = TcbScansSource.parseCatalog(
+            """
+            <a href="/"><img src="/files/h-logo.png"></a>
+            <div class="flex flex-col items-center md:flex-row md:items-start">
+                <div class="relative h-24 w-24">
+                    <a href="/mangas/5/one-piece">
+                        <img src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/one-piece.png" class="w-24 h-24 rounded-lg">
+                    </a>
+                </div>
+                <div class="flex-auto sm:ml-5">
+                    <a class="mb-3 text-white text-lg font-bold" href="/mangas/5/one-piece">One Piece</a>
+                </div>
+            </div>
+            <div>
+                <a href="/mangas/4/jujutsu-kaisen"><img src="https://altro-cdn.example/jjk.png"></a>
+                <a href="/mangas/4/jujutsu-kaisen">Jujutsu Kaisen</a>
+            </div>
+            """.trimIndent(),
+            "https://tcbonepiecechapters.com/projects",
+        )
+
+        assertEquals(2, results.size)
+        val onePiece = results.first { it.title == "One Piece" }
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", onePiece.mangaUrl)
+        assertTrue(onePiece.coverUrl!!.endsWith("one-piece.png"))
+
+        assertEquals(
+            listOf("Jujutsu Kaisen", "One Piece"),
+            TcbScansSource.run { results.filterByTitle("").sortedAlphabetically().map { it.title } },
+        )
+        assertEquals(
+            listOf("One Piece"),
+            TcbScansSource.run { results.filterByTitle("piece").sortedAlphabetically().map { it.title } },
+        )
+    }
+
+    @Test
+    fun tcbMangaDetails_buildsSyntheticChapterUrlsSortedAscending() {
+        val details = TcbScansSource.parseMangaDetails(
+            """
+            <html><body>
+              <a href="/"><img src="/files/h-logo.png"></a>
+              <h1 class="my-3 font-bold text-3xl">One Piece </h1>
+              <img src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/one-piece-cover.png" alt="One Piece" height="325">
+              <a href="/chapters/7995/one-piece-chapter-1188" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 1188</div>
+                <div class="text-gray-500">Wailing Void</div>
+              </a>
+              <a href="/chapters/1/one-piece-chapter-1" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 1</div>
+                <div class="text-gray-500">Romance Dawn</div>
+              </a>
+              <a href="/chapters/50/one-piece-chapter-10" class="block border p-3 rounded">
+                <div class="text-lg font-bold">One Piece  Chapter 10</div>
+                <div class="text-gray-500">Ope Ope</div>
+              </a>
+            </body></html>
+            """.trimIndent(),
+            "https://tcbonepiecechapters.com/mangas/5/one-piece",
+        )
+
+        assertEquals(MangaSourceIds.TCB_SCANS, details.sourceId)
+        assertEquals("One Piece", details.title)
+        assertEquals("https://tcbonepiecechapters.com/mangas/5/one-piece", details.mangaUrl)
+        assertTrue(details.coverUrl!!.endsWith("one-piece-cover.png"))
+        // Ordine numerico crescente, non l'ordine "più recente prima" della pagina.
+        assertEquals(listOf("1", "10", "1188"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188",
+            details.chapters.last().url,
+        )
+    }
+
+    @Test
+    fun tcbPageImageUrls_extractsFixedRatioImagesInOrder() {
+        val pages = TcbScansSource.parsePageImageUrls(
+            """
+            <div class="reader">
+              <img class="fixed-ratio-content" src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_001.png">
+              <img class="fixed-ratio-content" src="https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_002.png">
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_001.png",
+                "https://cdn.onepiecechapters.com/file/CDN-M-A-N/op_1188_void_002.png",
+            ),
+            pages,
+        )
+    }
+
+    @Test
+    fun sourceCatalog_resolvesTcbSyntheticChapterUrlAndIdentityKey() {
+        val syntheticChapterUrl =
+            "https://tcbonepiecechapters.com/mangas/5/one-piece/chapters/7995/one-piece-chapter-1188"
+        val resolved = MangaSourceCatalog.resolveSourceId(sourceId = null, url = syntheticChapterUrl)
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.TCB_SCANS,
+            mangaUrl = syntheticChapterUrl,
+        )
+
+        assertEquals(MangaSourceIds.TCB_SCANS, resolved)
+        assertEquals("tcb_scans::https://tcbonepiecechapters.com/mangas/5/one-piece", identityKey)
     }
 }

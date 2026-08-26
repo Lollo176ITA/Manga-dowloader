@@ -207,6 +207,11 @@ class MangaWorldSource(
                     slug = chapterSlug(chapterUrl, numberText),
                     volumeText = normalizedVolumeText.takeUnless { labelPrefix == "Volume" },
                     labelPrefix = labelPrefix,
+                    // MangaWorld mette la data dentro l'anchor, dopo il nome del capitolo:
+                    // `<i class="chap-date">03 Maggio 2022</i>`. In italiano per esteso.
+                    publishedAtMillis = chapterDateFromItalianDate(
+                        anchor.selectFirst("i.chap-date")?.text(),
+                    ),
                 )
             }
         }

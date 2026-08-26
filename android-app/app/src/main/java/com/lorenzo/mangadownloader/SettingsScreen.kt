@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
@@ -34,6 +35,7 @@ fun SettingsScreen(
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
     onToggleAniListSync: (Boolean) -> Unit,
+    onToggleAniListFavoritesSync: (Boolean) -> Unit,
     onToggleAutoDownload: (Boolean) -> Unit,
     onTriggerChange: (Int) -> Unit,
     onBatchChange: (Int) -> Unit,
@@ -41,10 +43,12 @@ fun SettingsScreen(
     onSmartCleanupKeepChange: (Int) -> Unit,
     onToggleStreamingReader: (Boolean) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
+    onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
     onSelectReaderPageSpacing: (Int) -> Unit,
     onToggleDoubleTapZoom: (Boolean) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
     onToggleShowHomeTab: (Boolean) -> Unit,
+    onSetSourceEnabled: (String, Boolean) -> Unit,
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
@@ -85,6 +89,11 @@ fun SettingsScreen(
             ReadingModeContent(
                 currentMode = settings.readingMode,
                 onSelectMode = onSelectReadingMode,
+            )
+            SettingsDivider()
+            SpreadPageModeContent(
+                currentMode = settings.spreadPageMode,
+                onSelectMode = onSelectSpreadPageMode,
             )
             SettingsDivider()
             ReaderPageSpacingContent(
@@ -140,9 +149,11 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 viewerName = aniListViewerName,
                 isConnecting = isAniListConnecting,
                 syncEnabled = settings.aniListSyncEnabled,
+                favoritesSyncEnabled = settings.aniListFavoritesSyncEnabled,
                 onConnect = onConnectAniList,
                 onDisconnect = onDisconnectAniList,
                 onToggleSync = onToggleAniListSync,
+                onToggleFavoritesSync = onToggleAniListFavoritesSync,
             )
             SettingsDivider()
             FavoriteNotificationsContent(
@@ -159,6 +170,13 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 onToggleParental = onToggleParentalControl,
                 onRequestChangePin = onRequestChangeParentalPin,
                 onToggleBiometric = onToggleParentalBiometric,
+            )
+        }
+
+        SettingsSection(title = "Fonti", icon = Icons.Default.Language) {
+            SourceTogglesContent(
+                disabledSourceIds = settings.disabledSourceIds,
+                onToggle = onSetSourceEnabled,
             )
         }
 

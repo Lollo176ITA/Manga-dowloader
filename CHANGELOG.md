@@ -4,6 +4,71 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-08-26
+
+### Aggiunto
+
+- La modalità delle pagine doppie (adatta allo schermo, dividi in due, ruota) si può cambiare anche per la singola serie dal menu del lettore, oltre che come impostazione generale.
+- La data di uscita del capitolo compare ora nella lista dei capitoli, per le fonti che la forniscono.
+
+### Migliorato
+
+- I contenuti della Home (Scopri, Consigliati) si aggiornano una volta al giorno invece che a ogni apertura dell'app; restano comunque aggiornabili subito con "tira per aggiornare".
+
+### Corretto
+
+- Le pagine doppie ruotate seguono ora il verso di lettura scelto (manga o occidentale), invece di girare sempre nello stesso senso.
+
+## 2026-08-25
+
+### Aggiunto
+
+- Pagine doppie nel lettore: le tavole affiancate possono restare intere e rimpicciolite, dividersi in due pagine separate o ruotare per leggerle girando il telefono (scelta in Impostazioni).
+- Nuovo interruttore "Sincronizza preferiti" per AniList: unisce nei due sensi i preferiti dell'app e quelli dell'account AniList, senza mai rimuovere nulla.
+- Quando la fonte di un preferito multi-fonte smette di rispondere, l'app prova automaticamente un'altra fonte agganciata alla stessa serie; un'icona sulla copertina segnala il cambio di fonte o l'irraggiungibilità, coi dettagli visibili aprendo le azioni del preferito.
+
+### Corretto
+
+- I preferiti letti da una fonte diversa da quella originale ora riconoscono correttamente la stella dei preferiti e lo stato di lettura, invece di sembrare "non preferiti" o "da iniziare" per errore.
+- L'account AniList non si disconnette più da solo per un ritardo di rete o per la riapertura dell'app dopo molto tempo.
+- Toccare due volte di seguito lo stesso titolo consigliato dalla Home non lascia più la ricerca bloccata sullo spinner di caricamento.
+- La ricerca aggregata e il collegamento automatico ad AniList non raggruppano più per errore titoli diversi che condividono lo stesso sinonimo su AniList.
+
+## 2026-07-28
+
+### Corretto
+
+- Su Mangapill i capitoli con lo stesso numero pubblicati da gruppi di scanlation diversi restano distinti (con l'indicazione del gruppo), invece di sovrascriversi a vicenda.
+- Se tutte le fonti di una lingua vengono disattivate dalle impostazioni, la ricerca non le interroga più comunque: i filtri di lingua mostrano solo le lingue con almeno una fonte attiva.
+
+## 2026-07-27
+
+### Migliorato
+
+- Il dialog di aggiornamento non si chiude più per un tocco accidentale fuori dalla finestra, specialmente durante l'installazione.
+
+## 2026-07-25
+
+### Aggiunto
+
+- Nuova fonte: TCB Scans.
+
+## 2026-07-20
+
+### Aggiunto
+
+- Nuove fonti: Asura Scans e Demonic Scans.
+
+### Corretto
+
+- I titoli di Mangapill nei risultati di ricerca non compaiono più raddoppiati (es. "One Piece One Piece").
+
+## 2026-07-19
+
+### Aggiunto
+
+- I preferiti seguono ora la serie e non più una singola fonte: nel dettaglio di un manga si può scegliere tra le fonti che pubblicano la stessa serie, e la ricerca raggruppa in un'unica scheda i risultati della stessa serie provenienti da fonti diverse.
+
 ## 2026-07-12
 
 ### Corretto

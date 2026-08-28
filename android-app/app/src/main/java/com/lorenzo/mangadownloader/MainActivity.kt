@@ -663,6 +663,7 @@ private fun MangaDownloaderAppContent(
             Screen.Settings -> {
                 SettingsScreen(
                     settings = state.settings,
+                    sourceHealth = state.sourceHealth,
                     isBiometricAvailable = state.isBiometricAvailable,
                     isParentalAuthInProgress = state.isParentalAuthInProgress,
                     notificationsPermissionGranted = notificationsPermissionGranted,

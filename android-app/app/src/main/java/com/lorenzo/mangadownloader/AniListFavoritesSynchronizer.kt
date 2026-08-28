@@ -19,6 +19,12 @@ class AniListFavoritesSynchronizer(
     private val fetchFavourites: suspend () -> List<AniListManga>,
     private val toggleFavourite: suspend (mediaId: Int) -> Unit,
     private val searchSources: suspend (query: String) -> List<MangaSearchResult>,
+    /**
+     * Firma delle fonti attive ([aniListImportSourcesSignature]). Quando cambia, l'elenco dei
+     * titoli "che nessuna fonte espone" viene buttato: una fonte accesa oggi — o aggiunta da
+     * un aggiornamento dell'app — può benissimo avere ciò che ieri non trovava nessuno.
+     */
+    private val sourcesSignature: () -> String = { "" },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -40,7 +46,14 @@ class AniListFavoritesSynchronizer(
             .mapNotNull { SeriesIdentity.aniListIdFromKey(it.canonicalKey()) }
             .toSet()
         val reconciled = syncStore.readReconciledIds()
-        val failedImports = syncStore.readFailedImports()
+        // Se le fonti attive non sono più quelle di allora, "introvabile" va riverificato.
+        val signature = sourcesSignature()
+        val sourcesChanged = signature != syncStore.readImportSourcesSignature()
+        if (sourcesChanged) {
+            syncStore.writeImportSourcesSignature(signature)
+            syncStore.writeFailedImports(emptySet())
+        }
+        val failedImports = if (sourcesChanged) emptySet() else syncStore.readFailedImports()
         val plan = planAniListFavoritesSync(
             appMediaIds = appIds,
             aniListMediaIds = aniListById.keys,

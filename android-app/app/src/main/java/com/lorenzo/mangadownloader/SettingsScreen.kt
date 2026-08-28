@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    /** Salute per-fonte: alimenta l'avviso sotto le fonti che non stanno rispondendo. */
+    sourceHealth: Map<String, SourceReachability>,
     isBiometricAvailable: Boolean,
     isParentalAuthInProgress: Boolean,
     notificationsPermissionGranted: Boolean,
@@ -176,6 +178,7 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
         SettingsSection(title = "Fonti", icon = Icons.Default.Language) {
             SourceTogglesContent(
                 disabledSourceIds = settings.disabledSourceIds,
+                sourceHealth = sourceHealth,
                 onToggle = onSetSourceEnabled,
             )
         }

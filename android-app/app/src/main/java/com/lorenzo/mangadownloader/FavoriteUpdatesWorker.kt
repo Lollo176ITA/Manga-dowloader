@@ -58,6 +58,12 @@ class FavoriteUpdatesWorker(
         val feedStore = FavoriteUpdatesFeedStore(prefs)
         val seriesLinksStore = SeriesLinksStore(prefs)
         val healthStore = FavoriteSourceHealthStore(prefs)
+        // Fonti che l'app sta saltando perché non rispondono (vedi [SourceHealth]): il worker
+        // gira in background su rete mobile, ed è l'ultimo posto dove ha senso restare venti
+        // secondi appesi a un sito giù per ogni preferito da controllare.
+        val unavailableSourceIds = SourceHealthStore(prefs).read()
+            .filterValues { isSourceSkipped(it, System.currentTimeMillis()) }
+            .keys
 
         // Idempotente: la fa il ViewModel all'avvio, ma il worker può girare prima di lui.
         var favorites = FavoritesSeriesMigration(
@@ -100,6 +106,7 @@ class FavoriteUpdatesWorker(
             aniListStore = AniListStore(prefs),
             aniListClient = aniListClient,
             registry = registry,
+            unavailableSourceIds = unavailableSourceIds,
         )
 
         val seenMap = store.read().toMutableMap()
@@ -237,6 +244,7 @@ class FavoriteUpdatesWorker(
         aniListStore: AniListStore,
         aniListClient: AniListClient,
         registry: MangaSourceRegistry,
+        unavailableSourceIds: Set<String>,
     ): List<FavoriteManga> {
         if (!settings.aniListFavoritesSyncEnabled) return favorites
         val token = aniListStore.readToken() ?: return favorites
@@ -252,7 +260,14 @@ class FavoriteUpdatesWorker(
                     withContext(Dispatchers.IO) { aniListClient.toggleFavouriteManga(token, mediaId) }
                 },
                 searchSources = { query ->
-                    searchEnabledSources(registry, settings.disabledSourceIds, query)
+                    searchEnabledSources(
+                        registry = registry,
+                        disabledSourceIds = settings.disabledSourceIds + unavailableSourceIds,
+                        query = query,
+                    )
+                },
+                sourcesSignature = {
+                    aniListImportSourcesSignature(settings.disabledSourceIds, unavailableSourceIds)
                 },
             ).sync(favorites)
             val fresh = newAniListFavorites(imported, favorites)

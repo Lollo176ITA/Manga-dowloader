@@ -117,6 +117,65 @@ class AniListFavoritesSynchronizerTest {
     }
 
     @Test
+    fun `se cambiano le fonti attive gli import falliti vengono riprovati`() = runBlocking {
+        val favourites = listOf(media(30002, "Berserk"))
+        val results = mapOf("Berserk" to listOf(searchResult("Berserk")))
+
+        // Primo giro con la sola Mangapill (che non ce l'ha): il titolo è "introvabile".
+        AniListFavoritesSynchronizer(
+            syncStore = syncStore,
+            seriesLinksStore = seriesLinksStore,
+            fetchFavourites = { favourites },
+            toggleFavourite = { toggled += it },
+            searchSources = { emptyList() },
+            sourcesSignature = { "mangapill" },
+        ).sync(emptyList())
+
+        assertEquals(setOf(30002), syncStore.readFailedImports())
+
+        // Seconda fonte accesa (o tornata su): la conclusione di prima non vale più.
+        val imported = AniListFavoritesSynchronizer(
+            syncStore = syncStore,
+            seriesLinksStore = seriesLinksStore,
+            fetchFavourites = { favourites },
+            toggleFavourite = { toggled += it },
+            searchSources = { query -> results[query].orEmpty() },
+            sourcesSignature = { "mangapill|manga_world" },
+        ).sync(emptyList())
+
+        assertEquals(1, imported.size)
+        assertEquals("Berserk", imported.single().title)
+        assertEquals(emptySet<Int>(), syncStore.readFailedImports())
+    }
+
+    @Test
+    fun `con le stesse fonti l'import fallito non viene ricercato di nuovo`() = runBlocking {
+        val favourites = listOf(media(30002, "Serie Introvabile"))
+        val searched = mutableListOf<String>()
+        fun run(results: Map<String, List<MangaSearchResult>>) = AniListFavoritesSynchronizer(
+            syncStore = syncStore,
+            seriesLinksStore = seriesLinksStore,
+            fetchFavourites = { favourites },
+            toggleFavourite = { toggled += it },
+            searchSources = { query ->
+                searched += query
+                results[query].orEmpty()
+            },
+            sourcesSignature = { "mangapill|manga_world" },
+        )
+
+        runBlocking { run(emptyMap()).sync(emptyList()) }
+        val afterFirst = searched.size
+        runBlocking { run(emptyMap()).sync(emptyList()) }
+
+        assertEquals(
+            "l'elenco serve proprio a non ricercare ogni giro ciò che non esiste",
+            afterFirst,
+            searched.size,
+        )
+    }
+
+    @Test
     fun `una ricerca fallita per la rete viene ritentata al giro dopo`() = runBlocking {
         val failing = AniListFavoritesSynchronizer(
             syncStore = syncStore,

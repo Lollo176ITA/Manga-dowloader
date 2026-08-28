@@ -199,4 +199,89 @@ class FavoriteSourceFallbackTest {
             notice?.label?.contains(MangaSourceCatalog.displayName("vymanga")) == true,
         )
     }
+
+    // --- Apertura della scheda: gli stessi mirror, per qualunque serie ---
+
+    @Test
+    fun laFonteToccataVienePrimaDiQuellaPreferitaDalLink() {
+        val candidates = seriesFetchCandidates(
+            tapped = SeriesSourceBinding("mangapill", "https://mangapill.com/manga/2"),
+            link = link(
+                "vymanga" to "https://vymanga.com/manga/one-piece",
+                "mangapill" to "https://mangapill.com/manga/2",
+                preferred = "vymanga",
+            ),
+        )
+
+        assertEquals(
+            "chi tocca una card si aspetta quella fonte, non quella salvata come preferita",
+            listOf("mangapill", "vymanga"),
+            candidates.map { it.sourceId },
+        )
+    }
+
+    @Test
+    fun laFonteInCooldownFinisceInCodaMaResta() {
+        val candidates = seriesFetchCandidates(
+            tapped = SeriesSourceBinding("vymanga", "https://vymanga.com/manga/one-piece"),
+            link = link(
+                "vymanga" to "https://vymanga.com/manga/one-piece",
+                "manga_world" to "https://mangaworld.ac/manga/1",
+            ),
+            skippedSourceIds = setOf("vymanga"),
+        )
+
+        assertEquals(listOf("manga_world", "vymanga"), candidates.map { it.sourceId })
+    }
+
+    @Test
+    fun unaSerieSullaSolaFonteGiuVieneComunqueTentata() {
+        val candidates = seriesFetchCandidates(
+            tapped = SeriesSourceBinding("vymanga", "https://vymanga.com/manga/one-piece"),
+            link = link("vymanga" to "https://vymanga.com/manga/one-piece"),
+            skippedSourceIds = setOf("vymanga"),
+        )
+
+        assertEquals(
+            "saltarla del tutto renderebbe la serie inapribile invece che lenta",
+            listOf("vymanga"),
+            candidates.map { it.sourceId },
+        )
+    }
+
+    @Test
+    fun leFontiSpenteDallUtenteNonSiProvano() {
+        val candidates = seriesFetchCandidates(
+            tapped = SeriesSourceBinding("mangapill", "https://mangapill.com/manga/2"),
+            link = link(
+                "mangapill" to "https://mangapill.com/manga/2",
+                "vymanga" to "https://vymanga.com/manga/one-piece",
+            ),
+            disabledSourceIds = setOf("vymanga"),
+        )
+
+        assertEquals(listOf("mangapill"), candidates.map { it.sourceId })
+    }
+
+    @Test
+    fun ilRipiegoRiportaLaFonteCheHaRispostoEIFallimentiVisti() = runBlocking {
+        val failures = mutableListOf<String>()
+        val fetched = fetchFromFirstAvailable(
+            candidates = listOf(
+                SeriesSourceBinding("vymanga", "https://vymanga.com/manga/one-piece"),
+                SeriesSourceBinding("manga_world", "https://mangaworld.ac/manga/1"),
+            ),
+            onFailure = { binding, _ -> failures += binding.sourceId },
+        ) { binding ->
+            if (binding.sourceId == "vymanga") throw IOException("HTTP 522 su ${binding.mangaUrl}")
+            details(binding.sourceId, binding.mangaUrl)
+        }
+
+        assertEquals("manga_world", fetched?.binding?.sourceId)
+        assertEquals(
+            "chi apre la scheda deve poter dire quale fonte ha fallito",
+            listOf("vymanga"),
+            failures,
+        )
+    }
 }

@@ -13,6 +13,16 @@
   - Perché: I/O + parsing JSON sincroni all'avvio → jank potenziale man mano che i favoriti crescono.
   - Cosa fare: stato iniziale "vuoto/loading" e caricamento in `init { viewModelScope.launch(Dispatchers.IO) { … } }`. Impatto Medio · Sforzo Basso.
 
+- [ ] **I preferiti AniList che nessuna fonte espone sono invisibili** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: [AniListFavoritesSynchronizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/AniListFavoritesSynchronizer.kt) — il match mancato finisce in `failedImports` e il titolo sparisce senza una parola.
+  - Perché: metti la stella su AniList, apri l'app e non è successo niente, senza sapere perché. Da 2026-08-28 l'elenco almeno non è più definitivo (si azzera quando cambiano le fonti interrogate, comprese quelle tornate su), ma resta muto.
+  - Cosa fare: un gruppo collassabile in fondo ai Preferiti ("Senza scan"), alimentato da `failedImports` + i metadati AniList, **non** da `FavoriteManga` — l'invariante "un preferito ha una fonte" va tenuta. Card cliccabile: il tap rifà la ricerca aggregata (`onPickAniListManga`), che è insieme la spiegazione e il rimedio.
+
+- [ ] **Il worker dei preferiti legge la salute delle fonti ma non la scrive** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: [FavoriteUpdatesWorker.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt) — usa `SourceHealthStore` per saltare i siti giù, ma solo la ricerca in app aggiorna il contatore.
+  - Perché: non è un guasto (il cooldown scade da solo, quindi il worker non perpetua mai una decisione vecchia), ma il worker tocca ogni preferito ed è il segnale più ricco che abbiamo sulle fonti.
+  - Cosa fare: registrare l'esito per-fonte nel giro di controllo, filtrando con `isSourceOutage` come fa il ViewModel.
+
 ---
 
 ## 📥 Download

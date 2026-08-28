@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -106,6 +107,8 @@ private fun SettingRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     description: String? = null,
+    /** Avviso in colore d'errore sotto la descrizione (es. una fonte che non risponde). */
+    warning: String? = null,
 ) {
     Row(
         modifier = Modifier
@@ -134,6 +137,13 @@ private fun SettingRow(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (warning != null) {
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }
@@ -705,18 +715,30 @@ fun LabsContent(
     }
 }
 
-/** Elenco delle fonti registrate con uno switch ciascuna (sezione impostazioni "Fonti"). */
+/**
+ * Elenco delle fonti registrate con uno switch ciascuna (sezione impostazioni "Fonti").
+ *
+ * Una fonte che non risponde resta **accesa** e mostra un avviso: l'app la salta da sola
+ * finché è giù ([SourceHealth]) e la riprende quando torna. Spegnerle al posto dell'utente
+ * significherebbe lasciargliela spenta anche dopo, senza che nessuno glielo dica.
+ */
 @Composable
 fun SourceTogglesContent(
     disabledSourceIds: Set<String>,
+    sourceHealth: Map<String, SourceReachability>,
     onToggle: (String, Boolean) -> Unit,
 ) {
+    // L'ora si legge una volta per composizione: serve solo a dire "da quanto", non è un orologio.
+    val warnings = remember(sourceHealth) {
+        sourceUnreachableLabels(sourceHealth, System.currentTimeMillis())
+    }
     Column {
         MangaSourceCatalog.descriptors.forEachIndexed { index, descriptor ->
             if (index > 0) SettingsDivider()
             SettingRow(
                 title = descriptor.displayName,
                 description = "Lingua: ${descriptor.language.displayName}",
+                warning = warnings[descriptor.id],
                 checked = descriptor.id !in disabledSourceIds,
                 onCheckedChange = { enabled -> onToggle(descriptor.id, enabled) },
             )

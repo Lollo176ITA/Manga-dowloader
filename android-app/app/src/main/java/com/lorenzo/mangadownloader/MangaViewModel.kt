@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class AppTab {
     HOME,
@@ -282,6 +283,11 @@ data class MangaUiState(
     val favoriteSeenStates: Map<String, FavoriteSeenState> = emptyMap(),
     /** Avvisi per-serie mostrati sulla card: vuoto finché l'approvvigionamento funziona. */
     val favoriteNotices: Map<String, FavoriteSourceNotice> = emptyMap(),
+    /**
+     * Salute per-fonte (`sourceId -> `[SourceReachability]): alimenta l'avviso rosso nelle
+     * impostazioni e l'interruttore che salta i siti giù. Vuoto = tutte stanno rispondendo.
+     */
+    val sourceHealth: Map<String, SourceReachability> = emptyMap(),
     val isSearching: Boolean = false,
     // Contatore delle richieste di ricerca esplicite (vedi [SearchTrigger]): distingue due
     // richieste con query e ambito identici, che devono comunque produrre due fetch.
@@ -389,6 +395,7 @@ class MangaViewModel internal constructor(
     private val aniListFavoritesSyncStore = AniListFavoritesSyncStore(prefs)
     private val seriesLinksStore = SeriesLinksStore(prefs)
     private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
+    private val sourceHealthStore = SourceHealthStore(prefs)
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
@@ -450,6 +457,7 @@ class MangaViewModel internal constructor(
             favoriteNotices = favoriteSourceHealthStore.read()
                 .mapNotNull { (key, health) -> favoriteSourceNotice(health)?.let { key to it } }
                 .toMap(),
+            sourceHealth = sourceHealthStore.read(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
             aniList = AniListUiState(
                 viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null },
@@ -1708,9 +1716,56 @@ class MangaViewModel internal constructor(
         }
         detailJob = viewModelScope.launch {
             try {
-                val details = withContext(Dispatchers.IO) {
-                    sourceRegistry.resolve(result.sourceId, result.mangaUrl).fetchMangaDetails(result.mangaUrl)
+                // Aprire una scheda ripiega sui mirror come già fa il controllo aggiornamenti:
+                // il preferito è la serie, la fonte è solo il posto da cui la si legge adesso.
+                // Senza questo, un sito giù rendeva inapribile una serie agganciata ad altre
+                // due fonti perfettamente vive, e il "Riprova" ritentava la stessa fonte morta.
+                val tapped = SeriesSourceBinding(result.sourceId, result.mangaUrl)
+                val candidates = seriesFetchCandidates(
+                    tapped = tapped,
+                    link = _state.value.selectedSeriesLink,
+                    disabledSourceIds = _state.value.settings.disabledSourceIds,
+                    skippedSourceIds = skippedSourceIds(),
+                )
+                var firstFailure: Pair<SeriesSourceBinding, Throwable>? = null
+                val fetched = fetchFromFirstAvailable(
+                    candidates = candidates,
+                    onFailure = { binding, exc ->
+                        if (firstFailure == null) firstFailure = binding to exc
+                        recordSourceOutcome(binding.sourceId, exc)
+                    },
+                ) { binding ->
+                    withContext(Dispatchers.IO) {
+                        sourceRegistry.resolve(binding.sourceId, binding.mangaUrl)
+                            .fetchMangaDetails(binding.mangaUrl)
+                    }
                 }
+                if (fetched == null) {
+                    val (binding, exc) = firstFailure
+                        ?: (tapped to IOException("Nessuna fonte disponibile"))
+                    updateState {
+                        copy(
+                            isLoadingDetails = false,
+                            errorMessage = userFacingErrorMessage(
+                                exc = exc,
+                                fallback = "Errore nel caricare il manga",
+                                sourceName = MangaSourceCatalog.displayName(binding.sourceId),
+                            ),
+                            errorRetrySearchResult = result,
+                        )
+                    }
+                    return@launch
+                }
+                recordSourceOutcome(fetched.binding.sourceId, error = null)
+                val details = fetched.details
+                // Ripiego avvenuto: dillo, altrimenti l'utente vede una fonte diversa da
+                // quella che ha toccato senza sapere perché.
+                val fallbackNotice = firstFailure
+                    ?.takeIf { (failed, _) -> failed.sourceId != fetched.binding.sourceId }
+                    ?.let { (failed, _) ->
+                        "${MangaSourceCatalog.displayName(failed.sourceId)} non risponde: " +
+                            "aperto da ${MangaSourceCatalog.displayName(fetched.binding.sourceId)}"
+                    }
                 cacheMangaDescription(
                     details.sourceId,
                     details.mangaUrl,
@@ -1735,6 +1790,9 @@ class MangaViewModel internal constructor(
                         ),
                         favoriteStatusByKey = updatedStatusByKey,
                         isLoadingDetails = false,
+                        errorMessage = fallbackNotice,
+                        // La scheda è aperta: un "Riprova" sulla fonte morta non ha più senso.
+                        errorRetrySearchResult = null,
                     )
                 }
             } catch (e: CancellationException) {
@@ -1743,7 +1801,11 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingDetails = false,
-                        errorMessage = userFacingErrorMessage(exc, "Errore nel caricare il manga"),
+                        errorMessage = userFacingErrorMessage(
+                            exc = exc,
+                            fallback = "Errore nel caricare il manga",
+                            sourceName = MangaSourceCatalog.displayName(result.sourceId),
+                        ),
                         errorRetrySearchResult = result,
                     )
                 }
@@ -2265,7 +2327,11 @@ class MangaViewModel internal constructor(
                 updateState {
                     copy(
                         isLoadingReader = false,
-                        errorMessage = userFacingErrorMessage(exc, "Impossibile aprire il reader online"),
+                        errorMessage = userFacingErrorMessage(
+                            exc = exc,
+                            fallback = "Impossibile aprire il reader online",
+                            sourceName = MangaSourceCatalog.displayName(streamingChapter.sourceId),
+                        ),
                     )
                 }
             }
@@ -2718,58 +2784,126 @@ class MangaViewModel internal constructor(
      * Ricerca aggregata sulle fonti dello scope attivo: tutte (chip "Tutte" o ponte
      * AniList→fonti della tab Scopri) o solo quelle di una lingua (chip "Italiano"/"English").
      * Lo stesso titolo può esistere su fonti diverse e l'utente sceglie quale scaricare.
-     * Ogni fonte è interrogata in parallelo e i fallimenti della singola fonte sono ignorati
-     * (best-effort), così una fonte down non azzera i risultati delle altre. I risultati sono
-     * combinati alternando le fonti (vedi [MangaSourceCatalog.interleaveBySource]), non
-     * accodati a blocchi.
+     * I risultati sono combinati alternando le fonti (vedi
+     * [MangaSourceCatalog.interleaveBySource]), non accodati a blocchi.
+     *
+     * Ogni fonte è interrogata in parallelo e **pubblica appena risponde**: aspettare che
+     * finiscano tutte significa tenere in ostaggio sette fonti veloci per una lenta. È il caso
+     * che si è visto davvero con l'origin di VyManga giù, con Cloudflare che rispondeva 522
+     * dopo venti secondi: la barra di caricamento sembrava non finire mai.
+     *
+     * Le difese sono tre, in fila: le fonti che l'interruttore automatico sta saltando non si
+     * interrogano proprio ([isSourceSkipped]), chi risponde troppo tardi viene mollato
+     * ([SOURCE_SEARCH_BUDGET_MILLIS]), e ogni esito aggiorna la salute della fonte. Il
+     * fallimento della singola fonte resta silenzioso: si parla di errore solo se falliscono
+     * **tutte**, altrimenti l'utente vedrebbe un allarme sopra risultati validi.
      */
     private fun runAggregatedSearch(query: String) {
         searchJob?.cancel()
         updateState { copy(isSearching = true, searchError = null, errorMessage = null) }
         searchJob = viewModelScope.launch {
-            try {
-                val settings = _state.value.settings
-                val (perSource, aniCandidates) = withContext(Dispatchers.IO) {
-                    coroutineScope {
-                        val sources = MangaSourceCatalog
-                            .descriptorsForScope(settings.searchScope, settings.disabledSourceIds)
-                            .map { descriptor ->
-                                async {
-                                    runCatching {
-                                        sourceRegistry.requireById(descriptor.id).searchManga(query)
-                                    }.getOrDefault(emptyList())
-                                }
-                            }
-                        // AniList in parallelo al fan-out: serve solo a raggruppare. Un suo
-                        // fallimento degrada al raggruppamento per titolo, mai a ricerca rotta.
-                        val aniList = async {
-                            runCatching { aniListClient.searchManga(query) }.getOrDefault(emptyList())
-                        }
-                        sources.awaitAll() to aniList.await()
-                    }
-                }
-                val interleaved = MangaSourceCatalog.interleaveBySource(perSource)
+            val settings = _state.value.settings
+            val now = System.currentTimeMillis()
+            val health = _state.value.sourceHealth
+            val queried = sourcesToQuery(
+                descriptors = MangaSourceCatalog
+                    .descriptorsForScope(settings.searchScope, settings.disabledSourceIds),
+                health = health,
+                now = now,
+            )
+
+            // Risultati per fonte, riempiti man mano. L'ordine è quello del catalogo, così
+            // l'interleave resta stabile mentre le fonti arrivano in ordine sparso.
+            val resultsBySource = LinkedHashMap<String, List<MangaSearchResult>>()
+            var aniCandidates = emptyList<AniListManga>()
+            var failures = 0
+            var lastFailure: Throwable? = null
+
+            fun publish(searching: Boolean) {
+                val interleaved = MangaSourceCatalog.interleaveBySource(
+                    queried.mapNotNull { resultsBySource[it.id] },
+                )
                 val pinned = pendingAniListPick?.let(::listOf).orEmpty()
+                // Errore solo se non ha risposto **nessuno**: con anche una sola fonte viva,
+                // zero risultati significa "non ce l'ha nessuno", non "la ricerca è rotta".
+                val friendly = lastFailure
+                    ?.takeIf { failures == queried.size }
+                    ?.let { userFacingErrorMessage(it, "Errore di ricerca") }
                 updateState {
                     copy(
                         results = interleaved,
                         groupedResults = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates),
-                        isSearching = false,
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (exc: Exception) {
-                val friendly = userFacingErrorMessage(exc, "Errore di ricerca")
-                updateState {
-                    copy(
-                        isSearching = false,
-                        searchError = friendly,
-                        errorMessage = if (results.isNotEmpty()) friendly else errorMessage,
+                        isSearching = searching,
+                        searchError = if (searching) searchError else friendly,
                     )
                 }
             }
+
+            // AniList in parallelo al fan-out: serve solo a raggruppare. Un suo fallimento —
+            // o un suo ritardo, con lo stesso budget delle fonti — degrada al raggruppamento
+            // per titolo, mai a ricerca rotta e mai a barra che non finisce.
+            val aniListCall = viewModelScope.async(Dispatchers.IO) {
+                runCatching { aniListClient.searchManga(query) }.getOrDefault(emptyList())
+            }
+            val aniListJob = launch {
+                val candidates = withTimeoutOrNull(SOURCE_SEARCH_BUDGET_MILLIS) { aniListCall.await() }
+                    ?: run {
+                        aniListCall.cancel()
+                        emptyList()
+                    }
+                aniCandidates = candidates
+                if (resultsBySource.isNotEmpty()) publish(searching = true)
+            }
+
+            searchSourcesIncrementally(
+                sourceIds = queried.map { it.id },
+                detachedScope = viewModelScope,
+                search = { sourceId ->
+                    withContext(Dispatchers.IO) {
+                        sourceRegistry.requireById(sourceId).searchManga(query)
+                    }
+                },
+                onSourceDone = { sourceId, outcome ->
+                    outcome.exceptionOrNull()?.let {
+                        lastFailure = it
+                        failures++
+                    }
+                    recordSourceOutcome(sourceId, outcome.exceptionOrNull())
+                    resultsBySource[sourceId] = outcome.getOrDefault(emptyList())
+                    publish(searching = true)
+                },
+            )
+            aniListJob.join()
+            publish(searching = false)
         }
+    }
+
+    /**
+     * Registra l'esito di un tentativo verso una fonte e muove l'interruttore automatico.
+     * [error] `null` = ha risposto. Solo i guasti "di fonte" contano ([isSourceOutage]): un
+     * 404 o un parsing storto non dicono che il sito è giù.
+     */
+    private fun recordSourceOutcome(sourceId: String, error: Throwable?) {
+        if (error != null && !isSourceOutage(error)) return
+        val now = System.currentTimeMillis()
+        val current = _state.value.sourceHealth
+        val updated = if (error == null) {
+            // Niente da riscrivere se la fonte era già sana: evita un write a ogni ricerca.
+            if (current[sourceId] == null) return
+            current - sourceId + (sourceId to recordSourceProbeSuccess(now))
+        } else {
+            current + (sourceId to recordSourceProbeFailure(current[sourceId], now))
+        }
+        sourceHealthStore.write(updated)
+        updateState { copy(sourceHealth = updated) }
+    }
+
+    /** Fonti che l'interruttore automatico sta saltando in questo momento. */
+    private fun skippedSourceIds(): Set<String> {
+        val now = System.currentTimeMillis()
+        return _state.value.sourceHealth
+            .filterValues { isSourceSkipped(it, now) }
+            .keys
     }
 
     // --- Tab Scopri (AniList) -------------------------------------------------------------
@@ -3649,6 +3783,12 @@ class MangaViewModel internal constructor(
                         }
                     },
                     searchSources = ::searchAllEnabledSources,
+                    sourcesSignature = {
+                        aniListImportSourcesSignature(
+                            disabledSourceIds = _state.value.settings.disabledSourceIds,
+                            unavailableSourceIds = skippedSourceIds(),
+                        )
+                    },
                 )
                 val imported = synchronizer.sync(snapshot)
                 if (imported.isEmpty()) return@launch
@@ -3692,7 +3832,9 @@ class MangaViewModel internal constructor(
                 val perSource = MangaSourceCatalog
                     .descriptorsForScope(
                         SearchScope.ALL,
-                        _state.value.settings.disabledSourceIds,
+                        // Anche qui le fonti che non rispondono restano fuori: un import
+                        // costa una ricerca su tutte, e aspettarne una morta le rallenta tutte.
+                        _state.value.settings.disabledSourceIds + skippedSourceIds(),
                     )
                     .map { descriptor ->
                         async {

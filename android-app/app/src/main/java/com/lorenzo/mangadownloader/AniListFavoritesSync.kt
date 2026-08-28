@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 
 /**
  * Sincronizzazione dei preferiti tra l'app e i **favourites** di AniList (che su AniList sono
@@ -81,6 +82,27 @@ fun reconciledAniListFavoriteIds(
 ): Set<Int> = alreadyReconciled + (appMediaIds intersect aniListMediaIds) + succeeded
 
 /**
+ * Firma delle fonti **effettivamente interrogate** da un import: quelle registrate nel
+ * catalogo, meno quelle spente dall'utente, meno quelle che l'interruttore automatico sta
+ * saltando perché non rispondono ([isSourceSkipped]).
+ *
+ * Serve a dare una scadenza alla conclusione "nessuna fonte ce l'ha". Cambia in tutti e tre
+ * i casi che la rendono falsa: l'utente accende una fonte, un aggiornamento dell'app ne
+ * aggiunge una, oppure un sito che era giù torna su. Senza l'ultimo caso — quello capitato
+ * con VyManga — un titolo cercato mentre la sua unica fonte era irraggiungibile resterebbe
+ * marcato introvabile per sempre. Pura.
+ */
+fun aniListImportSourcesSignature(
+    disabledSourceIds: Set<String>,
+    unavailableSourceIds: Set<String> = emptySet(),
+): String =
+    MangaSourceCatalog.descriptors
+        .map { it.id }
+        .filterNot { it in disabledSourceIds || it in unavailableSourceIds }
+        .sorted()
+        .joinToString("|")
+
+/**
  * Il risultato di ricerca che corrisponde con certezza a [media]: titolo normalizzato identico
  * a uno dei titoli o sinonimi noti ad AniList. Nessun fuzzy, per la stessa ragione di
  * [matchAniListCandidate]: importare la serie sbagliata tra i preferiti è peggio che non
@@ -148,6 +170,9 @@ class AniListFavoritesSyncStore(private val prefs: SharedPreferences) {
     /**
      * Favourites AniList che nessuna fonte attiva espone. Senza questo elenco verrebbero
      * ricercati su tutte le fonti a ogni giro, per sempre, senza mai riuscire.
+     *
+     * L'elenco vale però **solo** per l'insieme di fonti con cui è stato costruito: vedi
+     * [readImportSourcesSignature].
      */
     fun readFailedImports(): Set<Int> =
         prefs.readJson<List<Int>>(KEY_FAILED_IMPORTS, emptyList()).toSet()
@@ -156,15 +181,30 @@ class AniListFavoritesSyncStore(private val prefs: SharedPreferences) {
         prefs.writeJson(KEY_FAILED_IMPORTS, ids.sorted().takeLast(MAX_TRACKED_IDS))
     }
 
+    /**
+     * Con quali fonti attive è stato costruito l'elenco di cui sopra. "Nessuna fonte ce l'ha"
+     * è una conclusione che scade: basta che l'utente accenda una fonte, o che un
+     * aggiornamento dell'app ne aggiunga una, perché quel titolo diventi trovabile. Senza
+     * questa firma resterebbe escluso per sempre da una ricerca che oggi riuscirebbe.
+     */
+    fun readImportSourcesSignature(): String =
+        prefs.getString(KEY_IMPORT_SOURCES_SIGNATURE, null).orEmpty()
+
+    fun writeImportSourcesSignature(signature: String) {
+        prefs.edit { putString(KEY_IMPORT_SOURCES_SIGNATURE, signature) }
+    }
+
     /** Dimentica tutto: il prossimo giro riparte come un primo collegamento. */
     fun clear() {
         writeReconciledIds(emptySet())
         writeFailedImports(emptySet())
+        writeImportSourcesSignature("")
     }
 
     private companion object {
         const val KEY_RECONCILED = "anilist_favorites_reconciled_ids"
         const val KEY_FAILED_IMPORTS = "anilist_favorites_failed_imports"
+        const val KEY_IMPORT_SOURCES_SIGNATURE = "anilist_favorites_import_sources"
 
         // Tetto di guardia: gli insiemi crescono con i preferiti, non con il tempo.
         const val MAX_TRACKED_IDS = 2_000

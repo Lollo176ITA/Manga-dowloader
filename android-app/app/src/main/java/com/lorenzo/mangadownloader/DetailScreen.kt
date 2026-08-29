@@ -77,10 +77,17 @@ fun DetailScreen(
     val chapters = details.chapters
     val chapterListItems = remember(chapters) { buildChapterListItems(chapters) }
     val hasChapters = chapters.isNotEmpty()
-    val isAtListBottom by remember(chapterListItems.size) {
+    // Meta della freccia di navigazione: l'ultimo capitolo letto (si riparte da lì),
+    // oppure il fondo della lista se non c'è ancora nulla di letto.
+    val jumpTarget = remember(chapterListItems, readChapterIds) {
+        chapterJumpTarget(chapterListItems, readChapterIds)
+    }
+    val isAtJumpTarget by remember(jumpTarget.index) {
         derivedStateOf {
             val visibleItems = listState.layoutInfo.visibleItemsInfo
-            visibleItems.isNotEmpty() && visibleItems.last().index >= chapterListItems.lastIndex
+            visibleItems.isNotEmpty() &&
+                listState.firstVisibleItemIndex > 0 &&
+                visibleItems.last().index >= jumpTarget.index
         }
     }
 
@@ -175,9 +182,7 @@ fun DetailScreen(
             SmallFloatingActionButton(
                 onClick = {
                     scope.launch {
-                        listState.animateScrollToItem(
-                            if (isAtListBottom) 0 else chapterListItems.lastIndex,
-                        )
+                        listState.animateScrollToItem(if (isAtJumpTarget) 0 else jumpTarget.index)
                     }
                 },
                 modifier = Modifier
@@ -188,15 +193,15 @@ fun DetailScreen(
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ) {
                 Icon(
-                    imageVector = if (isAtListBottom) {
+                    imageVector = if (isAtJumpTarget) {
                         Icons.Default.KeyboardDoubleArrowUp
                     } else {
                         Icons.Default.KeyboardDoubleArrowDown
                     },
-                    contentDescription = if (isAtListBottom) {
-                        "Vai in cima alla lista"
-                    } else {
-                        "Vai in fondo alla lista"
+                    contentDescription = when {
+                        isAtJumpTarget -> "Vai in cima alla lista"
+                        jumpTarget.isLastRead -> "Vai all'ultimo capitolo letto"
+                        else -> "Vai in fondo alla lista"
                     },
                 )
             }
@@ -364,7 +369,7 @@ private fun VolumeHeaderRow(title: String) {
     )
 }
 
-private sealed class ChapterListItem {
+internal sealed class ChapterListItem {
     abstract val key: String
 
     data class VolumeHeader(
@@ -379,7 +384,29 @@ private sealed class ChapterListItem {
     }
 }
 
-private fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterListItem> {
+/** Dove porta la freccia di navigazione, e se è davvero l'ultimo capitolo letto. */
+internal data class ChapterJumpTarget(val index: Int, val isLastRead: Boolean)
+
+/**
+ * Bersaglio della freccia in basso a sinistra: l'ultimo capitolo letto, così si riprende da
+ * dove si era arrivati invece di saltare all'ultimo uscito. Senza capitoli letti (o con lista
+ * vuota) si torna al comportamento storico, cioè il fondo della lista.
+ */
+internal fun chapterJumpTarget(
+    items: List<ChapterListItem>,
+    readChapterIds: Set<String>,
+): ChapterJumpTarget {
+    val lastRead = items.indexOfLast {
+        it is ChapterListItem.Chapter && it.chapter.isRead(readChapterIds)
+    }
+    return if (lastRead >= 0) {
+        ChapterJumpTarget(index = lastRead, isLastRead = true)
+    } else {
+        ChapterJumpTarget(index = items.lastIndex.coerceAtLeast(0), isLastRead = false)
+    }
+}
+
+internal fun buildChapterListItems(chapters: List<ChapterEntry>): List<ChapterListItem> {
     val items = mutableListOf<ChapterListItem>()
     var currentVolume: String? = null
     chapters.forEach { chapter ->

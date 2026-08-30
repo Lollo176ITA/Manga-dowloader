@@ -8,6 +8,9 @@ import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.imageLoader
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
+import coil3.request.ImageRequest
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
@@ -494,6 +497,13 @@ class MangaViewModel internal constructor(
     private var libraryJob: Job? = null
     private var readerJob: Job? = null
     private var streamingCacheJob: Job? = null
+    private var streamingPrefetchJob: Job? = null
+
+    /**
+     * Pagine del prossimo capitolo risolte in anticipo (vedi [maybePrefetchNextStreamingChapter]).
+     * Vale per un capitolo solo: si consuma aprendolo, o decade appena il "prossimo" cambia.
+     */
+    private var prefetchedStreamingChapter: PrefetchedStreamingChapter? = null
     private var updateJob: Job? = null
     private var autoDownloadJob: Job? = null
     private var smartCleanupJob: Job? = null
@@ -905,6 +915,7 @@ class MangaViewModel internal constructor(
     fun openMangaFromNotification(sourceId: String, title: String, mangaUrl: String, coverUrl: String?) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         markUpdatesSeenForManga(MangaSourceCatalog.identityKey(sourceId, mangaUrl))
         updateState { clearedReaderState().copy(showUpdates = false) }
         selectManga(
@@ -921,6 +932,7 @@ class MangaViewModel internal constructor(
     fun openUpdatesFromNotification() {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         updateState {
             clearedReaderState().copy(
                 selected = null,
@@ -2029,6 +2041,7 @@ class MangaViewModel internal constructor(
     fun clearDownloadedSelection() {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         smartCleanupJob?.cancel()
         updateState {
             copy(
@@ -2092,6 +2105,7 @@ class MangaViewModel internal constructor(
     fun openReader(chapter: DownloadedChapter) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         val savedPagePosition = libraryRepository.readerPagePosition(chapter.relativePath)
         val savedPageIndex = savedPagePosition?.pageIndex
             ?: chapter.readerPageIndex
@@ -2202,6 +2216,7 @@ class MangaViewModel internal constructor(
     private fun openStreamingReader(streamingChapter: StreamingReaderChapter) {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
 
         val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(
             currentSeriesKey(
@@ -2265,11 +2280,14 @@ class MangaViewModel internal constructor(
                     return@launch
                 }
 
-                val pageUrls = withContext(Dispatchers.IO) {
-                    sourceRegistry
-                        .requireById(streamingChapter.sourceId)
-                        .fetchChapterPageImageUrls(streamingChapter.chapter.url)
-                }
+                // Se il prefetch del capitolo successivo ha fatto in tempo a finire mentre
+                // si leggevano le ultime pagine, qui la rete non si tocca affatto.
+                val pageUrls = consumePrefetchedStreamingPages(streamingChapter)
+                    ?: withContext(Dispatchers.IO) {
+                        sourceRegistry
+                            .requireById(streamingChapter.sourceId)
+                            .fetchChapterPageImageUrls(streamingChapter.chapter.url)
+                    }
                 if (pageUrls.isEmpty()) {
                     throw IllegalStateException("Nessuna pagina trovata per il capitolo")
                 }
@@ -2354,6 +2372,93 @@ class MangaViewModel internal constructor(
         }
     }
 
+    /**
+     * Consuma il prefetch se riguarda proprio [streamingChapter]. Il risultato vale una volta
+     * sola: dopo l'apertura il "prossimo capitolo" è un altro, e tenerlo in giro significherebbe
+     * rischiare di servire pagine vecchie a un capitolo omonimo di un'altra serie.
+     */
+    private fun consumePrefetchedStreamingPages(streamingChapter: StreamingReaderChapter): List<String>? {
+        val prefetched = prefetchedStreamingChapter ?: return null
+        prefetchedStreamingChapter = null
+        return prefetched.pagesFor(
+            sourceId = streamingChapter.sourceId,
+            chapterUrl = streamingChapter.chapter.url,
+        )
+    }
+
+    /**
+     * Vicino alla fine di un capitolo letto in streaming, risolve in anticipo le pagine del
+     * successivo e scalda la cache di Coil con le prime.
+     *
+     * È il momento di attesa che un lettore online incontra a ogni capitolo: premuto "avanti",
+     * l'app deve scaricare la pagina HTML del capitolo, estrarne gli URL e solo allora chiedere
+     * la prima immagine — tre viaggi in fila, tutti a schermo vuoto. Anticipandoli mentre si
+     * leggono le ultime pagine, il salto diventa quasi immediato.
+     *
+     * Costa una richiesta HTML e poche immagini, non l'intero capitolo: chi si ferma a fine
+     * capitolo non si porta a casa megabyte che non ha chiesto.
+     */
+    private fun maybePrefetchNextStreamingChapter(pageIndex: Int, pageCount: Int) {
+        // Solo in streaming: da un capitolo scaricato il successivo si apre già da disco.
+        if (_state.value.readerChapter?.streamingChapter == null) return
+        val next = _state.value.readerNextChapter?.streamingChapter ?: return
+        if (!isNearChapterEnd(pageIndex, pageCount, STREAMING_PREFETCH_TRIGGER_PAGES)) return
+        if (prefetchedStreamingChapter?.chapterUrl == next.chapter.url) return
+        if (streamingPrefetchJob?.isActive == true) return
+
+        streamingPrefetchJob = viewModelScope.launch {
+            try {
+                val cacheKey = StreamingReaderCacheKey(
+                    sourceId = next.sourceId,
+                    mangaUrl = next.mangaUrl,
+                    chapterUrl = next.chapter.url,
+                )
+                val pageUrls = withContext(Dispatchers.IO) {
+                    // Già in cache su disco: si aprirà da lì, non c'è niente da anticipare.
+                    if (streamingCacheRepository.getCachedChapter(cacheKey) != null) return@withContext null
+                    sourceRegistry
+                        .requireById(next.sourceId)
+                        .fetchChapterPageImageUrls(next.chapter.url)
+                        .takeIf { it.isNotEmpty() }
+                } ?: return@launch
+
+                prefetchedStreamingChapter = PrefetchedStreamingChapter(
+                    sourceId = next.sourceId,
+                    chapterUrl = next.chapter.url,
+                    pageUrls = pageUrls,
+                )
+                warmImageCache(
+                    urls = pageUrls.take(STREAMING_PREFETCH_WARM_PAGES),
+                    referer = next.chapter.url,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Anticipare è un di più: se fallisce, l'apertura del capitolo rifà la strada
+                // normale e l'utente non vede alcuna differenza se non l'attesa di prima.
+            }
+        }
+    }
+
+    /**
+     * Mette in coda a Coil le immagini indicate, così quando toccherà mostrarle saranno già
+     * scaricate. La chiave di memoria può differire da quella che userà il reader (le pagine
+     * doppie applicano trasformazioni), ma la cache su disco è per URL: il viaggio in rete si
+     * risparmia comunque, che è la parte lenta.
+     */
+    private fun warmImageCache(urls: List<String>, referer: String) {
+        val context = getApplication<Application>()
+        val headers = NetworkHeaders.Builder().set("Referer", referer).build()
+        urls.forEach { url ->
+            context.imageLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .httpHeaders(headers)
+                    .build(),
+            )
+        }
+    }
+
     fun saveReaderPagePosition(pageIndex: Int, pageCount: Int, allowCompletion: Boolean) {
         val chapter = _state.value.readerChapter ?: return
         val safePageCount = pageCount.coerceAtLeast(1)
@@ -2428,6 +2533,8 @@ class MangaViewModel internal constructor(
         if (newlyRead) {
             maybeSyncAniListOnChapterRead(chapter)
         }
+
+        maybePrefetchNextStreamingChapter(pageIndex = nextPageIndex, pageCount = safePageCount)
     }
 
     private fun maybeTriggerAutoDownload(chapter: DownloadedChapter) {
@@ -2519,6 +2626,7 @@ class MangaViewModel internal constructor(
     fun closeReader() {
         readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         // Consolida su disco le pagine avanzate durante la sessione di lettura (la scrittura
         // per-swipe è deliberatamente rimandata, vedi recordReaderProgressInMemory).
         persistReadingMemoryIfChanged()
@@ -2648,6 +2756,7 @@ class MangaViewModel internal constructor(
         libraryJob?.cancel()
         if (clearReader) readerJob?.cancel()
         streamingCacheJob?.cancel()
+        streamingPrefetchJob?.cancel()
         smartCleanupJob?.cancel()
         updateState { copy(isLoadingLibrary = true, errorMessage = null) }
         libraryJob = viewModelScope.launch {
@@ -4319,6 +4428,12 @@ class MangaViewModel internal constructor(
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
         private const val READ_NOW_CHAPTER_COUNT = 3
+
+        /** Pagine dalla fine entro cui si inizia ad anticipare il capitolo successivo. */
+        private const val STREAMING_PREFETCH_TRIGGER_PAGES = 3
+
+        /** Quante pagine del capitolo successivo si scaldano in cache immagini. */
+        private const val STREAMING_PREFETCH_WARM_PAGES = 3
     }
 }
 
@@ -4330,6 +4445,32 @@ class MangaViewModel internal constructor(
  * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
  */
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+/** Pagine di un capitolo streaming risolte prima che l'utente lo apra. */
+internal data class PrefetchedStreamingChapter(
+    val sourceId: String,
+    val chapterUrl: String,
+    val pageUrls: List<String>,
+)
+
+/**
+ * Le pagine anticipate valgono **solo** per il capitolo esatto per cui erano state chieste:
+ * fonte e URL devono coincidere entrambi. Senza questo controllo, un capitolo omonimo di
+ * un'altra serie (o della stessa serie su un'altra fonte) si aprirebbe con le pagine sbagliate.
+ */
+internal fun PrefetchedStreamingChapter?.pagesFor(sourceId: String, chapterUrl: String): List<String>? {
+    val prefetched = this ?: return null
+    return prefetched.pageUrls.takeIf {
+        prefetched.sourceId == sourceId && prefetched.chapterUrl == chapterUrl
+    }
+}
+
+/**
+ * Se il lettore è abbastanza vicino alla fine da valere la pena di anticipare il capitolo
+ * successivo. [triggerPages] è la distanza dall'ultima pagina entro cui scatta.
+ */
+internal fun isNearChapterEnd(pageIndex: Int, pageCount: Int, triggerPages: Int): Boolean =
+    pageCount - 1 - pageIndex <= triggerPages
+
 private fun copyCoilCachedPage(context: Context, url: String, target: File): Boolean {
     return try {
         val diskCache = context.imageLoader.diskCache ?: return false

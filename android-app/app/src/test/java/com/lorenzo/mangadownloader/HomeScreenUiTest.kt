@@ -30,6 +30,7 @@ class HomeScreenUiTest {
                     editMode = false,
                     padding = PaddingValues(),
                     onResume = {},
+                    onResumeStreamingChapter = {},
                     onOpenUpdate = {},
                     onOpenAllUpdates = {},
                     onOpenHistory = {},

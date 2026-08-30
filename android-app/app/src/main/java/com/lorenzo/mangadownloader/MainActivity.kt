@@ -632,6 +632,7 @@ private fun MangaDownloaderAppContent(
                     library = state.library,
                     padding = innerPadding,
                     onOpenChapter = viewModel::openReader,
+                    onResumeStreamingChapter = viewModel::resumeStreamingChapter,
                 )
             }
             Screen.Stats -> {
@@ -815,6 +816,7 @@ private fun MangaDownloaderAppContent(
                             editMode = homeEditMode,
                             padding = innerPadding,
                             onResume = viewModel::openReader,
+                            onResumeStreamingChapter = viewModel::resumeStreamingChapter,
                             onOpenUpdate = viewModel::openMangaFromUpdate,
                             onOpenAllUpdates = viewModel::openUpdates,
                             onOpenHistory = viewModel::openHistory,

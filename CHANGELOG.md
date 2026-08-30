@@ -12,6 +12,8 @@
 - Toccare un capitolo già scaricato apre la copia in libreria invece di riscaricarne le pagine dalla rete.
 - Leggendo in streaming, il capitolo successivo viene preparato mentre si finiscono le ultime pagine di quello corrente: premendo "avanti" si parte quasi subito, invece di aspettare a schermo vuoto che l'app scarichi l'elenco delle pagine e poi la prima immagine.
 - Dal lettore, un capitolo che stai leggendo in streaming si salva in libreria con un tocco, senza uscire e ripassare dal selettore di intervallo nel dettaglio.
+- Il blocco "Riprendi" della Home tiene conto anche delle letture in streaming: prima compariva solo con capitoli scaricati, quindi chi legge online non lo vedeva mai — e si ritrovava l'invito "la tua Home si riempie mentre leggi" dopo settimane di letture.
+- I capitoli letti in streaming si riaprono dalla cronologia e da "Letti di recente": prima erano righe che non reagivano al tocco. Le letture registrate dalle versioni precedenti restano non riapribili, perché di quelle non era stato annotato l'indirizzo.
 
 ### Rimosso
 

@@ -28,21 +28,21 @@ import androidx.compose.ui.unit.dp
 /**
  * Hero "Riprendi" della Home (stile mockup): card su `primaryContainer` con copertina, sopratitolo
  * RIPRENDI, serie + capitolo, barra di progresso lineare standard e "pagina X di Y".
- * Tap = riprende il reader all'ultima pagina. Riusa i dati già in [ContinueReadingItem].
+ * Tap = riprende il reader all'ultima pagina. Riusa i dati già in [ResumeReadingItem], che
+ * appiattisce le due provenienze possibili: un capitolo scaricato o una lettura in streaming.
  * Con [compact] (taglia S del blocco) la card si stringe: mini-cover, niente barra di progresso.
  */
 @Composable
 fun HomeResumeCard(
-    item: ContinueReadingItem,
-    onResume: (DownloadedChapter) -> Unit,
+    item: ResumeReadingItem,
+    onResume: (ResumeTarget) -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    val chapter = item.chapter
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onResume(chapter) },
+            .clickable { onResume(item.target) },
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -57,8 +57,8 @@ fun HomeResumeCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CoverImage(
-                model = item.series.coverFile,
-                title = item.series.title,
+                model = item.coverModel,
+                title = item.seriesTitle,
                 modifier = Modifier
                     .size(
                         width = if (compact) 40.dp else 64.dp,
@@ -77,20 +77,20 @@ fun HomeResumeCard(
                     Spacer(Modifier.height(2.dp))
                 }
                 Text(
-                    text = item.series.title,
+                    text = item.seriesTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = chapter.title.ifBlank { "Capitolo ${chapter.numberText}" },
+                    text = item.chapterLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val idx = chapter.readerPageIndex
-                val count = chapter.readerPageCount
+                val idx = item.pageIndex
+                val count = item.pageCount
                 if (idx != null && count != null && count > 0) {
                     if (compact) {
                         Text(

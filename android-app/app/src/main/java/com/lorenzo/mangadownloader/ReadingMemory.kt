@@ -23,7 +23,21 @@ data class ReadChapterMemory(
     val lastReadAtMillis: Long,
     /** Fonte del capitolo ([MangaSourceIds]); "" per i record storici che non la conoscono. */
     val sourceId: String = "",
+    /**
+     * Coordinate per riaprire un capitolo letto **in streaming**: la chiave del record è un
+     * hash (`streaming:<sha256>`), quindi senza questi due campi il capitolo non è più
+     * raggiungibile dalla cronologia. Vuoti per i capitoli scaricati (si riaprono dal file)
+     * e per i record salvati prima della loro introduzione.
+     */
+    val mangaUrl: String = "",
+    val chapterUrl: String = "",
+    /** Copertina della serie, per le card che mostrano una lettura senza file su disco. */
+    val coverUrl: String = "",
 )
+
+/** Se da questo record si può tornare al capitolo (vale solo per lo streaming). */
+fun ReadChapterMemory.canReopenStreaming(): Boolean =
+    sourceId.isNotBlank() && mangaUrl.isNotBlank() && chapterUrl.isNotBlank()
 
 /**
  * Merge monotono di due record dello stesso capitolo: i numeri non regrediscono mai
@@ -39,6 +53,10 @@ fun ReadChapterMemory.mergedWith(other: ReadChapterMemory): ReadChapterMemory = 
     isRead = isRead || other.isRead,
     lastReadAtMillis = maxOf(lastReadAtMillis, other.lastReadAtMillis),
     sourceId = other.sourceId.ifBlank { sourceId },
+    // Un record vecchio (senza coordinate) non deve cancellarle da uno che le ha già.
+    mangaUrl = other.mangaUrl.ifBlank { mangaUrl },
+    chapterUrl = other.chapterUrl.ifBlank { chapterUrl },
+    coverUrl = other.coverUrl.ifBlank { coverUrl },
 )
 
 /** Etichetta visuale di un capitolo scaricato, con lo stesso ripiego usato nelle liste. */

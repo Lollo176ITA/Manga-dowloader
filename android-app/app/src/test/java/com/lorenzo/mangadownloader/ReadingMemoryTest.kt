@@ -59,6 +59,27 @@ class ReadingMemoryTest {
         lastReadAtMillis = lastReadAtMillis,
     )
 
+    /**
+     * Un record vecchio (senza coordinate di riapertura) non deve cancellarle da uno che le
+     * ha già: il merge è monotono anche su questi campi, non solo sui contatori.
+     */
+    @Test
+    fun merge_nonPerdeLeCoordinateDiRiapertura() {
+        val withCoordinates = record(pagesRead = 5).copy(
+            sourceId = MangaSourceIds.MANGAPILL,
+            mangaUrl = "https://mangapill.com/manga/1",
+            chapterUrl = "https://mangapill.com/chapters/1-5/x",
+            coverUrl = "https://cdn/cover.jpg",
+        )
+        val withoutCoordinates = record(pagesRead = 9)
+
+        val merged = withCoordinates.mergedWith(withoutCoordinates)
+
+        assertEquals(9, merged.pagesRead)
+        assertTrue(merged.canReopenStreaming())
+        assertEquals("https://cdn/cover.jpg", merged.coverUrl)
+    }
+
     // --- mergedWith ---
 
     @Test

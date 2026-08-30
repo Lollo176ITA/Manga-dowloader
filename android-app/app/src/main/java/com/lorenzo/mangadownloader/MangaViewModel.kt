@@ -500,6 +500,14 @@ class MangaViewModel internal constructor(
     private var streamingPrefetchJob: Job? = null
 
     /**
+     * Capitolo da aprire non appena i dettagli della serie saranno caricati: è così che la
+     * cronologia riapre una lettura in streaming, di cui conosce l'indirizzo ma non l'elenco
+     * capitoli necessario a navigare avanti e indietro. Tiene anche il manga richiesto, così
+     * un'attesa rimasta appesa (dettagli falliti) non può aprirsi su una serie diversa.
+     */
+    private var pendingStreamingChapter: PendingStreamingChapter? = null
+
+    /**
      * Pagine del prossimo capitolo risolte in anticipo (vedi [maybePrefetchNextStreamingChapter]).
      * Vale per un capitolo solo: si consuma aprendolo, o decade appena il "prossimo" cambia.
      */
@@ -1750,6 +1758,7 @@ class MangaViewModel internal constructor(
                 if (fetched == null) {
                     val (binding, exc) = firstFailure
                         ?: (tapped to IOException("Nessuna fonte disponibile"))
+                    pendingStreamingChapter = null
                     updateState {
                         copy(
                             isLoadingDetails = false,
@@ -1801,6 +1810,14 @@ class MangaViewModel internal constructor(
                         // La scheda è aperta: un "Riprova" sulla fonte morta non ha più senso.
                         errorRetrySearchResult = null,
                     )
+                }
+
+                // Riapertura dalla cronologia: i dettagli servivano solo a ritrovare il
+                // capitolo (e i suoi vicini). Se non c'è più — capitolo rimosso dalla fonte,
+                // o ripiego su un mirror che non ce l'ha — si resta sulla scheda, che è
+                // comunque il posto giusto da cui riprendere a mano.
+                consumePendingStreamingChapter(details)?.let { chapter ->
+                    openStreamingReader(details, chapter)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2187,6 +2204,39 @@ class MangaViewModel internal constructor(
      * interruttore globale nelle impostazioni, che per giunta rimandava allo streaming
      * anche i capitoli già in libreria.
      */
+    /**
+     * Riapre un capitolo letto in streaming a partire dal suo record di lettura (cronologia,
+     * "Riprendi"). Passa dalla scheda della serie perché il reader ha bisogno dell'elenco
+     * capitoli per le frecce avanti/indietro: l'utente vede il caricamento del dettaglio e
+     * poi il capitolo, e se il capitolo non esiste più resta comunque sulla scheda.
+     *
+     * I record salvati prima che si annotassero queste coordinate non sono riapribili: la
+     * chiave è un hash, l'indirizzo non è ricostruibile. La UI non li rende toccabili.
+     */
+    fun resumeStreamingChapter(record: ReadChapterMemory) {
+        if (!record.canReopenStreaming()) return
+        pendingStreamingChapter = PendingStreamingChapter(
+            mangaUrl = record.mangaUrl,
+            chapterUrl = record.chapterUrl,
+        )
+        selectManga(
+            MangaSearchResult(
+                sourceId = record.sourceId,
+                title = record.seriesTitle,
+                mangaUrl = record.mangaUrl,
+                coverUrl = null,
+            ),
+        )
+    }
+
+    /** Il capitolo in attesa, se i dettagli appena caricati sono quelli richiesti e lo contengono ancora. */
+    private fun consumePendingStreamingChapter(details: MangaDetails): ChapterEntry? {
+        val pending = pendingStreamingChapter ?: return null
+        pendingStreamingChapter = null
+        if (pending.mangaUrl != details.mangaUrl) return null
+        return details.chapters.firstOrNull { it.url == pending.chapterUrl }
+    }
+
     fun openChapterFromDetail(details: MangaDetails, chapter: ChapterEntry) {
         val downloaded = LibraryMatching.downloadedChapterFor(
             details = details,
@@ -3555,6 +3605,14 @@ class MangaViewModel internal constructor(
             isRead = chapter.isRead || newlyRead,
             lastReadAtMillis = now,
             sourceId = sourceId,
+            // Solo per lo streaming: la chiave del record è un hash, quindi senza queste
+            // due coordinate il capitolo sparirebbe dalla cronologia come destinazione.
+            mangaUrl = streaming?.mangaUrl.orEmpty(),
+            chapterUrl = streaming?.chapter?.url.orEmpty(),
+            // La copertina si prende dalla scheda aperta, e solo se è davvero questa serie.
+            coverUrl = streaming
+                ?.let { s -> _state.value.selected?.takeIf { it.mangaUrl == s.mangaUrl }?.coverUrl }
+                .orEmpty(),
         )
         val current = _state.value.readingMemory[chapter.relativePath]
         val next = current?.mergedWith(record) ?: record
@@ -4445,6 +4503,12 @@ class MangaViewModel internal constructor(
  * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
  */
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+/** Capitolo streaming da aprire quando arriveranno i dettagli della sua serie. */
+private data class PendingStreamingChapter(
+    val mangaUrl: String,
+    val chapterUrl: String,
+)
+
 /** Pagine di un capitolo streaming risolte prima che l'utente lo apra. */
 internal data class PrefetchedStreamingChapter(
     val sourceId: String,

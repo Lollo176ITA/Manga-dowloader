@@ -43,6 +43,9 @@ data class ReadingMemoryBackupEntry(
     val isRead: Boolean = false,
     val lastReadAtMillis: Long = 0L,
     val sourceId: String = "",
+    val mangaUrl: String = "",
+    val chapterUrl: String = "",
+    val coverUrl: String = "",
 )
 
 fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryBackupEntry(
@@ -54,6 +57,9 @@ fun ReadChapterMemory.toBackupEntry(): ReadingMemoryBackupEntry = ReadingMemoryB
     isRead = isRead,
     lastReadAtMillis = lastReadAtMillis,
     sourceId = sourceId,
+    mangaUrl = mangaUrl,
+    chapterUrl = chapterUrl,
+    coverUrl = coverUrl,
 )
 
 fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChapterMemory =
@@ -66,6 +72,9 @@ fun ReadingMemoryBackupEntry.toReadChapterMemory(relativePath: String): ReadChap
         isRead = isRead,
         lastReadAtMillis = lastReadAtMillis.coerceAtLeast(0L),
         sourceId = sourceId,
+        mangaUrl = mangaUrl,
+        chapterUrl = chapterUrl,
+        coverUrl = coverUrl,
     )
 
 /** Forma nel backup di un giorno del diario di lettura; combacia con `ReadingDiaryStore`. */

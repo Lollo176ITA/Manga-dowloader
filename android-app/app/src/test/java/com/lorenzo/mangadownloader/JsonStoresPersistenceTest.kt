@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -54,6 +55,51 @@ class JsonStoresPersistenceTest {
 
         prefs().edit().putString("reading_memory_json", "{broken").commit()
         assertTrue(store.read().isEmpty())
+    }
+
+    /**
+     * Le coordinate per riaprire una lettura in streaming (fonte, manga, capitolo, copertina)
+     * devono sopravvivere al giro su disco: senza, la chiave del record resta un hash e il
+     * capitolo non è più raggiungibile dalla cronologia.
+     */
+    @Test
+    fun readingMemory_roundTripsStreamingReopenCoordinates() {
+        val store = ReadingMemoryStore(prefs())
+        val expected = mapOf(
+            "streaming:abc123" to ReadChapterMemory(
+                seriesKey = "st:mangapill::https://mangapill.com/manga/1",
+                seriesTitle = "Solo Leveling",
+                chapterLabel = "Capitolo 5",
+                pagesRead = 7,
+                pageCount = 20,
+                isRead = false,
+                lastReadAtMillis = 1_000L,
+                sourceId = MangaSourceIds.MANGAPILL,
+                mangaUrl = "https://mangapill.com/manga/1",
+                chapterUrl = "https://mangapill.com/chapters/1-5/solo-leveling-chapter-5",
+                coverUrl = "https://cdn/cover.jpg",
+            ),
+        )
+
+        store.persist(expected)
+
+        assertEquals(expected, store.read())
+    }
+
+    /** I record scritti prima dell'aggiunta di quei campi restano leggibili (senza coordinate). */
+    @Test
+    fun readingMemory_leggeIRecordSalvatiPrimaDelleCoordinate() {
+        val legacy = """
+            {"streaming:abc123":{"seriesKey":"st:x","seriesTitle":"Vecchio","chapterLabel":"Capitolo 1",
+            "pagesRead":3,"pageCount":10,"isRead":false,"lastReadAtMillis":500}}
+        """.trimIndent()
+        prefs().edit().putString("reading_memory_json", legacy).commit()
+
+        val record = ReadingMemoryStore(prefs()).read().getValue("streaming:abc123")
+
+        assertEquals("Vecchio", record.seriesTitle)
+        assertEquals(3, record.pagesRead)
+        assertFalse("Senza coordinate non è riapribile", record.canReopenStreaming())
     }
 
     @Test

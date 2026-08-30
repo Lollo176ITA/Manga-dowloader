@@ -62,6 +62,8 @@ fun HomeScreen(
     editMode: Boolean,
     padding: PaddingValues,
     onResume: (DownloadedChapter) -> Unit,
+    /** Riapre una lettura in streaming: non ha un file, si passa dalla scheda della serie. */
+    onResumeStreamingChapter: (ReadChapterMemory) -> Unit,
     onOpenUpdate: (FavoriteUpdateEvent) -> Unit,
     onOpenAllUpdates: () -> Unit,
     onOpenHistory: () -> Unit,
@@ -93,8 +95,10 @@ fun HomeScreen(
             }
     }
     val hidden = settings.hiddenHomeBlocks
-    val continueItem = remember(state.library) {
-        computeContinueReading(state.library, limit = 1).firstOrNull()
+    // "Riprendi" guarda sia i capitoli scaricati sia le letture in streaming: chi legge solo
+    // online ha comunque un progresso da riprendere.
+    val continueItem = remember(state.library, state.readingMemory) {
+        computeHomeResume(state.library, state.readingMemory)
     }
     val recentUpdates = remember(state.favoriteUpdates) {
         state.favoriteUpdates.sortedByDescending { it.timestampMillis }.take(5)
@@ -221,7 +225,13 @@ fun HomeScreen(
                         HomeBlock.RESUME -> item(key = "b-resume") {
                             HomeResumeCard(
                                 item = continueItem!!,
-                                onResume = onResume,
+                                onResume = { target ->
+                                    when (target) {
+                                        is ResumeTarget.Downloaded -> onResume(target.chapter)
+                                        is ResumeTarget.Streaming ->
+                                            onResumeStreamingChapter(target.memory)
+                                    }
+                                },
                                 compact = density == CardDensity.COMPACT,
                                 modifier = Modifier.padding(horizontal = 16.dp),
                             )
@@ -344,7 +354,17 @@ fun HomeScreen(
                                         title = entry.memory.seriesTitle,
                                         subtitle = entry.memory.chapterLabel,
                                         caption = entry.memory.progressLabel(),
-                                        onClick = entry.chapter?.let { chapter -> { onResume(chapter) } },
+                                        onClick = when {
+                                            entry.chapter != null -> {
+                                                { onResume(entry.chapter) }
+                                            }
+                                            // Letta in streaming: nessun file, ma l'indirizzo
+                                            // basta a tornarci (se il record lo conserva).
+                                            entry.memory.canReopenStreaming() -> {
+                                                { onResumeStreamingChapter(entry.memory) }
+                                            }
+                                            else -> null
+                                        },
                                         onClickLabel = "Riapri il capitolo",
                                         inCarousel = true,
                                     )

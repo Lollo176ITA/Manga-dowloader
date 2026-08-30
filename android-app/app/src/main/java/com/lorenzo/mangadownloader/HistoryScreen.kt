@@ -20,8 +20,12 @@ import androidx.compose.ui.unit.dp
 /**
  * Pagina Cronologia (da "Vedi tutto" del blocco Letti di recente): tutti i capitoli con un
  * timestamp di lettura, raggruppati per giorno ("Oggi", "Ieri", data estesa). Le letture
- * vengono dalla memoria persistente, quindi restano anche per i capitoli eliminati (riga non
- * cliccabile). Tap su un capitolo ancora scaricato = riapri nel reader. Stateless.
+ * vengono dalla memoria persistente, quindi restano anche per i capitoli eliminati.
+ *
+ * Tap su un capitolo ancora scaricato = riapri nel reader; su uno letto in streaming =
+ * riaprilo online passando dalla scheda della serie. Resta non cliccabile solo ciò che non è
+ * più raggiungibile: capitoli non più scaricati e letture streaming registrate prima che se
+ * ne annotasse l'indirizzo. Stateless.
  */
 @Composable
 fun HistoryScreen(
@@ -29,6 +33,7 @@ fun HistoryScreen(
     library: List<DownloadedSeries>,
     padding: PaddingValues,
     onOpenChapter: (DownloadedChapter) -> Unit,
+    onResumeStreamingChapter: (ReadChapterMemory) -> Unit,
 ) {
     val history = remember(memory, library) { computeReadingHistory(memory, library) }
     // Raggruppamento NON memoizzato: "Oggi"/"Ieri" dipendono dall'orologio, e una schermata
@@ -69,7 +74,11 @@ fun HistoryScreen(
             }
             items.forEach { item ->
                 item(key = "h-${item.relativePath}") {
-                    HistoryRow(item = item, onOpen = onOpenChapter)
+                    HistoryRow(
+                        item = item,
+                        onOpen = onOpenChapter,
+                        onResumeStreaming = onResumeStreamingChapter,
+                    )
                 }
             }
         }
@@ -80,21 +89,34 @@ fun HistoryScreen(
 private fun HistoryRow(
     item: ReadingHistoryItem,
     onOpen: (DownloadedChapter) -> Unit,
+    onResumeStreaming: (ReadChapterMemory) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chapter = item.chapter
+    val memory = item.memory
+    val isStreaming = isStreamingMemoryPath(item.relativePath)
     MangaRowCard(
         coverModel = item.series?.coverFile,
-        title = item.memory.seriesTitle,
+        title = memory.seriesTitle,
         modifier = modifier,
-        subtitle = item.memory.chapterLabel,
+        subtitle = memory.chapterLabel,
         caption = when {
-            chapter != null -> item.memory.progressLabel()
-            isStreamingMemoryPath(item.relativePath) ->
-                "${item.memory.progressLabel()} · letto in streaming"
-            else -> "${item.memory.progressLabel()} · non più scaricato"
+            chapter != null -> memory.progressLabel()
+            isStreaming -> "${memory.progressLabel()} · letto in streaming"
+            else -> "${memory.progressLabel()} · non più scaricato"
         },
-        onClick = chapter?.let { { onOpen(it) } },
+        onClick = when {
+            chapter != null -> {
+                { onOpen(chapter) }
+            }
+            isStreaming && memory.canReopenStreaming() -> {
+                { onResumeStreaming(memory) }
+            }
+            // Capitolo non più scaricato, o lettura registrata prima che si annotasse
+            // l'indirizzo: non c'è niente da riaprire, e una riga che non reagisce è
+            // meglio di una che porta altrove.
+            else -> null
+        },
         onClickLabel = "Riapri il capitolo",
     )
 }

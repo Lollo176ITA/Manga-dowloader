@@ -394,19 +394,6 @@ fun ShowHomeTabContent(
 }
 
 @Composable
-fun StreamingReaderContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Leggi senza scaricare",
-        description = "Apri i capitoli in streaming, scaricandoli solo temporaneamente",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
-}
-
-@Composable
 fun AutoDownloadContent(
     enabled: Boolean,
     triggerChapters: Int,

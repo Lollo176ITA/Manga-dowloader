@@ -51,7 +51,6 @@ fun DetailScreen(
     padding: PaddingValues,
     downloadedChapterKeys: Set<String>,
     readChapterIds: Set<String>,
-    streamingReaderEnabled: Boolean,
     autoDownloadEnabled: Boolean,
     // Selettore fonte: visibile solo per serie con un SeriesLink (multi-fonte).
     showSourceSelector: Boolean,
@@ -64,7 +63,11 @@ fun DetailScreen(
     onLinkAniList: () -> Unit,
     onOpenAniListTracker: () -> Unit,
     onStart: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit,
-    onOpenStreamingChapter: (MangaDetails, ChapterEntry) -> Unit,
+    /**
+     * Apre il capitolo: sta al chiamante decidere se dalla libreria o in streaming, perché
+     * qui non sappiamo (né vogliamo sapere) cosa c'è su disco.
+     */
+    onReadChapter: (MangaDetails, ChapterEntry) -> Unit,
     onEnableAutoDownload: () -> Unit,
 ) {
     var pendingStart by remember { mutableStateOf<ChapterEntry?>(null) }
@@ -153,19 +156,20 @@ fun DetailScreen(
                             is ChapterListItem.VolumeHeader -> VolumeHeaderRow(item.title)
                             is ChapterListItem.Chapter -> {
                                 val chapter = item.chapter
+                                val isDownloaded = chapter.isDownloaded(downloadedChapterKeys)
                                 ChapterRow(
                                     chapter = chapter,
-                                    isDownloaded = chapter.isDownloaded(downloadedChapterKeys),
+                                    isDownloaded = isDownloaded,
                                     isRead = chapter.isRead(readChapterIds),
-                                ) {
-                                    if (streamingReaderEnabled) {
-                                        onOpenStreamingChapter(details, chapter)
+                                    // Un capitolo già scaricato non offre l'azione: al suo
+                                    // posto la riga mostra il badge "scaricato".
+                                    onDownload = if (isDownloaded) {
+                                        null
                                     } else {
-                                        pendingStart = chapter
-                                        pendingEnd = chapter
-                                        startMenuExpanded = false
-                                        endMenuExpanded = false
-                                    }
+                                        { onStart(details, chapter, chapter) }
+                                    },
+                                ) {
+                                    onReadChapter(details, chapter)
                                 }
                             }
                         }

@@ -47,7 +47,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         autoDownloadBatchSize = prefs.getInt(KEY_AUTO_DOWNLOAD_BATCH, 3),
         smartCleanupEnabled = prefs.getBoolean(KEY_SMART_CLEANUP_ENABLED, false),
         smartCleanupKeepPreviousChapters = prefs.getInt(KEY_SMART_CLEANUP_KEEP_PREVIOUS, 3),
-        streamingReaderEnabled = prefs.getBoolean(KEY_STREAMING_READER_ENABLED, false),
         parentalControlEnabled = prefs.getBoolean(KEY_PARENTAL_CONTROL_ENABLED, false),
         parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
         labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
@@ -102,7 +101,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_AUTO_DOWNLOAD_BATCH = "auto_download_batch"
         const val KEY_SMART_CLEANUP_ENABLED = "smart_cleanup_enabled"
         const val KEY_SMART_CLEANUP_KEEP_PREVIOUS = "smart_cleanup_keep_previous"
-        const val KEY_STREAMING_READER_ENABLED = "streaming_reader_enabled"
         const val KEY_PARENTAL_CONTROL_ENABLED = "parental_control_enabled"
         const val KEY_PARENTAL_PIN_CONFIGURED = "parental_pin_configured"
         const val KEY_PARENTAL_BIOMETRIC_ENABLED = "parental_biometric_enabled"

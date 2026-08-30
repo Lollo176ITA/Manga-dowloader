@@ -45,6 +45,28 @@ object LibraryMatching {
     }
 
     /**
+     * La copia scaricata di [chapter] per la serie [details], se c'è. Serve al dettaglio per
+     * decidere *come* aprire un capitolo: con un file in libreria si legge quello, senza si
+     * va in streaming. Il match segue le stesse due chiavi di [downloadedChapterKeys] (id
+     * stabile, poi numero+variante), così un capitolo marcato "scaricato" nella lista è
+     * sempre anche un capitolo che qui si riesce a risolvere.
+     */
+    fun downloadedChapterFor(
+        details: MangaDetails,
+        chapter: ChapterEntry,
+        library: List<DownloadedSeries>,
+        extraBindings: List<SeriesSourceBinding> = emptyList(),
+    ): DownloadedChapter? {
+        val series = matchingDownloadedSeries(details, library, extraBindings) ?: return null
+        val stableId = DownloadStorage.stableChapterId(chapter)
+        val numberKey = DownloadStorage.chapterNumberKey(chapter.displayNumber(), chapter.variantTag)
+        return series.chapters.firstOrNull { it.chapterId == stableId }
+            ?: series.chapters.firstOrNull { downloaded ->
+                DownloadStorage.chapterNumberKey(downloaded.numberText, downloaded.variantTag) == numberKey
+            }
+    }
+
+    /**
      * La serie scaricata che corrisponde a [details] per identità o titolo, se presente.
      * [extraBindings] sono i binding del SeriesLink (serie multi-fonte): una serie scaricata
      * da QUALUNQUE fonte collegata matcha, anche con titolo/URL diversi da quelli attivi.

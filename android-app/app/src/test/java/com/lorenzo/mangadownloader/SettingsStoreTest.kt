@@ -39,7 +39,6 @@ class SettingsStoreTest {
             autoDownloadBatchSize = 2,
             smartCleanupEnabled = true,
             smartCleanupKeepPreviousChapters = 1,
-            streamingReaderEnabled = true,
             parentalControlEnabled = true,
             parentalPinConfigured = true,
             parentalBiometricEnabled = true,

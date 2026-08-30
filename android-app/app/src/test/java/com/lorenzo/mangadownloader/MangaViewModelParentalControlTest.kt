@@ -214,21 +214,15 @@ class MangaViewModelParentalControlTest {
         assertFalse(settingFields.contains("autoReaderSpeed"))
     }
 
+    /**
+     * La lettura in streaming non è più un interruttore: la lista capitoli offre sempre
+     * entrambe le azioni (leggi / scarica), quindi l'impostazione non deve tornare.
+     */
     @Test
-    fun streamingReaderSetting_defaultsOffAndPersists() {
-        val viewModel = createViewModel()
+    fun appSettingsDoesNotExposeStreamingReaderToggle() {
+        val settingFields = AppSettings::class.java.declaredFields.map { it.name }
 
-        assertFalse(viewModel.state.value.settings.streamingReaderEnabled)
-
-        viewModel.setStreamingReaderEnabled(true)
-        assertTrue(viewModel.state.value.settings.streamingReaderEnabled)
-
-        val recreated = createViewModel()
-        assertTrue(recreated.state.value.settings.streamingReaderEnabled)
-
-        recreated.setStreamingReaderEnabled(false)
-        val disabledAgain = createViewModel()
-        assertFalse(disabledAgain.state.value.settings.streamingReaderEnabled)
+        assertFalse(settingFields.contains("streamingReaderEnabled"))
     }
 
     private fun createConfiguredViewModel(): MangaViewModel {

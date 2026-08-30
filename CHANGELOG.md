@@ -4,6 +4,17 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-08-30
+
+### Migliorato
+
+- La lista dei capitoli ora offre entrambe le azioni insieme: toccare la riga apre il capitolo, l'icona a destra lo scarica. Prima bisognava scegliere una volta per tutte fra le due cose con un interruttore nelle impostazioni, che di fatto teneva nascosta la lettura online a chi non andava a cercarlo.
+- Toccare un capitolo già scaricato apre la copia in libreria invece di riscaricarne le pagine dalla rete.
+
+### Rimosso
+
+- L'impostazione "Leggi senza scaricare" non serve più: la lettura online è sempre disponibile dalla lista dei capitoli.
+
 ## 2026-08-26
 
 ### Aggiunto

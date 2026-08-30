@@ -700,7 +700,6 @@ private fun MangaDownloaderAppContent(
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
                     onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
-                    onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
                     onSelectSpreadPageMode = viewModel::setSpreadPageMode,
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
@@ -755,7 +754,6 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     downloadedChapterKeys = downloadedChapterKeys,
                     readChapterIds = readChapterIds,
-                    streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     autoDownloadEnabled = state.settings.autoDownloadEnabled,
                     showSourceSelector = state.selectedSeriesLink != null,
                     sourceOptions = state.sourceOptions,
@@ -766,7 +764,7 @@ private fun MangaDownloaderAppContent(
                     onLinkAniList = viewModel::openAniListMatch,
                     onOpenAniListTracker = viewModel::openAniListTracker,
                     onStart = onStartDownload,
-                    onOpenStreamingChapter = viewModel::openStreamingReader,
+                    onReadChapter = viewModel::openChapterFromDetail,
                     onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
                 )
             }

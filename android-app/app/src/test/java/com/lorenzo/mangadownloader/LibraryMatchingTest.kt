@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader
 
 import java.io.File
+import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -147,6 +148,95 @@ class LibraryMatchingTest {
         assertNull(LibraryMatching.tutorialSampleSeries(sample, emptyList()))
     }
 
+    @Test
+    fun downloadedChapterFor_trovaLaCopiaScaricataTramiteIdStabile() {
+        val entry = chapterEntry(number = 1)
+        val details = details(mangaUrl = "https://mangapill.com/manga/12345", title = "Berserk")
+        val downloaded = downloadedChapter(
+            number = "1",
+            chapterId = DownloadStorage.stableChapterId(entry),
+        )
+        val library = listOf(
+            series(
+                title = "Berserk",
+                mangaUrl = "https://mangapill.com/manga/12345",
+                chapters = listOf(downloadedChapter(number = "2", chapterId = "id-2"), downloaded),
+            ),
+        )
+
+        assertEquals(downloaded, LibraryMatching.downloadedChapterFor(details, entry, library))
+    }
+
+    /**
+     * Stesso capitolo scaricato da un URL diverso (o prima di un cambio di URL della fonte):
+     * la lista lo marca "scaricato" tramite la chiave per numero, quindi anche l'apertura
+     * deve risolverlo, altrimenti si riscaricherebbe in streaming un capitolo già in libreria.
+     */
+    @Test
+    fun downloadedChapterFor_ripiegaSullaChiavePerNumero() {
+        val entry = chapterEntry(number = 1)
+        val details = details(mangaUrl = "https://mangapill.com/manga/12345", title = "Berserk")
+        val downloaded = downloadedChapter(number = "1.0", chapterId = "url:vecchio-indirizzo")
+        val library = listOf(
+            series(
+                title = "Berserk",
+                mangaUrl = "https://mangapill.com/manga/12345",
+                chapters = listOf(downloaded),
+            ),
+        )
+
+        assertEquals(downloaded, LibraryMatching.downloadedChapterFor(details, entry, library))
+    }
+
+    @Test
+    fun downloadedChapterFor_nullSenzaCopiaInLibreria() {
+        val details = details(mangaUrl = "https://mangapill.com/manga/12345", title = "Berserk")
+        val library = listOf(
+            series(
+                title = "Berserk",
+                mangaUrl = "https://mangapill.com/manga/12345",
+                chapters = listOf(downloadedChapter(number = "2", chapterId = "id-2")),
+            ),
+        )
+
+        // Capitolo non scaricato in una serie presente…
+        assertNull(LibraryMatching.downloadedChapterFor(details, chapterEntry(number = 1), library))
+        // …e serie non presente affatto.
+        assertNull(LibraryMatching.downloadedChapterFor(details, chapterEntry(number = 1), emptyList()))
+    }
+
+    /**
+     * Invariante che tiene insieme badge e apertura: ogni capitolo che la lista marca come
+     * scaricato dev'essere anche risolvibile in un file, e viceversa.
+     */
+    @Test
+    fun downloadedChapterFor_eCoerenteConDownloadedChapterKeys() {
+        val details = details(mangaUrl = "https://mangapill.com/manga/12345", title = "Berserk")
+        val entries = (1..3).map { chapterEntry(number = it) }
+        val library = listOf(
+            series(
+                title = "Berserk",
+                mangaUrl = "https://mangapill.com/manga/12345",
+                chapters = listOf(
+                    downloadedChapter(number = "1", chapterId = DownloadStorage.stableChapterId(entries[0])),
+                    downloadedChapter(number = "3", chapterId = "url:altro"),
+                ),
+            ),
+        )
+        val keys = LibraryMatching.downloadedChapterKeys(details, library)
+
+        entries.forEach { entry ->
+            val markedDownloaded = DownloadStorage.stableChapterId(entry) in keys ||
+                DownloadStorage.chapterNumberKey(entry.displayNumber(), entry.variantTag) in keys
+            val resolved = LibraryMatching.downloadedChapterFor(details, entry, library)
+            assertEquals(
+                "Capitolo ${entry.numberText}: badge e apertura devono concordare",
+                markedDownloaded,
+                resolved != null,
+            )
+        }
+    }
+
     // ---- builder ----
 
     private fun details(mangaUrl: String, title: String) = MangaDetails(
@@ -155,6 +245,13 @@ class LibraryMatchingTest {
         coverUrl = null,
         mangaUrl = mangaUrl,
         chapters = emptyList(),
+    )
+
+    private fun chapterEntry(number: Int) = ChapterEntry(
+        numberText = number.toString(),
+        numberValue = BigDecimal(number),
+        url = "https://mangapill.com/chapters/$number/berserk-chapter-$number",
+        slug = "berserk-chapter-$number",
     )
 
     private fun series(

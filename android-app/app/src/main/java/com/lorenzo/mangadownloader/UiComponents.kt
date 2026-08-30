@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
@@ -598,11 +599,22 @@ private fun ChapterDateLabel(publishedAtMillis: Long?) {
     )
 }
 
+/**
+ * Riga della lista capitoli, con due azioni distinte invece di una sola modale: il corpo
+ * della riga apre il capitolo (dalla libreria se c'è, altrimenti in streaming), l'icona a
+ * destra lo scarica. Prima il tocco faceva l'una o l'altra cosa a seconda di un
+ * interruttore nelle impostazioni, che quasi nessuno trovava.
+ *
+ * L'icona di download è un *pulsante* solo finché il capitolo non è scaricato; quando lo è
+ * diventa un badge non interattivo (icona diversa, niente ripple), così non si confonde
+ * uno stato con un'azione.
+ */
 @Composable
 fun ChapterRow(
     chapter: ChapterEntry,
     isDownloaded: Boolean = false,
     isRead: Boolean = false,
+    onDownload: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val containerColor = if (isDownloaded || isRead) {
@@ -615,11 +627,11 @@ fun ChapterRow(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(MaterialTheme.shapes.large)
-            .clickable(onClick = onClick),
+            .clickable(onClickLabel = "Leggi il capitolo", onClick = onClick),
         color = containerColor,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -629,28 +641,36 @@ fun ChapterRow(
                 fontWeight = FontWeight.Medium,
             )
             ChapterDateLabel(chapter.publishedAtMillis)
-            if (isDownloaded || isRead) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (isDownloaded) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Capitolo scaricato",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                    if (isRead) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Capitolo letto",
-                            tint = ReadGreen,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
+            if (isRead) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Capitolo letto",
+                    tint = ReadGreen,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(22.dp),
+                )
+            }
+            when {
+                isDownloaded -> Icon(
+                    imageVector = Icons.Default.DownloadDone,
+                    contentDescription = "Capitolo scaricato",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(start = 8.dp, end = 12.dp)
+                        .size(22.dp),
+                )
+
+                onDownload != null -> IconButton(onClick = onDownload) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Scarica il capitolo",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
+
+                else -> Spacer(modifier = Modifier.width(12.dp))
             }
         }
     }

@@ -147,7 +147,6 @@ data class AppSettings(
     val autoDownloadBatchSize: Int = 3,
     val smartCleanupEnabled: Boolean = false,
     val smartCleanupKeepPreviousChapters: Int = 3,
-    val streamingReaderEnabled: Boolean = false,
     val parentalControlEnabled: Boolean = false,
     val parentalPinConfigured: Boolean = false,
     val parentalBiometricEnabled: Boolean = false,
@@ -1231,10 +1230,6 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(smartCleanupKeepPreviousChapters = value.coerceAtLeast(0)) }
     }
 
-    fun setStreamingReaderEnabled(enabled: Boolean) {
-        updateSettings { it.copy(streamingReaderEnabled = enabled) }
-    }
-
     fun setLabsEnabled(enabled: Boolean) {
         updateSettings {
             if (enabled) it.copy(labsEnabled = true)
@@ -2169,6 +2164,27 @@ class MangaViewModel internal constructor(
 
         maybeTriggerAutoDownload(chapter)
         maybePerformSmartCleanup(chapter)
+    }
+
+    /**
+     * Apre un capitolo dalla lista del dettaglio scegliendo la strada giusta: se la copia
+     * scaricata esiste si legge quella (niente rete, e la posizione salvata è la stessa del
+     * reader offline), altrimenti si va in streaming. Prima questa scelta era un
+     * interruttore globale nelle impostazioni, che per giunta rimandava allo streaming
+     * anche i capitoli già in libreria.
+     */
+    fun openChapterFromDetail(details: MangaDetails, chapter: ChapterEntry) {
+        val downloaded = LibraryMatching.downloadedChapterFor(
+            details = details,
+            chapter = chapter,
+            library = _state.value.library,
+            extraBindings = _state.value.selectedSeriesLink?.sources.orEmpty(),
+        )
+        if (downloaded != null) {
+            openReader(downloaded)
+        } else {
+            openStreamingReader(details, chapter)
+        }
     }
 
     fun openStreamingReader(details: MangaDetails, chapter: ChapterEntry) {

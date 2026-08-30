@@ -43,7 +43,6 @@ fun SettingsScreen(
     onBatchChange: (Int) -> Unit,
     onToggleSmartCleanup: (Boolean) -> Unit,
     onSmartCleanupKeepChange: (Int) -> Unit,
-    onToggleStreamingReader: (Boolean) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
     onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
     onSelectReaderPageSpacing: (Int) -> Unit,
@@ -120,11 +119,6 @@ fun SettingsScreen(
         }
 
 SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
-            StreamingReaderContent(
-                enabled = settings.streamingReaderEnabled,
-                onToggle = onToggleStreamingReader,
-            )
-            SettingsDivider()
             AutoDownloadContent(
                 enabled = settings.autoDownloadEnabled,
                 triggerChapters = settings.autoDownloadTriggerChapters,

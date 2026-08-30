@@ -11,6 +11,7 @@
 - La lista dei capitoli ora offre entrambe le azioni insieme: toccare la riga apre il capitolo, l'icona a destra lo scarica. Prima bisognava scegliere una volta per tutte fra le due cose con un interruttore nelle impostazioni, che di fatto teneva nascosta la lettura online a chi non andava a cercarlo.
 - Toccare un capitolo già scaricato apre la copia in libreria invece di riscaricarne le pagine dalla rete.
 - Leggendo in streaming, il capitolo successivo viene preparato mentre si finiscono le ultime pagine di quello corrente: premendo "avanti" si parte quasi subito, invece di aspettare a schermo vuoto che l'app scarichi l'elenco delle pagine e poi la prima immagine.
+- Dal lettore, un capitolo che stai leggendo in streaming si salva in libreria con un tocco, senza uscire e ripassare dal selettore di intervallo nel dettaglio.
 
 ### Rimosso
 

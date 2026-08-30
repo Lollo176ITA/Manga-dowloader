@@ -524,6 +524,31 @@ private fun MangaDownloaderAppContent(
                     onReaderBrightnessChange = viewModel::setReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
+                    // Leggendo in streaming si può tenere il capitolo: le pagine sono già
+                    // state scaricate per mostrarlo, quindi salvarlo è a un tocco invece che
+                    // a un giro completo (esci → dettaglio → selettore intervallo).
+                    onSaveStreamingChapter = state.readerChapter?.streamingChapter?.let { streaming ->
+                        {
+                            onStartDownload(
+                                MangaDetails(
+                                    sourceId = streaming.sourceId,
+                                    title = streaming.mangaTitle,
+                                    // La copertina correda la serie salvata: si prende dal
+                                    // dettaglio da cui siamo entrati, e solo se è la stessa serie.
+                                    coverUrl = state.selected
+                                        ?.takeIf { it.mangaUrl == streaming.mangaUrl }
+                                        ?.coverUrl,
+                                    mangaUrl = streaming.mangaUrl,
+                                    chapters = streaming.chapters,
+                                ),
+                                streaming.chapter,
+                                streaming.chapter,
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Capitolo aggiunto ai download")
+                            }
+                        }
+                    },
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,

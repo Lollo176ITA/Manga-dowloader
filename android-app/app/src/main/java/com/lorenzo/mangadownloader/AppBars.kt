@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Notifications
@@ -64,6 +65,11 @@ fun AppTopBar(
     onReaderBrightnessChange: (Float) -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
     onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
+    /**
+     * Scarica il capitolo che si sta leggendo. Non nullo solo leggendo in streaming: da un
+     * capitolo già in libreria non ci sarebbe niente da salvare.
+     */
+    onSaveStreamingChapter: (() -> Unit)? = null,
     unseenUpdatesCount: Int,
     onOpenUpdates: () -> Unit,
     onMarkAllUpdatesSeen: () -> Unit,
@@ -156,6 +162,15 @@ fun AppTopBar(
                     onExpandedChange = { brightnessExpanded = it },
                     onBrightnessChange = onReaderBrightnessChange,
                 )
+            }
+
+            if (readerChapter != null && onSaveStreamingChapter != null) {
+                IconButton(onClick = onSaveStreamingChapter) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Salva il capitolo in libreria",
+                    )
+                }
             }
 
             if (readerChapter != null) {

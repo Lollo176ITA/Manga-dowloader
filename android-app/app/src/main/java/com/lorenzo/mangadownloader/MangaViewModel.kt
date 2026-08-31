@@ -1664,6 +1664,14 @@ class MangaViewModel internal constructor(
     fun switchSource(option: SourceOptionUi) {
         val link = _state.value.selectedSeriesLink ?: return
         if (option.sourceId == _state.value.selected?.sourceId) return
+        // La voce deve essere un mirror *di questa* serie: una rimasta a schermo da una
+        // scheda precedente riscriverebbe il binding del preferito aperto con l'URL di
+        // un'altra opera, mandando i tap successivi sulla serie sbagliata.
+        val optionKey = MangaSourceCatalog.identityKey(option.sourceId, option.mangaUrl)
+        val belongsToSeries = link.sources.any {
+            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == optionKey
+        }
+        if (!belongsToSeries) return
         seriesLinksStore.setPreferredSource(link.seriesKey, option.sourceId)
         updateState {
             copy(selectedSeriesLink = link.copy(preferredSourceId = option.sourceId))
@@ -1693,8 +1701,15 @@ class MangaViewModel internal constructor(
         val linkContainsResult = currentLink?.sources
             ?.any { MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == resultKey } == true
         if (!linkContainsResult) {
+            // Serie diversa da quella aperta finora: le voci del selettore fonte sono state
+            // *di quella* serie e non devono sopravviverle (il menu le riuserebbe, perche'
+            // `loadSourceOptions` non ricarica una lista gia' completa).
+            sourceOptionsJob?.cancel()
             updateState {
-                copy(selectedSeriesLink = seriesLinksStore.linkForBinding(result.sourceId, result.mangaUrl))
+                copy(
+                    selectedSeriesLink = seriesLinksStore.linkForBinding(result.sourceId, result.mangaUrl),
+                    sourceOptions = emptyList(),
+                )
             }
         }
         detailJob?.cancel()
@@ -1918,12 +1933,18 @@ class MangaViewModel internal constructor(
 
     fun clearSelection() {
         detailJob?.cancel()
+        sourceOptionsJob?.cancel()
         updateState {
             copy(
                 selected = null,
                 selectedMangaReadChapterIds = emptySet(),
                 isLoadingDetails = false,
                 errorMessage = null,
+                // Tutto cio' che descrive *quale* serie era aperta se ne va con lei: senza
+                // questo la scheda successiva ereditava link, chiave e mirror della precedente.
+                selectedSeriesLink = null,
+                selectedSeriesKey = null,
+                sourceOptions = emptyList(),
             )
         }
     }

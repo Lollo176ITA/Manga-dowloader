@@ -71,6 +71,7 @@
   - Dove: [TallPageNormalizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizer.kt) (322 righe: spezza le pagine alte in fasce su disco), [ReaderTallPage.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/ReaderTallPage.kt) (281, budget di memoria e sample size), `ZoomablePage` in `ReaderScreen.kt` (~130, pinch/pan/doppio tap).
   - Candidata: [Telephoto](https://github.com/saket/telephoto) (`zoomable-image-coil3`): zoom + *subsampling* (decodifica a tessere, come le mappe), che è proprio il problema delle pagine webtoon. Potrebbe sostituire gran parte di quelle ~700 righe.
   - Rischi: il reader verticale zooma l'intera lista, non la singola immagine, e i gesti sono stati ritoccati da poco (tap e Precedente/Successivo da ingranditi). Serve prima una prova su un ramo, non una sostituzione alla cieca.
+  - Testata: risultato insoddisfacente
 
 - [ ] **Baseline Profile (`profileinstaller` + plugin `baselineprofile`)** — vedi la voce in ⚡ Prestazioni.
 

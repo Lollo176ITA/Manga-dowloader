@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -399,11 +400,16 @@ private fun ReaderBrightnessAction(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                // Il contenuto del menu viene scartato alla chiusura: a ogni apertura lo stato
+                // riparte dalla luminosità corrente.
+                val sliderState = remember { SliderState(value = brightness.coerceIn(0f, 1f)) }
                 Slider(
-                    value = brightness.coerceIn(0f, 1f),
-                    onValueChange = onBrightnessChange,
+                    state = sliderState,
+                    onValueChange = { value ->
+                        sliderState.value = value
+                        onBrightnessChange(value)
+                    },
                     onValueChangeFinished = onBrightnessChangeFinished,
-                    valueRange = 0f..1f,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }

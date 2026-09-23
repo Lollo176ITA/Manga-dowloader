@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -257,6 +258,9 @@ fun AniListTrackerDialog(
     var score by remember(tracking, scoreFormat) {
         mutableFloatStateOf((tracking.score ?: 0.0).toFloat().coerceIn(0f, scoreFormat.maxValue))
     }
+    val scoreSliderState = remember(tracking, scoreFormat) {
+        SliderState(value = score, trackRange = 0f..scoreFormat.maxValue)
+    }
 
     val progress = progressText.toIntOrNull()?.coerceAtLeast(0)
     val scoreStep = when (scoreFormat) {
@@ -351,13 +355,13 @@ fun AniListTrackerDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Slider(
-                        value = score,
+                        state = scoreSliderState,
                         onValueChange = { value ->
                             // Aggancia il valore al passo del formato voto dell'account.
                             score = (Math.round(value / scoreStep) * scoreStep)
                                 .coerceIn(0f, scoreFormat.maxValue)
+                            scoreSliderState.value = score
                         },
-                        valueRange = 0f..scoreFormat.maxValue,
                     )
                 }
 

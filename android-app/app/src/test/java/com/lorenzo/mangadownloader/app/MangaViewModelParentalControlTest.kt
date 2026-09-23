@@ -49,7 +49,7 @@ class MangaViewModelParentalControlTest {
     fun enablingParental_startsPinSetupWithoutEnablingImmediately() {
         val viewModel = createViewModel()
 
-        viewModel.setParentalControlEnabled(true)
+        viewModel.parental.setEnabled(true)
 
         val state = viewModel.state.value
         assertNotNull(state.parentalPinSetupState)
@@ -61,9 +61,9 @@ class MangaViewModelParentalControlTest {
     @Test
     fun dismissingInitialPinSetup_keepsParentalDisabled() {
         val viewModel = createViewModel()
-        viewModel.setParentalControlEnabled(true)
+        viewModel.parental.setEnabled(true)
 
-        viewModel.dismissParentalPinSetup()
+        viewModel.parental.dismissPinSetup()
 
         val state = viewModel.state.value
         assertNull(state.parentalPinSetupState)
@@ -75,7 +75,7 @@ class MangaViewModelParentalControlTest {
     @Test
     fun confirmingPinSetup_enablesParentalWithBiometricOff() {
         val viewModel = createViewModel()
-        viewModel.setParentalControlEnabled(true)
+        viewModel.parental.setEnabled(true)
 
         savePin(viewModel)
 
@@ -94,7 +94,7 @@ class MangaViewModelParentalControlTest {
     fun disablingParentalFromSettings_requiresAuthAndClearsCredentials() {
         val viewModel = createConfiguredViewModel()
 
-        viewModel.setParentalControlEnabled(false)
+        viewModel.parental.setEnabled(false)
         completePendingAuthentication(viewModel)
 
         val state = viewModel.state.value
@@ -135,9 +135,9 @@ class MangaViewModelParentalControlTest {
 
         when {
             pendingState.biometricPromptRequest != null ->
-                viewModel.cancelBiometricAuthentication(pendingState.biometricPromptRequest.requestId)
+                viewModel.parental.cancelBiometric(pendingState.biometricPromptRequest.requestId)
             pendingState.parentalPinEntryState != null ->
-                viewModel.dismissParentalPinEntry()
+                viewModel.parental.dismissPinEntry()
             else -> fail("Expected an authentication prompt for Cerca")
         }
 
@@ -232,7 +232,7 @@ class MangaViewModelParentalControlTest {
 
     private fun createConfiguredViewModel(): MangaViewModel {
         return createViewModel().also { viewModel ->
-            viewModel.setParentalControlEnabled(true)
+            viewModel.parental.setEnabled(true)
             savePin(viewModel)
         }
     }
@@ -242,13 +242,13 @@ class MangaViewModelParentalControlTest {
         val viewModel = createConfiguredViewModel()
         viewModel.selectTab(AppTab.SEARCH)
         repeat(4) {
-            viewModel.onParentalPinEntryChange("000000")
-            viewModel.confirmParentalPinEntry()
+            viewModel.parental.onPinEntryChange("000000")
+            viewModel.parental.confirmPinEntry()
         }
         assertEquals("PIN non corretto", viewModel.state.value.parentalPinEntryState?.errorMessage)
 
-        viewModel.onParentalPinEntryChange("000000")
-        viewModel.confirmParentalPinEntry()
+        viewModel.parental.onPinEntryChange("000000")
+        viewModel.parental.confirmPinEntry()
         assertEquals(
             "PIN non corretto. Riprova tra 30 secondi",
             viewModel.state.value.parentalPinEntryState?.errorMessage,
@@ -257,8 +257,8 @@ class MangaViewModelParentalControlTest {
         // Riaprire l'app non azzera il blocco, e durante il blocco neanche il PIN giusto passa.
         val restarted = createViewModel()
         restarted.selectTab(AppTab.SEARCH)
-        restarted.onParentalPinEntryChange(TEST_PIN)
-        restarted.confirmParentalPinEntry()
+        restarted.parental.onPinEntryChange(TEST_PIN)
+        restarted.parental.confirmPinEntry()
         assertTrue(
             restarted.state.value.parentalPinEntryState?.errorMessage.orEmpty().startsWith("Troppi tentativi"),
         )
@@ -267,8 +267,8 @@ class MangaViewModelParentalControlTest {
         // Blocco scaduto: il PIN giusto apre e azzera il conto.
         application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putLong("parental_pin_locked_until", 0L).commit()
-        restarted.onParentalPinEntryChange(TEST_PIN)
-        restarted.confirmParentalPinEntry()
+        restarted.parental.onPinEntryChange(TEST_PIN)
+        restarted.parental.confirmPinEntry()
         assertEquals(AppTab.SEARCH, restarted.state.value.currentTab)
         assertEquals(
             0,
@@ -278,27 +278,27 @@ class MangaViewModelParentalControlTest {
     }
 
     private fun savePin(viewModel: MangaViewModel, pin: String = TEST_PIN) {
-        viewModel.onParentalPinSetupChange(pin = pin)
-        viewModel.onParentalPinSetupChange(confirmPin = pin)
-        viewModel.confirmParentalPinSetup()
+        viewModel.parental.onPinSetupChange(pin = pin)
+        viewModel.parental.onPinSetupChange(confirmPin = pin)
+        viewModel.parental.confirmPinSetup()
     }
 
     private fun completePendingAuthentication(viewModel: MangaViewModel, pin: String = TEST_PIN) {
         val biometricRequest = viewModel.state.value.biometricPromptRequest
         if (biometricRequest != null) {
-            viewModel.usePinInsteadOfBiometric(biometricRequest.requestId)
+            viewModel.parental.usePinInsteadOfBiometric(biometricRequest.requestId)
         }
 
         val pinEntryState = viewModel.state.value.parentalPinEntryState
         if (pinEntryState != null) {
-            viewModel.onParentalPinEntryChange(pin)
-            viewModel.confirmParentalPinEntry()
+            viewModel.parental.onPinEntryChange(pin)
+            viewModel.parental.confirmPinEntry()
             return
         }
 
         val request = viewModel.state.value.biometricPromptRequest
             ?: throw AssertionError("Expected biometric or PIN authentication")
-        viewModel.onBiometricAuthenticationSucceeded(request.requestId)
+        viewModel.parental.onBiometricSucceeded(request.requestId)
     }
 
     private fun createViewModel(

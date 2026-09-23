@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +46,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lorenzo.mangadownloader.app.AppSystemEffects
@@ -181,7 +181,7 @@ class MainActivity : FragmentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     MangaDownloaderTheme(
         themeMode = state.settings.themeMode,
         useDynamicColor = state.settings.useDynamicColor,
@@ -477,9 +477,9 @@ private fun MangaDownloaderAppContent(
         readerOpen = state.readerChapter != null,
         readerFullscreen = isReaderFullscreen,
         keepReaderScreenOn = state.settings.keepScreenOnEnabled,
-        onBiometricSucceeded = viewModel::onBiometricAuthenticationSucceeded,
-        onUsePinInstead = viewModel::usePinInsteadOfBiometric,
-        onBiometricCancelled = viewModel::cancelBiometricAuthentication,
+        onBiometricSucceeded = viewModel.parental::onBiometricSucceeded,
+        onUsePinInstead = viewModel.parental::usePinInsteadOfBiometric,
+        onBiometricCancelled = viewModel.parental::cancelBiometric,
     )
 
     // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
@@ -530,12 +530,12 @@ private fun MangaDownloaderAppContent(
     TutorialOverlay(
         state = state,
         onFallbackCompleted = {
-            viewModel.onTutorialFallbackCompleted()
+            viewModel.tutorial.onFallbackCompleted()
             // A tour appena concluso il valore delle notifiche è chiaro: è il momento
             // giusto per chiedere il permesso, con la spiegazione del perché.
             maybeAskNotificationsPermission()
         },
-        onAdvancePhase = viewModel::advanceTutorialPhase,
+        onAdvancePhase = viewModel.tutorial::advancePhase,
         onTargetTap = { anchor ->
             when (anchor) {
                 TutorialAnchor.SEARCH_RESULT_FIRST -> {
@@ -576,7 +576,7 @@ private fun MangaDownloaderAppContent(
             }
         },
         onFinish = { keepSample ->
-            viewModel.onTutorialFinish(keepSample)
+            viewModel.tutorial.onFinish(keepSample)
             maybeAskNotificationsPermission()
         },
     ) {
@@ -773,7 +773,7 @@ private fun MangaDownloaderAppContent(
                     onSelectThemeMode = viewModel::setThemeMode,
                     onSelectCardDensity = viewModel::setCardDensity,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onRestartTutorial = viewModel::restartTutorial,
+                    onRestartTutorial = viewModel.tutorial::restart,
                     onConnectAniList = {
                         scope.launch {
                             if (!AniListAuth.isConfigured()) {
@@ -807,9 +807,9 @@ private fun MangaDownloaderAppContent(
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
                     onSetSourceEnabled = viewModel::setSourceEnabled,
                     onToggleShowHomeTab = viewModel::setShowHomeTab,
-                    onToggleParentalControl = viewModel::setParentalControlEnabled,
-                    onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
-                    onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
+                    onToggleParentalControl = viewModel.parental::setEnabled,
+                    onRequestChangeParentalPin = viewModel.parental::requestChangePin,
+                    onToggleParentalBiometric = viewModel.parental::setBiometricEnabled,
                     onToggleHideAdultContent = viewModel::setHideAdultContent,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
@@ -905,12 +905,12 @@ private fun MangaDownloaderAppContent(
                             onOpenGenre = viewModel::openDiscoverGenre,
                             onSearchFirst = goToSearchTab,
                             onStartTutorial = {
-                                viewModel.onTutorialWelcomeStart()
+                                viewModel.tutorial.onWelcomeStart()
                                 // Il tour interattivo parte dalla tab Cerca (primo spotlight sulla
                                 // barra di ricerca): portaci l'utente, rispettando il lock parentale.
                                 goToSearchTab()
                             },
-                            onDismissTutorial = viewModel::onTutorialWelcomeSkip,
+                            onDismissTutorial = viewModel.tutorial::onWelcomeSkip,
                             onMoveBlock = viewModel::moveHomeBlock,
                             onSetBlockHidden = viewModel::setHomeBlockHidden,
                         )
@@ -1047,19 +1047,19 @@ private fun MangaDownloaderAppContent(
     state.parentalPinSetupState?.let { setupState ->
         ParentalPinSetupDialog(
             state = setupState,
-            onPinChange = { viewModel.onParentalPinSetupChange(pin = it) },
-            onConfirmPinChange = { viewModel.onParentalPinSetupChange(confirmPin = it) },
-            onDismiss = viewModel::dismissParentalPinSetup,
-            onConfirm = viewModel::confirmParentalPinSetup,
+            onPinChange = { viewModel.parental.onPinSetupChange(pin = it) },
+            onConfirmPinChange = { viewModel.parental.onPinSetupChange(confirmPin = it) },
+            onDismiss = viewModel.parental::dismissPinSetup,
+            onConfirm = viewModel.parental::confirmPinSetup,
         )
     }
 
     state.parentalPinEntryState?.let { pinEntryState ->
         ParentalPinEntryDialog(
             state = pinEntryState,
-            onPinChange = viewModel::onParentalPinEntryChange,
-            onDismiss = viewModel::dismissParentalPinEntry,
-            onConfirm = viewModel::confirmParentalPinEntry,
+            onPinChange = viewModel.parental::onPinEntryChange,
+            onDismiss = viewModel.parental::dismissPinEntry,
+            onConfirm = viewModel.parental::confirmPinEntry,
         )
     }
 

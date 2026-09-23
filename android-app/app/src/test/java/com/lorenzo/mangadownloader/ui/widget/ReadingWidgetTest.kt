@@ -3,6 +3,7 @@ package com.lorenzo.mangadownloader.ui.widget
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -114,13 +115,17 @@ class ReadingWidgetTest {
         assertEquals(listOf("Continua a leggere", "Nessuna lettura in corso"), texts)
     }
 
-    /** Copertina locale (file://) al posto dell'URL della fonte: niente rete nei test. */
+    /**
+     * Copertina locale (file://) al posto dell'URL della fonte: niente rete nei test.
+     * `Uri.fromFile` e non `File.toURI()`: su Windows quest'ultimo dà `file:/C:/…`, che Coil
+     * non sa aprire, e il widget ripiegava sull'iniziale del titolo.
+     */
     private fun persistReadingWithCover() {
         val coverFile = File(context.cacheDir, "cover.png")
         val bitmap = Bitmap.createBitmap(90, 128, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFFB71C1C.toInt()) }
         coverFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         ReadingMemoryStore(prefs()).persist(
-            mapOf("streaming:abc" to streamingRead.copy(coverUrl = coverFile.toURI().toString())),
+            mapOf("streaming:abc" to streamingRead.copy(coverUrl = Uri.fromFile(coverFile).toString())),
         )
     }
 

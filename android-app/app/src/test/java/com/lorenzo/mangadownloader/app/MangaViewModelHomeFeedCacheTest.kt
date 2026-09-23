@@ -184,11 +184,11 @@ class MangaViewModelHomeFeedCacheTest {
         val viewModel = MangaViewModel(application)
         viewModel.loadDiscovery()
         // Attivare il controllo parentale passa dalla creazione del PIN: il solo
-        // setParentalControlEnabled(true) apre il setup, non lo accende.
-        viewModel.setParentalControlEnabled(true)
-        viewModel.onParentalPinSetupChange(pin = "123456")
-        viewModel.onParentalPinSetupChange(confirmPin = "123456")
-        viewModel.confirmParentalPinSetup()
+        // parental.setEnabled(true) apre il setup, non lo accende.
+        viewModel.parental.setEnabled(true)
+        viewModel.parental.onPinSetupChange(pin = "123456")
+        viewModel.parental.onPinSetupChange(confirmPin = "123456")
+        viewModel.parental.confirmPinSetup()
         assertTrue(viewModel.state.value.settings.parentalControlEnabled)
 
         viewModel.refreshHomeFeeds()

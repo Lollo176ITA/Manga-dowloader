@@ -49,7 +49,7 @@ class MangaViewModelHomeTest {
     fun restartTutorial_reopensWelcomeOnHomeTab() {
         val viewModel = vm()
         viewModel.selectTab(AppTab.LIBRARY)
-        viewModel.restartTutorial()
+        viewModel.tutorial.restart()
         assertEquals(TutorialPhase.Welcome, viewModel.state.value.tutorialState.phase)
         assertFalse(viewModel.state.value.settings.tutorialCompleted)
         // Deve riportare su Home, dove vive la card di benvenuto, altrimenti sarebbe un no-op.

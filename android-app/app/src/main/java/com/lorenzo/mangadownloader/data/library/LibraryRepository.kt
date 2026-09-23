@@ -463,15 +463,17 @@ class LibraryRepository(
         cachedSnapshotAtMs = 0L
     }
 
-    fun markChapterRead(chapter: DownloadedChapter) {
+    suspend fun markChapterRead(chapter: DownloadedChapter) {
         markChaptersRead(listOf(chapter))
     }
 
     /**
      * Marca letti più capitoli della stessa serie in un colpo solo (un solo write dei
      * metadata): usato da "Segna come letti fino a qui" e "Segna tutti come letti".
+     * Le prefs si aggiornano subito (in memoria, `apply` asincrono) così una scansione
+     * concorrente vede già il "letto"; la riscrittura del JSON va su I/O.
      */
-    fun markChaptersRead(chapters: List<DownloadedChapter>) {
+    suspend fun markChaptersRead(chapters: List<DownloadedChapter>) {
         if (chapters.isEmpty()) {
             return
         }
@@ -479,15 +481,17 @@ class LibraryRepository(
             chapters.forEach { putBoolean(readPrefKey(it.relativePath), true) }
         }
         val parentDirectory = chapters.firstNotNullOfOrNull { it.file.parentFile } ?: return
-        updateSeriesMetadata(parentDirectory) { metadata ->
-            val updatedReadIds = metadata.readChapterIds + chapters.map { it.chapterId }
-            metadata.copy(
-                totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
-                    .coerceAtLeast(updatedReadIds.size),
-                readChapterIds = updatedReadIds,
-            )
+        withContext(Dispatchers.IO) {
+            updateSeriesMetadata(parentDirectory) { metadata ->
+                val updatedReadIds = metadata.readChapterIds + chapters.map { it.chapterId }
+                metadata.copy(
+                    totalChapters = (metadata.totalChapters ?: metadata.chapters.size)
+                        .coerceAtLeast(updatedReadIds.size),
+                    readChapterIds = updatedReadIds,
+                )
+            }
+            invalidateCache()
         }
-        invalidateCache()
     }
 
     /**
@@ -496,9 +500,9 @@ class LibraryRepository(
      * un capitolo segnato "da leggere" riparte da pagina 1 e non deve più risultare
      * completato nelle righe della serie.
      */
-    fun markChapterUnread(chapter: DownloadedChapter) {
+    suspend fun markChapterUnread(chapter: DownloadedChapter) = withContext(Dispatchers.IO) {
         clearChapterState(chapter.relativePath, clearReadState = true)
-        val parentDirectory = chapter.file.parentFile ?: return
+        val parentDirectory = chapter.file.parentFile ?: return@withContext
         updateSeriesMetadata(parentDirectory) { metadata ->
             metadata.copy(readChapterIds = metadata.readChapterIds - chapter.chapterId)
         }
@@ -867,12 +871,17 @@ class LibraryRepository(
         SeriesMetadataJson.write(metadataFile, updated)
     }
 
+    /**
+     * Lettura-modifica-scrittura del JSON della serie sotto [METADATA_LOCK]: letto/non letto
+     * ed eliminazioni girano su thread I/O diversi e, senza lock, l'ultima scrittura
+     * cancellerebbe gli id aggiunti dall'altra.
+     */
     private fun updateSeriesMetadata(
         directory: File,
         transform: (SeriesMetadata) -> SeriesMetadata,
-    ) {
+    ) = synchronized(METADATA_LOCK) {
         val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        val existing = SeriesMetadataJson.read(metadataFile) ?: return
+        val existing = SeriesMetadataJson.read(metadataFile) ?: return@synchronized
         SeriesMetadataJson.write(metadataFile, transform(existing))
     }
 
@@ -915,6 +924,9 @@ class LibraryRepository(
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"
         private const val CACHE_TTL_MS = 5_000L
+
+        // Di processo, non d'istanza: ViewModel e fonti (nel worker) creano repository distinti.
+        private val METADATA_LOCK = Any()
 
         // Massimo di capitoli con le pagine estratte tenuti in cache (LRU): copre il
         // capitolo in lettura e le riletture recenti senza duplicare l'intera libreria.

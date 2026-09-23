@@ -3,7 +3,6 @@ package com.lorenzo.mangadownloader.app
 import android.app.Application
 import android.content.Context
 import android.net.Uri
-import androidx.biometric.BiometricManager
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -100,8 +99,6 @@ import com.lorenzo.mangadownloader.data.update.AppUpdateInstaller
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import com.lorenzo.mangadownloader.domain.FilteredSearchResults
 import com.lorenzo.mangadownloader.domain.filterAdultSearchResults
-import com.lorenzo.mangadownloader.domain.generateParentalPinSalt
-import com.lorenzo.mangadownloader.domain.hashParentalPin
 import com.lorenzo.mangadownloader.domain.home.DEFAULT_HOME_BLOCK_ORDER
 import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
 import com.lorenzo.mangadownloader.domain.home.HomeBlock
@@ -111,8 +108,6 @@ import com.lorenzo.mangadownloader.domain.home.normalizedRecommendationTitle
 import com.lorenzo.mangadownloader.domain.home.reconcileHomeBlocks
 import com.lorenzo.mangadownloader.domain.home.selectRecommendationSeeds
 import com.lorenzo.mangadownloader.domain.isAdultContent
-import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
-import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.ResumeTarget
@@ -127,7 +122,6 @@ import com.lorenzo.mangadownloader.domain.reading.seriesKeyOf
 import com.lorenzo.mangadownloader.domain.reading.withReaderProgressApplied
 import com.lorenzo.mangadownloader.domain.reading.withReadingActivity
 import com.lorenzo.mangadownloader.domain.reading.withReadingMemoryApplied
-import com.lorenzo.mangadownloader.domain.sanitizeParentalPin
 import com.lorenzo.mangadownloader.domain.searchSourcesIncrementally
 import com.lorenzo.mangadownloader.domain.series.FavoriteReadingState
 import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
@@ -172,6 +166,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -373,72 +369,6 @@ data class AppSettings(
     val disabledSourceIds: Set<String> = emptySet(),
 )
 
-enum class ParentalAction {
-    OPEN_SEARCH,
-    CHANGE_PIN,
-    DISABLE_PARENTAL_CONTROL,
-    ENABLE_BIOMETRIC,
-    DISABLE_BIOMETRIC,
-}
-
-enum class ParentalPinSetupMode {
-    CREATE,
-    CHANGE,
-}
-
-data class ParentalPinSetupState(
-    val mode: ParentalPinSetupMode,
-    val pin: String = "",
-    val confirmPin: String = "",
-    val errorMessage: String? = null,
-    val completionAction: ParentalAction? = null,
-)
-
-data class ParentalPinEntryState(
-    val action: ParentalAction,
-    val pin: String = "",
-    val errorMessage: String? = null,
-)
-
-data class ParentalBiometricPromptRequest(
-    val requestId: Long,
-    val action: ParentalAction,
-    val title: String,
-    val subtitle: String,
-)
-
-enum class TutorialPhase {
-    Idle,
-    Welcome,
-    Preloading,
-    AwaitingSearchBar,
-    AwaitingResultTap,
-    AwaitingFavorite,
-    AwaitingDownload,
-    AwaitingFavoritesTab,
-    AwaitingLibraryTab,
-    AwaitingSeriesTap,
-    AwaitingChapterTap,
-    InReader,
-    AwaitingOverflow,
-    Closing,
-    FallbackShowcase,
-    FallbackClosing,
-}
-
-data class TutorialSample(
-    val sourceId: String,
-    val mangaUrl: String,
-    val title: String,
-    val coverUrl: String?,
-    val chapterUrl: String,
-)
-
-data class TutorialUiState(
-    val phase: TutorialPhase = TutorialPhase.Idle,
-    val sample: TutorialSample? = null,
-)
-
 data class MangaUiState(
     val currentTab: AppTab = AppTab.HOME,
     val pendingSearchAccessReturnTab: AppTab? = null,
@@ -587,7 +517,6 @@ class MangaViewModel internal constructor(
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
     private val favoriteShelvesStore = FavoriteShelvesStore(prefs)
-    private val parentalLockoutStore = ParentalLockoutStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteShelvesStore = favoriteShelvesStore,
@@ -660,7 +589,7 @@ class MangaViewModel internal constructor(
             } else {
                 initialSettings
             },
-            isBiometricAvailable = isBiometricAvailable(application),
+            isBiometricAvailable = ParentalControlController.isBiometricAvailable(application),
             tutorialState = if (initialSettings.shouldStartTutorial(initialFavorites)) {
                 TutorialUiState(phase = TutorialPhase.Welcome)
             } else {
@@ -669,6 +598,25 @@ class MangaViewModel internal constructor(
         ),
     )
     val state: StateFlow<MangaUiState> = _state.asStateFlow()
+
+    /** PIN, biometria e accesso protetto a Cerca: vedi [ParentalControlController]. */
+    val parental = ParentalControlController(
+        state = _state,
+        lockoutStore = ParentalLockoutStore(prefs),
+        updateSettings = ::updateSettings,
+    )
+
+    /** Percorso guidato del primo avvio: vedi [TutorialController]. */
+    val tutorial = TutorialController(
+        state = _state,
+        scope = viewModelScope,
+        context = application,
+        sourceRegistry = sourceRegistry,
+        favoritesStore = favoritesStore,
+        libraryRepository = libraryRepository,
+        updateSettings = ::updateSettings,
+        refreshLibrary = ::refreshLibrary,
+    )
 
     private var searchJob: Job? = null
 
@@ -688,6 +636,7 @@ class MangaViewModel internal constructor(
     private var readerJob: Job? = null
     private var streamingCacheJob: Job? = null
     private var streamingPrefetchJob: Job? = null
+    private val readStateMutex = Mutex()
 
     /**
      * Capitolo da aprire non appena i dettagli della serie saranno caricati: è così che la
@@ -707,7 +656,6 @@ class MangaViewModel internal constructor(
     private var smartCleanupJob: Job? = null
     private var aniListMatchJob: Job? = null
     private var aniListFavoritesSyncJob: Job? = null
-    private var nextBiometricRequestId = 1L
 
     init {
         if (initialSettings.shouldAutoCompleteTutorial(initialFavorites)) {
@@ -786,7 +734,7 @@ class MangaViewModel internal constructor(
             return
         }
         if (tab == AppTab.SEARCH && _state.value.settings.parentalControlEnabled) {
-            requestSearchAccess()
+            parental.requestSearchAccess()
             return
         }
         updateState { copy(currentTab = tab) }
@@ -1224,274 +1172,6 @@ class MangaViewModel internal constructor(
         selectManga(event.toSearchResult())
     }
 
-    fun setParentalControlEnabled(enabled: Boolean) {
-        val currentSettings = _state.value.settings
-        if (enabled) {
-            if (currentSettings.parentalControlEnabled) return
-            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE)
-            return
-        }
-
-        if (!currentSettings.parentalControlEnabled) return
-        if (!currentSettings.parentalPinConfigured) {
-            disableParentalControl(clearCredentials = true)
-        } else {
-            requestParentalAuthentication(ParentalAction.DISABLE_PARENTAL_CONTROL)
-        }
-    }
-
-    fun requestChangeParentalPin() {
-        val settings = _state.value.settings
-        if (!settings.parentalControlEnabled) return
-        if (!settings.parentalPinConfigured) {
-            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE)
-        } else {
-            requestParentalAuthentication(ParentalAction.CHANGE_PIN)
-        }
-    }
-
-    fun setParentalBiometricEnabled(enabled: Boolean) {
-        val settings = _state.value.settings
-        if (!settings.parentalControlEnabled || !settings.parentalPinConfigured) return
-        val action = if (enabled) {
-            ParentalAction.ENABLE_BIOMETRIC
-        } else {
-            ParentalAction.DISABLE_BIOMETRIC
-        }
-        requestParentalAuthentication(action)
-    }
-
-    fun onParentalPinSetupChange(pin: String? = null, confirmPin: String? = null) {
-        val setupState = _state.value.parentalPinSetupState ?: return
-        updateState {
-            copy(
-                parentalPinSetupState = setupState.copy(
-                    pin = pin?.let(::sanitizeParentalPin) ?: setupState.pin,
-                    confirmPin = confirmPin?.let(::sanitizeParentalPin) ?: setupState.confirmPin,
-                    errorMessage = null,
-                ),
-            )
-        }
-    }
-
-    fun dismissParentalPinSetup() {
-        val setupState = _state.value.parentalPinSetupState ?: return
-        if (setupState.mode == ParentalPinSetupMode.CREATE && !_state.value.settings.parentalPinConfigured) {
-            disableParentalControl(clearCredentials = true)
-            return
-        }
-        updateState {
-            copy(
-                parentalPinSetupState = null,
-                isParentalAuthInProgress = false,
-                pendingSearchAccessReturnTab = if (setupState.completionAction == ParentalAction.OPEN_SEARCH) {
-                    null
-                } else {
-                    pendingSearchAccessReturnTab
-                },
-            )
-        }
-    }
-
-    fun confirmParentalPinSetup() {
-        val setupState = _state.value.parentalPinSetupState ?: return
-        when {
-            setupState.pin.length != PARENTAL_PIN_LENGTH -> {
-                updateState {
-                    copy(
-                        parentalPinSetupState = setupState.copy(
-                            errorMessage = "Il PIN deve avere 6 cifre",
-                        ),
-                    )
-                }
-            }
-            setupState.confirmPin.length != PARENTAL_PIN_LENGTH -> {
-                updateState {
-                    copy(
-                        parentalPinSetupState = setupState.copy(
-                            errorMessage = "Conferma il PIN di 6 cifre",
-                        ),
-                    )
-                }
-            }
-            setupState.pin != setupState.confirmPin -> {
-                updateState {
-                    copy(
-                        parentalPinSetupState = setupState.copy(
-                            errorMessage = "I due PIN non coincidono",
-                        ),
-                    )
-                }
-            }
-            else -> {
-                val salt = generateParentalPinSalt()
-                val hash = hashParentalPin(setupState.pin, salt)
-                updateSettings {
-                    it.copy(
-                        parentalControlEnabled = true,
-                        parentalPinConfigured = true,
-                        // Spento finché non lo accende il genitore: il telefono accetta ogni
-                        // impronta registrata, anche quella del figlio.
-                        parentalBiometricEnabled = false,
-                        parentalPinSalt = salt,
-                        parentalPinHash = hash,
-                    )
-                }
-                updateState {
-                    copy(
-                        currentTab = if (
-                            setupState.completionAction == null &&
-                            (currentTab == AppTab.SEARCH || currentTab == AppTab.HOME)
-                        ) {
-                            // Attivando il parental si atterra su Libreria: Home e Cerca
-                            // mostrano/portano a contenuti online che il parental limita.
-                            AppTab.LIBRARY
-                        } else {
-                            currentTab
-                        },
-                        parentalPinSetupState = null,
-                        isParentalAuthInProgress = false,
-                    )
-                }
-                setupState.completionAction?.let(::completeParentalAction)
-            }
-        }
-    }
-
-    fun onParentalPinEntryChange(pin: String) {
-        val pinEntryState = _state.value.parentalPinEntryState ?: return
-        updateState {
-            copy(
-                parentalPinEntryState = pinEntryState.copy(
-                    pin = sanitizeParentalPin(pin),
-                    errorMessage = null,
-                ),
-            )
-        }
-    }
-
-    fun dismissParentalPinEntry() {
-        val pinEntryState = _state.value.parentalPinEntryState ?: return
-        updateState {
-            copy(
-                parentalPinEntryState = null,
-                isParentalAuthInProgress = false,
-                pendingSearchAccessReturnTab = if (pinEntryState.action == ParentalAction.OPEN_SEARCH) {
-                    null
-                } else {
-                    pendingSearchAccessReturnTab
-                },
-            )
-        }
-    }
-
-    fun confirmParentalPinEntry() {
-        val pinEntryState = _state.value.parentalPinEntryState ?: return
-        val settings = _state.value.settings
-        if (pinEntryState.pin.length != PARENTAL_PIN_LENGTH) {
-            updateState {
-                copy(
-                    parentalPinEntryState = pinEntryState.copy(
-                        errorMessage = "Inserisci un PIN di 6 cifre",
-                    ),
-                )
-            }
-            return
-        }
-
-        val salt = settings.parentalPinSalt
-        val expectedHash = settings.parentalPinHash
-        if (salt.isNullOrBlank() || expectedHash.isNullOrBlank()) {
-            updateState {
-                copy(
-                    parentalPinEntryState = null,
-                    isParentalAuthInProgress = false,
-                    errorMessage = "Configura di nuovo il parental control",
-                )
-            }
-            disableParentalControl(clearCredentials = true)
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val lockedUntil = parentalLockoutStore.lockedUntilMillis()
-        if (lockedUntil > now) {
-            updateState {
-                copy(
-                    parentalPinEntryState = pinEntryState.copy(
-                        pin = "",
-                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(lockedUntil - now)}",
-                    ),
-                )
-            }
-            return
-        }
-
-        val providedHash = hashParentalPin(pinEntryState.pin, salt)
-        if (providedHash != expectedHash) {
-            val attempts = parentalLockoutStore.failedAttempts() + 1
-            val lockout = parentalPinLockoutMillis(attempts)
-            parentalLockoutStore.recordFailure(lockedUntilMillis = now + lockout)
-            updateState {
-                copy(
-                    parentalPinEntryState = pinEntryState.copy(
-                        pin = "",
-                        errorMessage = if (lockout > 0) {
-                            "PIN non corretto. Riprova tra ${parentalLockoutLabel(lockout)}"
-                        } else {
-                            "PIN non corretto"
-                        },
-                    ),
-                )
-            }
-            return
-        }
-        parentalLockoutStore.reset()
-
-        updateState {
-            copy(
-                parentalPinEntryState = null,
-                isParentalAuthInProgress = false,
-            )
-        }
-        completeParentalAction(pinEntryState.action)
-    }
-
-    fun onBiometricAuthenticationSucceeded(requestId: Long) {
-        val request = _state.value.biometricPromptRequest ?: return
-        if (request.requestId != requestId) return
-        updateState {
-            copy(
-                biometricPromptRequest = null,
-                isParentalAuthInProgress = false,
-            )
-        }
-        completeParentalAction(request.action)
-    }
-
-    fun usePinInsteadOfBiometric(requestId: Long) {
-        val request = _state.value.biometricPromptRequest ?: return
-        if (request.requestId != requestId) return
-        showPinEntryForAction(request.action)
-    }
-
-    fun cancelBiometricAuthentication(requestId: Long, message: String? = null) {
-        val request = _state.value.biometricPromptRequest ?: return
-        if (request.requestId != requestId) return
-        updateState {
-            copy(
-                biometricPromptRequest = null,
-                isParentalAuthInProgress = false,
-                pendingSearchAccessReturnTab = if (request.action == ParentalAction.OPEN_SEARCH) {
-                    null
-                } else {
-                    pendingSearchAccessReturnTab
-                },
-                errorMessage = message ?: errorMessage,
-            )
-        }
-    }
-
     fun setAutoDownloadEnabled(enabled: Boolean) {
         updateSettings { it.copy(autoDownloadEnabled = enabled) }
     }
@@ -1638,137 +1318,6 @@ class MangaViewModel internal constructor(
 
     fun setUseDynamicColor(enabled: Boolean) {
         updateSettings { it.copy(useDynamicColor = enabled) }
-    }
-
-    fun markTutorialCompleted() {
-        updateSettings { it.copy(tutorialCompleted = true) }
-        updateState { copy(tutorialState = TutorialUiState(phase = TutorialPhase.Idle)) }
-    }
-
-    fun onTutorialWelcomeStart() {
-        if (_state.value.tutorialState.phase != TutorialPhase.Welcome) return
-        updateState {
-            copy(tutorialState = tutorialState.copy(phase = TutorialPhase.Preloading))
-        }
-        runTutorialPreload()
-    }
-
-    fun onTutorialWelcomeSkip() {
-        markTutorialCompleted()
-    }
-
-    /** Chiude il percorso di fallback del tutorial, segnandolo come completato (permanente). */
-    fun onTutorialFallbackCompleted() {
-        markTutorialCompleted()
-    }
-
-    fun onTutorialFinish(keepSample: Boolean) {
-        val sample = _state.value.tutorialState.sample
-        if (!keepSample && sample != null) {
-            cleanupTutorialSample(sample)
-        }
-        markTutorialCompleted()
-    }
-
-    fun advanceTutorialPhase(from: TutorialPhase, to: TutorialPhase) {
-        val current = _state.value.tutorialState.phase
-        if (current != from) return
-        updateState {
-            copy(tutorialState = tutorialState.copy(phase = to))
-        }
-    }
-
-    private fun runTutorialPreload() {
-        viewModelScope.launch {
-            try {
-                // Fonte deterministica: `searchSourceId` sopravvive soltanto per migrare i dati
-                // delle versioni che permettevano la ricerca su una singola fonte.
-                val sourceId = MangaSourceIds.DEFAULT
-                val source = sourceRegistry.requireById(sourceId)
-                val results = withContext(Dispatchers.IO) { source.searchManga("One Piece") }
-                val match = results.firstOrNull { it.title.contains("One Piece", ignoreCase = true) }
-                    ?: results.firstOrNull()
-                    ?: throw NoSuchElementException("Nessun risultato")
-                val details = withContext(Dispatchers.IO) {
-                    source.fetchMangaDetails(match.mangaUrl)
-                }
-                val chapter = details.chapters.firstOrNull()
-                    ?: throw NoSuchElementException("Nessun capitolo")
-                val sample = TutorialSample(
-                    sourceId = match.sourceId,
-                    mangaUrl = match.mangaUrl,
-                    title = match.title,
-                    coverUrl = match.coverUrl,
-                    chapterUrl = chapter.url,
-                )
-                DownloadWorker.enqueue(
-                    context = getApplication(),
-                    firstUrl = chapter.url,
-                    lastUrl = chapter.url,
-                    sourceId = match.sourceId,
-                    seriesTitle = match.title,
-                    mangaUrl = match.mangaUrl,
-                    coverUrl = match.coverUrl,
-                )
-                updateState {
-                    copy(
-                        query = "One Piece",
-                        results = results,
-                        isSearching = false,
-                        tutorialState = tutorialState.copy(
-                            phase = TutorialPhase.AwaitingSearchBar,
-                            sample = sample,
-                        ),
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                updateState {
-                    copy(
-                        tutorialState = tutorialState.copy(
-                            phase = TutorialPhase.FallbackShowcase,
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    private fun cleanupTutorialSample(sample: TutorialSample) {
-        val targetKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
-        val current = _state.value.favorites.toMutableList()
-        val removed = current.removeAll {
-            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
-        }
-        if (removed) {
-            favoritesStore.persist(current)
-            updateState {
-                copy(
-                    favorites = current,
-                    favoriteSeriesKeys = favoriteSeriesKeys(current),
-                )
-            }
-        }
-        viewModelScope.launch {
-            try {
-                val snapshot = withContext(Dispatchers.IO) {
-                    libraryRepository.scanLibrary(forceRefresh = true)
-                }
-                val series = snapshot.firstOrNull {
-                    MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl ?: "") == targetKey ||
-                        it.title.equals(sample.title, ignoreCase = true)
-                } ?: return@launch
-                withContext(Dispatchers.IO) {
-                    libraryRepository.deleteSeries(series)
-                }
-                refreshLibrary(forceRefresh = true)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Silent — cleanup is best-effort.
-            }
-        }
     }
 
     fun toggleFavoriteFromResult(result: MangaSearchResult) {
@@ -2826,7 +2375,7 @@ class MangaViewModel internal constructor(
             val downloaded = chapter.downloadedChapter
             val streaming = chapter.streamingChapter
             if (downloaded != null) {
-                libraryRepository.markChapterRead(downloaded)
+                writeReadState { libraryRepository.markChapterRead(downloaded) }
             } else if (streaming != null) {
                 streamingReadId = libraryRepository.markStreamingChapterRead(
                     seriesKey = currentSeriesKey(
@@ -2999,14 +2548,15 @@ class MangaViewModel internal constructor(
      * arrivando in fondo al capitolo nel reader.
      */
     fun setChapterRead(chapter: DownloadedChapter, read: Boolean) {
-        if (read) {
-            libraryRepository.markChapterRead(chapter)
-        } else {
-            libraryRepository.markChapterUnread(chapter)
-        }
         // Prima del refresh: il seed dello snapshot deve vedere la memoria già aggiornata.
         recordChaptersMarkedInMemory(listOf(chapter), read)
-        refreshLibraryAfterReadChange()
+        writeReadState(refreshLibrary = true) {
+            if (read) {
+                libraryRepository.markChapterRead(chapter)
+            } else {
+                libraryRepository.markChapterUnread(chapter)
+            }
+        }
     }
 
     /** "Segna come letti fino a qui": tutti i capitoli della serie fino a [chapter] incluso. */
@@ -3017,17 +2567,34 @@ class MangaViewModel internal constructor(
             return
         }
         val toMark = series.chapters.take(index + 1).filterNot { it.isRead }
-        libraryRepository.markChaptersRead(toMark)
         recordChaptersMarkedInMemory(toMark, read = true)
-        refreshLibraryAfterReadChange()
+        writeReadState(refreshLibrary = true) { libraryRepository.markChaptersRead(toMark) }
     }
 
     /** Voce del menu serie in libreria: tutti i capitoli scaricati segnati come letti. */
     fun markAllChaptersRead(series: DownloadedSeries) {
         val toMark = series.chapters.filterNot { it.isRead }
-        libraryRepository.markChaptersRead(toMark)
         recordChaptersMarkedInMemory(toMark, read = true)
-        refreshLibraryAfterReadChange()
+        writeReadState(refreshLibrary = true) { libraryRepository.markChaptersRead(toMark) }
+    }
+
+    /**
+     * Scrive su disco un cambio di stato "letto" fuori dal main thread. Le scritture passano
+     * in fila da [readStateMutex] (FIFO: due tap rapidi arrivano su disco nell'ordine giusto)
+     * e girano in un job proprio, non in [libraryJob]: il refresh successivo cancella il
+     * refresh precedente, e con esso sparirebbe anche una scrittura non ancora partita.
+     */
+    private fun writeReadState(refreshLibrary: Boolean = false, write: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                readStateMutex.withLock { write() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort: lo stato in memoria è già aggiornato, il refresh riallinea la UI.
+            }
+            if (refreshLibrary) refreshLibraryAfterReadChange()
+        }
     }
 
     /** Riallinea libreria/serie aperta dopo un cambio manuale dello stato di lettura. */
@@ -3685,131 +3252,6 @@ class MangaViewModel internal constructor(
 
     fun dismissDiscoveryInfo() {
         updateState { copy(discovery = discovery.copy(info = null)) }
-    }
-
-    private fun requestSearchAccess() {
-        val settings = _state.value.settings
-        val originTab = _state.value.currentTab
-        if (!settings.parentalControlEnabled) {
-            updateState { copy(currentTab = AppTab.SEARCH) }
-            return
-        }
-        updateState { copy(pendingSearchAccessReturnTab = originTab) }
-        if (!settings.parentalPinConfigured) {
-            startParentalPinSetup(
-                mode = ParentalPinSetupMode.CREATE,
-                completionAction = ParentalAction.OPEN_SEARCH,
-            )
-            return
-        }
-        requestParentalAuthentication(ParentalAction.OPEN_SEARCH)
-    }
-
-    private fun requestParentalAuthentication(action: ParentalAction) {
-        if (_state.value.isParentalAuthInProgress) return
-        val settings = _state.value.settings
-        if (!settings.parentalPinConfigured) {
-            startParentalPinSetup(mode = ParentalPinSetupMode.CREATE, completionAction = action)
-            return
-        }
-        if (settings.parentalBiometricEnabled && _state.value.isBiometricAvailable) {
-            val requestId = nextBiometricRequestId++
-            updateState {
-                copy(
-                    isParentalAuthInProgress = true,
-                    parentalPinEntryState = null,
-                    biometricPromptRequest = ParentalBiometricPromptRequest(
-                        requestId = requestId,
-                        action = action,
-                        title = "Parental control",
-                        subtitle = when (action) {
-                            ParentalAction.OPEN_SEARCH -> "Autenticati per aprire Cerca"
-                            ParentalAction.CHANGE_PIN -> "Autenticati per cambiare il PIN"
-                            ParentalAction.DISABLE_PARENTAL_CONTROL ->
-                                "Autenticati per disattivare il parental control"
-                            ParentalAction.ENABLE_BIOMETRIC,
-                            ParentalAction.DISABLE_BIOMETRIC ->
-                                "Autenticati per aggiornare la biometria"
-                        },
-                    ),
-                )
-            }
-        } else {
-            showPinEntryForAction(action)
-        }
-    }
-
-    private fun startParentalPinSetup(
-        mode: ParentalPinSetupMode,
-        completionAction: ParentalAction? = null,
-    ) {
-        updateState {
-            copy(
-                isParentalAuthInProgress = true,
-                parentalPinEntryState = null,
-                biometricPromptRequest = null,
-                parentalPinSetupState = ParentalPinSetupState(
-                    mode = mode,
-                    completionAction = completionAction,
-                ),
-            )
-        }
-    }
-
-    private fun showPinEntryForAction(action: ParentalAction) {
-        updateState {
-            copy(
-                biometricPromptRequest = null,
-                isParentalAuthInProgress = true,
-                parentalPinEntryState = ParentalPinEntryState(action = action),
-            )
-        }
-    }
-
-    private fun completeParentalAction(action: ParentalAction) {
-        when (action) {
-            ParentalAction.OPEN_SEARCH -> updateState {
-                copy(
-                    currentTab = AppTab.SEARCH,
-                    pendingSearchAccessReturnTab = null,
-                )
-            }
-            ParentalAction.CHANGE_PIN -> startParentalPinSetup(mode = ParentalPinSetupMode.CHANGE)
-            ParentalAction.DISABLE_PARENTAL_CONTROL -> disableParentalControl(clearCredentials = true)
-            ParentalAction.ENABLE_BIOMETRIC -> updateSettings { it.copy(parentalBiometricEnabled = true) }
-            ParentalAction.DISABLE_BIOMETRIC -> updateSettings { it.copy(parentalBiometricEnabled = false) }
-        }
-    }
-
-    private fun disableParentalControl(clearCredentials: Boolean) {
-        updateSettings {
-            if (clearCredentials) {
-                it.copy(
-                    parentalControlEnabled = false,
-                    parentalPinConfigured = false,
-                    parentalBiometricEnabled = false,
-                    parentalPinSalt = null,
-                    parentalPinHash = null,
-                )
-            } else {
-                it.copy(parentalControlEnabled = false, parentalBiometricEnabled = false)
-            }
-        }
-        updateState {
-            copy(
-                currentTab = if (currentTab == AppTab.SEARCH) AppTab.LIBRARY else currentTab,
-                pendingSearchAccessReturnTab = null,
-                parentalPinSetupState = null,
-                parentalPinEntryState = null,
-                biometricPromptRequest = null,
-                isParentalAuthInProgress = false,
-            )
-        }
-    }
-
-    private fun isBiometricAvailable(context: Context): Boolean {
-        return BiometricManager.from(context)
-            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
     private fun MangaUiState.withLibrarySnapshot(snapshot: List<DownloadedSeries>): MangaUiState {
@@ -4750,22 +4192,6 @@ class MangaViewModel internal constructor(
         }
     }
 
-    /**
-     * Rilancia il tutorial dall'inizio (usato da "Rivedi il tutorial" in Impostazioni). Riporta
-     * anche su HOME: la card di benvenuto vive nella Home, quindi senza cambiare tab l'azione
-     * sarebbe un no-op dalle altre schermate.
-     */
-    fun restartTutorial() {
-        updateSettings { it.copy(tutorialCompleted = false, showHomeTab = true) }
-        updateState {
-            copy(
-                showSettings = false,
-                currentTab = AppTab.HOME,
-                tutorialState = TutorialUiState(phase = TutorialPhase.Welcome),
-            )
-        }
-    }
-
     private fun updateSettings(transform: (AppSettings) -> AppSettings) {
         val current = _state.value.settings
         val updated = transform(current)
@@ -4805,7 +4231,6 @@ class MangaViewModel internal constructor(
         private const val KEY_READING_MODE_SERIES_PREFIX = "reading_mode_series::"
         private const val KEY_SPREAD_PAGE_MODE_SERIES_PREFIX = "spread_page_mode_series::"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at_ms"
-        private const val PARENTAL_PIN_LENGTH = 6
         private const val DEBOUNCE_MS = 350L
         private const val UPDATE_CHECK_COOLDOWN_MS = 24L * 60L * 60L * 1000L
         private const val READ_NOW_CHAPTER_COUNT = 3

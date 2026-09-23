@@ -21,6 +21,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lorenzo.mangadownloader.data.model.DownloadResult
+import com.lorenzo.mangadownloader.data.model.readingUnitPlural
+import com.lorenzo.mangadownloader.data.model.readingUnitSingular
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong

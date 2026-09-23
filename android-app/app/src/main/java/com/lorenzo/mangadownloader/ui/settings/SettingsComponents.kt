@@ -637,8 +637,7 @@ fun AniListAccountContent(
             SettingsDivider()
             SettingRow(
                 title = "Sincronizza preferiti",
-                description = "Unisce i preferiti dell'app e quelli di AniList. " +
-                    "Non rimuove mai niente da nessuna delle due parti.",
+                description = "Unisce i preferiti dell'app e di AniList, senza rimuovere nulla",
                 checked = favoritesSyncEnabled,
                 onCheckedChange = onToggleFavoritesSync,
             )
@@ -655,7 +654,7 @@ fun FavoriteNotificationsContent(
     Column {
         SettingRow(
             title = "Notifiche preferiti",
-            description = "Ricevi una notifica quando esce un nuovo capitolo dei tuoi preferiti",
+            description = "Avvisa quando esce un nuovo capitolo",
             checked = enabled,
             onCheckedChange = onToggle,
         )
@@ -693,19 +692,16 @@ fun ParentalControlContent(
             description = if (parentalControlEnabled) {
                 "Sempre attivo con il controllo genitori"
             } else {
-                "Toglie da ricerca, Scopri e Consigliati i titoli che AniList segna come " +
-                    "per adulti o ecchi. È un filtro, non una garanzia: un titolo che " +
-                    "AniList non conosce può passare."
+                "Filtra i titoli per adulti o ecchi secondo AniList"
             },
             checked = hideAdultContent || parentalControlEnabled,
             onCheckedChange = onToggleHideAdultContent,
             enabled = !parentalControlEnabled,
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        SettingsDivider()
         SettingRow(
             title = "Controllo genitori",
-            description = "Chiede un PIN per aprire la ricerca, nasconde Scopri e Consigliati " +
-                "e i manga per adulti. Senza PIN non si disattiva.",
+            description = "Blocca ricerca e contenuti per adulti con un PIN",
             checked = parentalControlEnabled,
             onCheckedChange = onToggleParental,
         )
@@ -715,7 +711,7 @@ fun ParentalControlContent(
                 Text("Cambia PIN")
             }
             if (isBiometricAvailable) {
-                Spacer(modifier = Modifier.height(8.dp))
+                SettingsDivider()
                 // Il telefono accetta qualsiasi impronta registrata: su quello di un ragazzo c'è
                 // quasi sempre anche la sua, e lo sblocco biometrico lo lascerebbe entrare.
                 SettingRow(

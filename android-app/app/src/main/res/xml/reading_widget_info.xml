@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget "Continua a leggere": una striscia 4×1. Si aggiorna quando l'app va in background;
-     il giro periodico (30 minuti, il minimo) è solo una rete di sicurezza. -->
+<!-- Widget "Continua a leggere": una striscia 4×1, come la card "Riprendi" compatta della Home.
+     Allungato a 2 righe diventa la card completa (sopratitolo e barra di avanzamento).
+     Si aggiorna quando l'app va in background; il giro periodico (30 minuti, il minimo) è solo
+     una rete di sicurezza. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/reading_widget_description"
     android:initialLayout="@layout/glance_default_loading_layout"
@@ -9,8 +11,8 @@
     android:minHeight="40dp"
     android:minResizeWidth="180dp"
     android:minResizeHeight="40dp"
-    android:maxResizeHeight="110dp"
-    android:resizeMode="horizontal"
+    android:maxResizeHeight="140dp"
+    android:resizeMode="horizontal|vertical"
     android:targetCellWidth="4"
     android:targetCellHeight="1"
     android:updatePeriodMillis="1800000"

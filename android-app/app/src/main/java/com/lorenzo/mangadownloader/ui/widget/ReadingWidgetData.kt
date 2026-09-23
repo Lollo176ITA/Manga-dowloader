@@ -14,10 +14,15 @@ fun readingWidgetResume(
     memory: Map<String, ReadChapterMemory>,
 ): ResumeReadingItem? = computeHomeResume(library, memory)
 
-/** "Capitolo 12 · pagina 8 di 40": la seconda riga del widget. Pura. */
-fun ResumeReadingItem.widgetSubtitle(): String {
-    val page = pageIndex ?: return chapterLabel
-    val total = pageCount?.takeIf { it > 0 }
-    val progress = if (total != null) "pagina ${page + 1} di $total" else "pagina ${page + 1}"
-    return "$chapterLabel · $progress"
+/** "pagina 8 di 40", come nella card "Riprendi" della Home; `null` senza il totale. Pura. */
+fun ResumeReadingItem.widgetPageLabel(): String? {
+    val page = pageIndex ?: return null
+    val total = pageCount?.takeIf { it > 0 } ?: return null
+    return "pagina ${page + 1} di $total"
+}
+
+/** Avanzamento nel capitolo (0..1) per la barra della card completa. Pura. */
+fun ResumeReadingItem.readProgress(): Float {
+    val total = pageCount?.takeIf { it > 0 } ?: return 0f
+    return (((pageIndex ?: 0) + 1).toFloat() / total).coerceIn(0f, 1f)
 }

@@ -9,7 +9,7 @@
 ### Aggiunto
 
 - Scaffali per i preferiti: puoi creare scaffali con il nome che vuoi ("Da rileggere", "Per le vacanze"…) e mettere ogni preferito su uno o più scaffali dal suo menu. Gli scaffali compaiono come filtro sotto gli stati di lettura, e si rinominano o eliminano da "Gestisci scaffali". Sono inclusi nel backup.
-- Widget "Continua a leggere" per la schermata Home del telefono: una striscia 4×1 con l'ultima lettura in corso e il punto in cui ti eri fermato; un tocco la riapre. Si aggiunge anche da Impostazioni → App.
+- Widget "Continua a leggere" per la schermata Home del telefono: una striscia 4×1 identica alla card "Riprendi" della Home, con gli stessi colori (anche tema scuro e Material You), la copertina e il punto in cui ti eri fermato; un tocco riapre la lettura. Allungato a due righe mostra anche la barra di avanzamento. Si aggiunge da Impostazioni → App.
 - Gruppo "Senza scan" in fondo ai Preferiti: i preferiti del tuo account AniList che nessuna fonte attiva ha ora si vedono, invece di sparire senza spiegazioni. Toccandone uno l'app lo cerca di nuovo su tutte le fonti.
 - Nuova impostazione "Nascondi manga per adulti": toglie da ricerca, Scopri e Consigliati i titoli che AniList segna come per adulti o ecchi. Con il controllo genitori è sempre attiva.
 

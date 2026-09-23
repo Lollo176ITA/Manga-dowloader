@@ -19,7 +19,6 @@ import com.lorenzo.mangadownloader.showAutoDismissSnackbar
 import kotlinx.coroutines.launch
 
 internal data class DownloadWorkUiState(
-    val manager: WorkManager,
     val statuses: Map<String, SeriesDownloadStatus>,
 )
 
@@ -33,14 +32,22 @@ internal fun rememberDownloadWorkUiState(
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
     val workManager = remember(appContext) { WorkManager.getInstance(appContext) }
-    val workInfos by workManager.getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE_WORK_NAME)
+    val workInfos by remember(workManager) { DownloadWorker.observeAll(workManager) }
         .observeAsState(emptyList())
     val activeWorkInfos = remember(workInfos) { workInfos.filter(WorkInfo::isActiveDownload) }
-    val runningOrQueuedWork = activeWorkInfos.firstOrNull { it.state == WorkInfo.State.RUNNING }
-        ?: activeWorkInfos.firstOrNull()
-    val latestDone = runningOrQueuedWork?.progress
-        ?.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1)
-        ?: -1
+    // Capitoli completati per ogni download attivo: cambia quando uno qualsiasi avanza. Con
+    // le catene per serie possono esserci più worker RUNNING (chi aspetta il turno lo è).
+    val chapterProgressKey = remember(activeWorkInfos) {
+        activeWorkInfos
+            .mapNotNull { info ->
+                info.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1)
+                    .takeIf { it > 0 }
+                    ?.let { "${info.id}:$it" }
+            }
+            .sorted()
+            .joinToString("|")
+            .ifEmpty { null }
+    }
     val terminalWorkKey = remember(workInfos) {
         workInfos
             .filter(WorkInfo::isTerminalDownload)
@@ -53,16 +60,10 @@ internal fun rememberDownloadWorkUiState(
     var lastForcedTerminalWorkKey by remember { mutableStateOf("") }
 
     LaunchedEffect(
-        runningOrQueuedWork?.id,
-        runningOrQueuedWork?.state,
-        latestDone,
+        chapterProgressKey,
         terminalWorkKey,
         activeWorkInfos.size,
     ) {
-        val chapterProgressKey = runningOrQueuedWork
-            ?.id
-            ?.takeIf { latestDone > 0 }
-            ?.let { "$it:$latestDone" }
         val chapterCompleted = chapterProgressKey != null &&
             chapterProgressKey != lastForcedChapterProgressKey
         val workerTerminated = terminalWorkKey.isNotBlank() &&
@@ -122,7 +123,7 @@ internal fun rememberDownloadWorkUiState(
         }
     }
 
-    return DownloadWorkUiState(workManager, statuses)
+    return DownloadWorkUiState(statuses)
 }
 
 private fun WorkInfo.isActiveDownload(): Boolean =

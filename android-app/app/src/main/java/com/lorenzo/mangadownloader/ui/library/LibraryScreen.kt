@@ -53,6 +53,7 @@ fun LibraryScreen(
     onQueryChange: (String) -> Unit,
     onBrowse: () -> Unit,
     onStopDownloads: () -> Unit,
+    onStopSeriesDownload: (SeriesDownloadStatus) -> Unit,
     onResume: (DownloadedChapter) -> Unit,
     onSelectSort: (LibrarySort) -> Unit,
     onMarkAllRead: (DownloadedSeries) -> Unit,
@@ -68,10 +69,12 @@ fun LibraryScreen(
     val hasActiveDownloads = remember(downloadStatuses) {
         downloadStatuses.values.any(::isActiveDownload)
     }
-    // Lo stop ferma TUTTI i download (un'unica coda WorkManager), non solo quello toccato:
-    // una conferma evita la cancellazione a un tap cieco di una coda magari lunga.
+    // Il FAB ferma TUTTI i download, lo stop della card solo quella serie. Entrambi con
+    // conferma: il pulsante della card è piccolo e un tap cieco interromperebbe un download
+    // magari lungo (i capitoli già salvati restano, ma la coda va rifatta a mano).
     var showStopConfirm by remember { mutableStateOf(false) }
     val requestStopDownloads = { showStopConfirm = true }
+    var seriesToStop by remember { mutableStateOf<LibraryRowItem?>(null) }
     val activeSeriesCount = remember(downloadStatuses) {
         downloadStatuses.values.count(::isActiveDownload)
     }
@@ -153,7 +156,7 @@ fun LibraryScreen(
                                     onClick = { row.series?.let(onOpenSeries) },
                                     onDelete = { row.series?.let(onDeleteSeries) },
                                     onDeleteReadChapters = { row.series?.let(onDeleteReadChapters) },
-                                    onStopDownloads = requestStopDownloads,
+                                    onStopDownloads = { seriesToStop = row },
                                     onMarkAllRead = { row.series?.let(onMarkAllRead) },
                                 )
                             }
@@ -175,6 +178,20 @@ fun LibraryScreen(
                     .padding(16.dp),
             )
         }
+    }
+
+    seriesToStop?.let { row ->
+        val status = row.downloadStatus
+        ConfirmationDialog(
+            title = "Ferma download",
+            text = "Vuoi fermare il download di ${row.title}? I capitoli già scaricati restano in libreria.",
+            confirmLabel = "Ferma",
+            onDismiss = { seriesToStop = null },
+            onConfirm = {
+                seriesToStop = null
+                status?.let(onStopSeriesDownload)
+            },
+        )
     }
 
     if (showStopConfirm) {

@@ -20,15 +20,6 @@
 
 ---
 
-## 📥 Download
-
-- [ ] **Stop davvero per-serie (oggi è "ferma tutto" con conferma)** ✅ — Impatto Alto · Sforzo Medio
-  - Bug collegato (verificato 2026-09-23): per la stessa catena unica, se il download di una serie finisce in `Result.failure` (qualsiasi eccezione non-`IOException`, es. "Nessun capitolo trovato"), WorkManager segna FAILED anche tutte le serie accodate dopo, che non partono mai. E un `Result.retry()` su `IOException` blocca l'intera coda per tutto il backoff. Con una catena per serie i due problemi spariscono insieme allo stop globale.
-  - Perché: lo stop dei download è protetto da conferma, ma resta globale: ferma l'intera coda WorkManager, non la singola serie. Tutti i download condividono un'unica catena `enqueueUniqueWork(UNIQUE_WORK_NAME, APPEND_OR_REPLACE)`, quindi cancellare per tag troncherebbe anche i work concatenati delle altre serie.
-  - Cosa fare: dare a ogni serie una propria unique work (`manga-download-<identityKey>`) con un tag globale condiviso, così lo stop per-card cancella solo quella serie (`cancelUniqueWork`) e il FAB ferma tutto (`cancelAllWorkByTag`); l'osservatore in MainActivity passa da `getWorkInfosForUniqueWorkLiveData` a `getWorkInfosByTagLiveData`. Valutare l'effetto sulla concorrenza (serie ora parallele). Insieme: test della gestione della coda (`enqueue`, stop, fallimento di una serie) con `WorkManagerTestInitHelper`; piano e CBZ sono già coperti da `DownloadPlanAndCbzTest`.
-
----
-
 ## 🟡 Affidabilità & test mancanti
 
 - [ ] **Alimentare il `CrashReporter`/log sugli errori di parsing** 🔎

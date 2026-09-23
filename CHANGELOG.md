@@ -4,6 +4,18 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-09-23
+
+### Migliorato
+
+- Ogni serie ha la sua coda di download: il pulsante di stop sulla card ferma solo quella serie, mentre "Ferma download" in basso continua a fermarle tutte.
+
+### Corretto
+
+- Se il download di una serie non riesce, le serie accodate dopo partono lo stesso: prima fallivano tutte insieme senza nemmeno iniziare.
+- Un problema di rete su una serie non tiene più ferma l'intera coda mentre l'app ritenta: le altre serie vanno avanti.
+- Fermare un download non mostra più per errore la notifica "Download non riuscito".
+
 ## 2026-08-30
 
 ### Migliorato

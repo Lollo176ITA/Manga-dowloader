@@ -194,7 +194,6 @@ private fun MangaDownloaderAppContent(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val downloadWorkUiState = rememberDownloadWorkUiState(context, viewModel, snackbarHostState)
-    val workManager = downloadWorkUiState.manager
     val downloadStatuses = downloadWorkUiState.statuses
     val scope = rememberCoroutineScope()
     // Conserva lo stato salvabile (posizione di scroll in testa) di ogni schermata quando
@@ -946,8 +945,9 @@ private fun MangaDownloaderAppContent(
                             onDeleteReadChapters = viewModel::deleteReadChapters,
                             onQueryChange = viewModel::onLibraryQueryChange,
                             onBrowse = goToSearchTab,
-                            onStopDownloads = {
-                                workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
+                            onStopDownloads = { DownloadWorker.stopAll(context) },
+                            onStopSeriesDownload = { status ->
+                                DownloadWorker.stopWork(context, status.workIds)
                             },
                             onResume = viewModel::openReader,
                             onSelectSort = viewModel::setLibrarySort,

@@ -227,6 +227,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.work:work-testing:2.11.2")
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
 

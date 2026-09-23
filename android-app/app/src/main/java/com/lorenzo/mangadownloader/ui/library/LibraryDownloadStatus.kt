@@ -5,6 +5,7 @@ import com.lorenzo.mangadownloader.DownloadWorker
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
+import java.util.UUID
 
 data class SeriesDownloadStatus(
     val sourceId: String,
@@ -16,6 +17,8 @@ data class SeriesDownloadStatus(
     val totalChapters: Int,
     val state: WorkInfo.State,
     val requestCount: Int,
+    /** Tutte le richieste della serie ancora attive: lo stop della card ferma queste. */
+    val workIds: List<UUID> = emptyList(),
 )
 
 data class LibraryRowItem(
@@ -36,7 +39,7 @@ enum class LibrarySort(val label: String) {
 }
 
 fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDownloadStatus> {
-    val sorted = workInfos.sortedBy { statePriority(it.state) }
+    val sorted = workInfos.sortedBy { statePriority(it.displayState()) }
     val grouped = linkedMapOf<String, MutableList<WorkInfo>>()
 
     for (workInfo in sorted) {
@@ -80,8 +83,9 @@ fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDo
             message = workInfo.progress.getString(DownloadWorker.PROGRESS_MESSAGE),
             doneChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1),
             totalChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1),
-            state = workInfo.state,
+            state = workInfo.displayState(),
             requestCount = entries.size,
+            workIds = entries.map(WorkInfo::id),
         )
     }
 }
@@ -174,6 +178,17 @@ private fun statePriority(state: WorkInfo.State): Int {
         else -> 3
     }
 }
+
+/**
+ * Lo stato da mostrare. Un worker che aspetta il turno di un'altra serie è RUNNING per
+ * WorkManager, ma per chi guarda la Libreria è in coda.
+ */
+private fun WorkInfo.displayState(): WorkInfo.State =
+    if (state == WorkInfo.State.RUNNING && progress.getBoolean(DownloadWorker.PROGRESS_WAITING, false)) {
+        WorkInfo.State.ENQUEUED
+    } else {
+        state
+    }
 
 private fun WorkInfo.tagValue(prefix: String): String? {
     return tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)

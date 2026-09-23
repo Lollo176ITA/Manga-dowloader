@@ -111,9 +111,18 @@ class AniListFavoritesSynchronizer(
                 succeeded = succeeded,
             ),
         )
+        // Un titolo tolto dai favourites AniList non è più "da trovare".
+        newFailedImports.retainAll(aniListById.keys)
         if (newFailedImports != failedImports) {
             syncStore.writeFailedImports(newFailedImports)
         }
+        // Nell'ordine di AniList, per il gruppo "Senza scan": senza, questi titoli sparirebbero
+        // senza una parola (stella messa su AniList, in app non succede niente).
+        syncStore.writeUnmatchedFavorites(
+            aniListFavourites
+                .filter { it.id in newFailedImports && it.id !in appIds }
+                .map(AniListManga::toUnmatchedFavorite),
+        )
 
         return imported
     }

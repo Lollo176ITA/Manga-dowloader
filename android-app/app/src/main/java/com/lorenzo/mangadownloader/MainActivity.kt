@@ -56,9 +56,12 @@ import com.lorenzo.mangadownloader.app.MangaViewModel
 import com.lorenzo.mangadownloader.app.Screen
 import com.lorenzo.mangadownloader.app.canHandleBack
 import com.lorenzo.mangadownloader.app.currentScreen
+import com.lorenzo.mangadownloader.app.hidesAdultContent
 import com.lorenzo.mangadownloader.app.saveableScreenKey
 import com.lorenzo.mangadownloader.app.tabPageIndex
+import com.lorenzo.mangadownloader.app.unmatchedAniListFavoritesToShow
 import com.lorenzo.mangadownloader.app.visibleTabs
+import com.lorenzo.mangadownloader.app.withoutAdultContent
 import com.lorenzo.mangadownloader.data.anilist.AniListAuth
 import com.lorenzo.mangadownloader.data.anilist.AniListScoreFormat
 import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
@@ -95,6 +98,7 @@ import com.lorenzo.mangadownloader.ui.library.LibraryScreen
 import com.lorenzo.mangadownloader.ui.library.rememberDownloadWorkUiState
 import com.lorenzo.mangadownloader.ui.reader.ReaderScreen
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.search.SearchLockedContent
 import com.lorenzo.mangadownloader.ui.search.SearchScreen
 import com.lorenzo.mangadownloader.ui.settings.BackupScreen
 import com.lorenzo.mangadownloader.ui.settings.SettingsScreen
@@ -697,7 +701,11 @@ private fun MangaDownloaderAppContent(
             }
             Screen.DiscoverGenre -> {
                 DiscoverGenreScreen(
-                    discovery = state.discovery,
+                    discovery = if (state.settings.hidesAdultContent()) {
+                        state.discovery.withoutAdultContent()
+                    } else {
+                        state.discovery
+                    },
                     padding = innerPadding,
                     onPick = viewModel::onPickAniListManga,
                     onShowInfo = viewModel::showDiscoveryInfo,
@@ -789,6 +797,7 @@ private fun MangaDownloaderAppContent(
                     onToggleParentalControl = viewModel::setParentalControlEnabled,
                     onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
                     onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
+                    onToggleHideAdultContent = viewModel::setHideAdultContent,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onToggleHighResImages = viewModel::setHighResImages,
@@ -892,19 +901,31 @@ private fun MangaDownloaderAppContent(
                             onMoveBlock = viewModel::moveHomeBlock,
                             onSetBlockHidden = viewModel::setHomeBlockHidden,
                         )
-                        AppTab.SEARCH -> SearchScreen(
-                            state = state,
-                            padding = innerPadding,
-                            onQueryChange = viewModel::onQueryChange,
-                            onClearRecentSearches = viewModel::clearRecentSearches,
-                            onRefresh = viewModel::submitSearch,
-                            onSelectSeries = viewModel::selectSeries,
-                            onToggleFavorite = viewModel::toggleFavoriteFromGroup,
-                            onShowInfo = viewModel::showMangaInfo,
-                            onDismissInfo = viewModel::dismissMangaInfo,
-                            onSelectLanguage = viewModel::selectLanguageSearch,
-                            onSelectAllSources = viewModel::selectAllSourcesSearch,
-                        )
+                        // Sotto controllo parentale la pagina Cerca si vede solo dopo il PIN: con
+                        // uno swipe ci si arriva comunque, e dietro al dialog del PIN restavano
+                        // visibili le ricerche precedenti e i loro risultati.
+                        AppTab.SEARCH -> if (
+                            state.settings.parentalControlEnabled && state.currentTab != AppTab.SEARCH
+                        ) {
+                            SearchLockedContent(
+                                padding = innerPadding,
+                                onUnlock = { viewModel.selectTab(AppTab.SEARCH) },
+                            )
+                        } else {
+                            SearchScreen(
+                                state = state,
+                                padding = innerPadding,
+                                onQueryChange = viewModel::onQueryChange,
+                                onClearRecentSearches = viewModel::clearRecentSearches,
+                                onRefresh = viewModel::submitSearch,
+                                onSelectSeries = viewModel::selectSeries,
+                                onToggleFavorite = viewModel::toggleFavoriteFromGroup,
+                                onShowInfo = viewModel::showMangaInfo,
+                                onDismissInfo = viewModel::dismissMangaInfo,
+                                onSelectLanguage = viewModel::selectLanguageSearch,
+                                onSelectAllSources = viewModel::selectAllSourcesSearch,
+                            )
+                        }
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
@@ -929,6 +950,9 @@ private fun MangaDownloaderAppContent(
                             onRenameShelf = viewModel::renameFavoriteShelf,
                             onDeleteShelf = viewModel::deleteFavoriteShelf,
                             onSetShelves = viewModel::setShelvesForFavorite,
+                            unmatchedAniList = state.unmatchedAniListFavoritesToShow(),
+                            // Come i titoli di Scopri: il pager segue da solo il cambio di tab.
+                            onPickUnmatched = { viewModel.onPickAniListManga(it.toAniListManga()) },
                             onReadNow = viewModel::readNowFromFavorite,
                             onRemoveFavorite = { favorite ->
                                 viewModel.toggleFavorite(favorite)

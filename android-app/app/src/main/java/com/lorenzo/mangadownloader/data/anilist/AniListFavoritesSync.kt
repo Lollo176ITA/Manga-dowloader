@@ -3,12 +3,14 @@ package com.lorenzo.mangadownloader.data.anilist
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.matchKeys
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.store.readJson
 import com.lorenzo.mangadownloader.data.store.writeJson
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
+import kotlinx.serialization.Serializable
 
 /**
  * Sincronizzazione dei preferiti tra l'app e i **favourites** di AniList (che su AniList sono
@@ -201,19 +203,85 @@ class AniListFavoritesSyncStore(private val prefs: SharedPreferences) {
         prefs.edit { putString(KEY_IMPORT_SOURCES_SIGNATURE, signature) }
     }
 
+    /**
+     * I favourites AniList che nessuna fonte espone, con quanto serve per mostrarli (gruppo
+     * "Senza scan" dei Preferiti) e per rilanciarne la ricerca. Riscritto a ogni giro.
+     */
+    fun readUnmatchedFavorites(): List<UnmatchedAniListFavorite> =
+        prefs.readJson(KEY_UNMATCHED_FAVORITES, emptyList())
+
+    fun writeUnmatchedFavorites(favorites: List<UnmatchedAniListFavorite>) {
+        prefs.writeJson(KEY_UNMATCHED_FAVORITES, favorites.take(MAX_TRACKED_IDS))
+    }
+
     /** Dimentica tutto: il prossimo giro riparte come un primo collegamento. */
     fun clear() {
         writeReconciledIds(emptySet())
         writeFailedImports(emptySet())
         writeImportSourcesSignature("")
+        writeUnmatchedFavorites(emptyList())
     }
 
     private companion object {
         const val KEY_RECONCILED = "anilist_favorites_reconciled_ids"
         const val KEY_FAILED_IMPORTS = "anilist_favorites_failed_imports"
         const val KEY_IMPORT_SOURCES_SIGNATURE = "anilist_favorites_import_sources"
+        const val KEY_UNMATCHED_FAVORITES = "anilist_favorites_unmatched"
 
         // Tetto di guardia: gli insiemi crescono con i preferiti, non con il tempo.
         const val MAX_TRACKED_IDS = 2_000
     }
+}
+
+/**
+ * Un favourite AniList che nessuna fonte attiva espone. Tiene solo ciò che serve a mostrarlo e
+ * a rifarne la ricerca: i titoli (anche i sinonimi, usati dal matching) e la copertina.
+ */
+@Serializable
+data class UnmatchedAniListFavorite(
+    val id: Int,
+    val titleRomaji: String? = null,
+    val titleEnglish: String? = null,
+    val titleNative: String? = null,
+    val synonyms: List<String> = emptyList(),
+    val coverUrl: String? = null,
+    val isAdult: Boolean = false,
+) {
+    fun displayTitle(): String = toAniListManga().displayTitle()
+
+    fun toAniListManga(): AniListManga = AniListManga(
+        id = id,
+        titleRomaji = titleRomaji,
+        titleEnglish = titleEnglish,
+        titleNative = titleNative,
+        synonyms = synonyms,
+        coverUrl = coverUrl,
+        genres = emptyList(),
+        averageScore = null,
+        description = null,
+        status = MangaPublicationStatus.UNKNOWN,
+        isAdult = isAdult,
+    )
+}
+
+fun AniListManga.toUnmatchedFavorite(): UnmatchedAniListFavorite = UnmatchedAniListFavorite(
+    id = id,
+    titleRomaji = titleRomaji,
+    titleEnglish = titleEnglish,
+    titleNative = titleNative,
+    synonyms = synonyms,
+    coverUrl = coverUrl,
+    isAdult = isAdult,
+)
+
+/**
+ * I "senza scan" da mostrare: via quelli che nel frattempo sono diventati preferiti dell'app
+ * (l'utente li ha trovati a mano), e sotto controllo parentale anche quelli per adulti. Pura.
+ */
+fun visibleUnmatchedAniListFavorites(
+    unmatched: List<UnmatchedAniListFavorite>,
+    favoriteSeriesKeys: Set<String>,
+    hideAdult: Boolean,
+): List<UnmatchedAniListFavorite> = unmatched.filter { entry ->
+    SeriesIdentity.keyForAniList(entry.id) !in favoriteSeriesKeys && !(hideAdult && entry.isAdult)
 }

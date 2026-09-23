@@ -46,6 +46,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.app.TutorialPhase
+import com.lorenzo.mangadownloader.app.hidesAdultContent
+import com.lorenzo.mangadownloader.app.withoutAdultContent
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
@@ -140,7 +142,10 @@ fun HomeScreen(
     val readingHistory = remember(state.library, state.readingMemory) {
         computeReadingHistory(state.readingMemory, state.library, limit = 10)
     }
-    val discovery = state.discovery
+    val hideAdult = settings.hidesAdultContent()
+    val discovery = remember(state.discovery, hideAdult) {
+        if (hideAdult) state.discovery.withoutAdultContent() else state.discovery
+    }
     val hasDiscoverSections = discovery.trending.isNotEmpty() ||
         discovery.topRated.isNotEmpty() ||
         discovery.newest.isNotEmpty()
@@ -150,7 +155,9 @@ fun HomeScreen(
         discovery.isLoadingSections ||
         discovery.sectionsError != null
     // Stessa logica per i Consigliati; senza semi (né preferiti né letture) il blocco sparisce.
-    val recommendations = state.recommendations
+    val recommendations = remember(state.recommendations, hideAdult) {
+        if (hideAdult) state.recommendations.withoutAdultContent() else state.recommendations
+    }
     val recommendedHasContent = recommendations.items.isNotEmpty() ||
         recommendations.isLoading ||
         recommendations.error != null

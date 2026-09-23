@@ -25,9 +25,11 @@ import com.lorenzo.mangadownloader.data.anilist.AniListSort
 import com.lorenzo.mangadownloader.data.anilist.AniListStore
 import com.lorenzo.mangadownloader.data.anilist.AniListTracking
 import com.lorenzo.mangadownloader.data.anilist.AniListViewer
+import com.lorenzo.mangadownloader.data.anilist.UnmatchedAniListFavorite
 import com.lorenzo.mangadownloader.data.anilist.aniListImportSourcesSignature
 import com.lorenzo.mangadownloader.data.anilist.matchAniListCandidate
 import com.lorenzo.mangadownloader.data.anilist.newAniListFavorites
+import com.lorenzo.mangadownloader.data.anilist.visibleUnmatchedAniListFavorites
 import com.lorenzo.mangadownloader.data.backup.BackupManager
 import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
 import com.lorenzo.mangadownloader.data.backup.BackupRestoreResult
@@ -80,6 +82,7 @@ import com.lorenzo.mangadownloader.data.store.FavoritesStore
 import com.lorenzo.mangadownloader.data.store.HomeDiscoverCache
 import com.lorenzo.mangadownloader.data.store.HomeFeedCacheStore
 import com.lorenzo.mangadownloader.data.store.HomeRecommendationsCache
+import com.lorenzo.mangadownloader.data.store.ParentalLockoutStore
 import com.lorenzo.mangadownloader.data.store.ReadingDiaryStore
 import com.lorenzo.mangadownloader.data.store.ReadingMemoryStore
 import com.lorenzo.mangadownloader.data.store.RecentSearchesStore
@@ -95,6 +98,8 @@ import com.lorenzo.mangadownloader.data.store.recommendationSeedSignature
 import com.lorenzo.mangadownloader.data.update.AppUpdateInfo
 import com.lorenzo.mangadownloader.data.update.AppUpdateInstaller
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
+import com.lorenzo.mangadownloader.domain.FilteredSearchResults
+import com.lorenzo.mangadownloader.domain.filterAdultSearchResults
 import com.lorenzo.mangadownloader.domain.generateParentalPinSalt
 import com.lorenzo.mangadownloader.domain.hashParentalPin
 import com.lorenzo.mangadownloader.domain.home.DEFAULT_HOME_BLOCK_ORDER
@@ -105,6 +110,9 @@ import com.lorenzo.mangadownloader.domain.home.moveHomeBlockInOrder
 import com.lorenzo.mangadownloader.domain.home.normalizedRecommendationTitle
 import com.lorenzo.mangadownloader.domain.home.reconcileHomeBlocks
 import com.lorenzo.mangadownloader.domain.home.selectRecommendationSeeds
+import com.lorenzo.mangadownloader.domain.isAdultContent
+import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
+import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.canReopenStreaming
@@ -131,6 +139,7 @@ import com.lorenzo.mangadownloader.domain.series.favoriteSourceCandidates
 import com.lorenzo.mangadownloader.domain.series.fetchFromFirstAvailable
 import com.lorenzo.mangadownloader.domain.series.firstChaptersForReading
 import com.lorenzo.mangadownloader.domain.series.seriesFetchCandidates
+import com.lorenzo.mangadownloader.domain.withoutAdultContent
 import com.lorenzo.mangadownloader.sharedLibraryRepository
 import com.lorenzo.mangadownloader.sharedSourceRegistry
 import com.lorenzo.mangadownloader.ui.components.CardDensity
@@ -204,6 +213,21 @@ data class RecommendationsUiState(
 )
 
 /**
+ * Le vetrine AniList senza i titoli per adulti. Filtrate al momento di mostrarle, non quando
+ * arrivano: così accendere o spegnere il filtro ha effetto subito, senza ricaricare.
+ */
+fun DiscoveryUiState.withoutAdultContent(): DiscoveryUiState = copy(
+    trending = trending.withoutAdultContent(),
+    topRated = topRated.withoutAdultContent(),
+    newest = newest.withoutAdultContent(),
+    genreResults = genreResults.withoutAdultContent(),
+    info = info?.takeUnless { it.isAdultContent() },
+)
+
+fun RecommendationsUiState.withoutAdultContent(): RecommendationsUiState =
+    copy(items = items.withoutAdultContent())
+
+/**
  * Stato del tracking AniList. [viewer] presente ⇔ account collegato. [trackings] è la mappa
  * `identityKey → legame` persistita da [AniListStore]. [match] pilota il dialog di matching
  * (collega una serie a un media AniList), [trackerKey] quello di modifica stato/progresso/voto.
@@ -266,6 +290,26 @@ private fun Map<String, FavoriteSeenState>.toStatusMap(): Map<String, MangaPubli
             .getOrDefault(MangaPublicationStatus.UNKNOWN)
     }
 
+/**
+ * Il filtro dei contenuti per adulti è attivo? Scelta dell'utente, oppure imposto dal controllo
+ * parentale: lì non si può spegnere senza PIN, perché si spegne solo spegnendo il parentale.
+ */
+fun AppSettings.hidesAdultContent(): Boolean = hideAdultContent || parentalControlEnabled
+
+/**
+ * Il gruppo "Senza scan" dei Preferiti: solo con la sincronizzazione dei preferiti AniList
+ * accesa e l'account collegato (spenta, quei titoli non sono affar suo), senza i titoli
+ * diventati nel frattempo preferiti dell'app e, col filtro attivo, senza quelli per adulti.
+ */
+fun MangaUiState.unmatchedAniListFavoritesToShow(): List<UnmatchedAniListFavorite> {
+    if (!settings.aniListFavoritesSyncEnabled || aniList.viewer == null) return emptyList()
+    return visibleUnmatchedAniListFavorites(
+        unmatched = aniListUnmatchedFavorites,
+        favoriteSeriesKeys = favoriteSeriesKeys,
+        hideAdult = settings.hidesAdultContent(),
+    )
+}
+
 /** Interspazio (dp) tra le pagine del reader: 8 è il valore storico dell'app. */
 const val DEFAULT_READER_PAGE_SPACING_DP = 8
 const val MAX_READER_PAGE_SPACING_DP = 24
@@ -286,6 +330,8 @@ data class AppSettings(
     val parentalBiometricEnabled: Boolean = false,
     val parentalPinSalt: String? = null,
     val parentalPinHash: String? = null,
+    /** Nasconde i manga per adulti da ricerca e vetrine. Sempre attivo col controllo parentale. */
+    val hideAdultContent: Boolean = false,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
     val highResImages: Boolean = false,
@@ -413,6 +459,8 @@ data class MangaUiState(
     /** Scaffali scelti dall'utente e filtro attivo (`null` = tutti i preferiti). */
     val favoriteShelves: FavoriteShelves = FavoriteShelves(),
     val favoriteFilterShelfId: String? = null,
+    /** Favourites AniList che nessuna fonte espone (gruppo "Senza scan" dei Preferiti). */
+    val aniListUnmatchedFavorites: List<UnmatchedAniListFavorite> = emptyList(),
     // Mappe indicizzate per SeriesKey (vedi FavoritesSeriesMigration): sopravvivono al
     // cambio fonte, che per un preferito è un evento normale.
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
@@ -536,6 +584,7 @@ class MangaViewModel internal constructor(
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
     private val favoriteShelvesStore = FavoriteShelvesStore(prefs)
+    private val parentalLockoutStore = ParentalLockoutStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
         favoriteShelvesStore = favoriteShelvesStore,
@@ -593,6 +642,7 @@ class MangaViewModel internal constructor(
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
             favoriteShelves = favoriteShelvesStore.read(),
+            aniListUnmatchedFavorites = aniListFavoritesSyncStore.readUnmatchedFavorites(),
             favoriteNotices = favoriteSourceHealthStore.read()
                 .mapNotNull { (key, health) -> favoriteSourceNotice(health)?.let { key to it } }
                 .toMap(),
@@ -770,6 +820,16 @@ class MangaViewModel internal constructor(
 
     fun setFavoriteFilterReadingState(state: FavoriteReadingState?) {
         updateState { copy(favoriteFilterReadingState = state) }
+    }
+
+    /**
+     * Filtro dei manga per adulti. Sotto controllo parentale è imposto: spegnerlo qui non ha
+     * effetto finché il parentale è attivo (vedi [hidesAdultContent]).
+     */
+    fun setHideAdultContent(enabled: Boolean) {
+        updateSettings { it.copy(hideAdultContent = enabled) }
+        _state.value.query.trim().takeIf { it.isNotEmpty() && _state.value.results.isNotEmpty() }
+            ?.let(::runAggregatedSearch)
     }
 
     fun setFavoriteFilterShelf(shelfId: String?) {
@@ -1267,7 +1327,9 @@ class MangaViewModel internal constructor(
                     it.copy(
                         parentalControlEnabled = true,
                         parentalPinConfigured = true,
-                        parentalBiometricEnabled = _state.value.isBiometricAvailable,
+                        // Spento finché non lo accende il genitore: il telefono accetta ogni
+                        // impronta registrata, anche quella del figlio.
+                        parentalBiometricEnabled = false,
                         parentalPinSalt = salt,
                         parentalPinHash = hash,
                     )
@@ -1348,18 +1410,40 @@ class MangaViewModel internal constructor(
             return
         }
 
-        val providedHash = hashParentalPin(pinEntryState.pin, salt)
-        if (providedHash != expectedHash) {
+        val now = System.currentTimeMillis()
+        val lockedUntil = parentalLockoutStore.lockedUntilMillis()
+        if (lockedUntil > now) {
             updateState {
                 copy(
                     parentalPinEntryState = pinEntryState.copy(
                         pin = "",
-                        errorMessage = "PIN non corretto",
+                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(lockedUntil - now)}",
                     ),
                 )
             }
             return
         }
+
+        val providedHash = hashParentalPin(pinEntryState.pin, salt)
+        if (providedHash != expectedHash) {
+            val attempts = parentalLockoutStore.failedAttempts() + 1
+            val lockout = parentalPinLockoutMillis(attempts)
+            parentalLockoutStore.recordFailure(lockedUntilMillis = now + lockout)
+            updateState {
+                copy(
+                    parentalPinEntryState = pinEntryState.copy(
+                        pin = "",
+                        errorMessage = if (lockout > 0) {
+                            "PIN non corretto. Riprova tra ${parentalLockoutLabel(lockout)}"
+                        } else {
+                            "PIN non corretto"
+                        },
+                    ),
+                )
+            }
+            return
+        }
+        parentalLockoutStore.reset()
 
         updateState {
             copy(
@@ -3200,10 +3284,18 @@ class MangaViewModel internal constructor(
                 val friendly = lastFailure
                     ?.takeIf { failures == queried.size }
                     ?.let { userFacingErrorMessage(it, "Errore di ricerca") }
+                val grouped = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates)
+                // Filtro per adulti: il segnale arriva dai candidati AniList di questa stessa
+                // ricerca, quindi si riapplica a ogni pubblicazione (AniList può arrivare dopo).
+                val visible = if (_state.value.settings.hidesAdultContent()) {
+                    filterAdultSearchResults(interleaved, grouped, pinned + aniCandidates)
+                } else {
+                    FilteredSearchResults(interleaved, grouped)
+                }
                 updateState {
                     copy(
-                        results = interleaved,
-                        groupedResults = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates),
+                        results = visible.results,
+                        groupedResults = visible.groups,
                         isSearching = searching,
                         searchError = if (searching) searchError else friendly,
                     )
@@ -4170,6 +4262,9 @@ class MangaViewModel internal constructor(
                     },
                 )
                 val imported = synchronizer.sync(snapshot)
+                updateState {
+                    copy(aniListUnmatchedFavorites = aniListFavoritesSyncStore.readUnmatchedFavorites())
+                }
                 if (imported.isEmpty()) return@launch
                 // Il confronto è con i preferiti di ADESSO, non con lo snapshot di partenza:
                 // il giro dura quanto una ricerca su tutte le fonti e nel frattempo l'utente

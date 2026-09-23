@@ -9,6 +9,8 @@
 ### Aggiunto
 
 - Scaffali per i preferiti: puoi creare scaffali con il nome che vuoi ("Da rileggere", "Per le vacanze"…) e mettere ogni preferito su uno o più scaffali dal suo menu. Gli scaffali compaiono come filtro sotto gli stati di lettura, e si rinominano o eliminano da "Gestisci scaffali". Sono inclusi nel backup.
+- Gruppo "Senza scan" in fondo ai Preferiti: i preferiti del tuo account AniList che nessuna fonte attiva ha ora si vedono, invece di sparire senza spiegazioni. Toccandone uno l'app lo cerca di nuovo su tutte le fonti.
+- Nuova impostazione "Nascondi manga per adulti": toglie da ricerca, Scopri e Consigliati i titoli che AniList segna come per adulti o ecchi. Con il controllo genitori è sempre attiva.
 
 ### Migliorato
 
@@ -16,6 +18,8 @@
 
 ### Corretto
 
+- Controllo genitori più difficile da aggirare: ripristinare un backup non lo disattiva più e non accende lo sblocco con l'impronta; dopo 5 PIN sbagliati l'inserimento si blocca per un po', anche chiudendo l'app; scorrendo fino alla scheda Cerca non si vedono più le ricerche precedenti prima di aver inserito il PIN.
+- Lo sblocco con l'impronta del controllo genitori non si attiva più da solo: il telefono accetta qualsiasi impronta registrata, compresa quella di un figlio. Si può ancora accendere dalle impostazioni.
 - Se il download di una serie non riesce, le serie accodate dopo partono lo stesso: prima fallivano tutte insieme senza nemmeno iniziare.
 - Un problema di rete su una serie non tiene più ferma l'intera coda mentre l'app ritenta: le altre serie vanno avanti.
 - Fermare un download non mostra più per errore la notifica "Download non riuscito".

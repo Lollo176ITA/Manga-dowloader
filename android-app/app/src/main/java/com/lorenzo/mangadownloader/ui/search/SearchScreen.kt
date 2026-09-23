@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
@@ -309,5 +310,18 @@ private fun MangaInfoDialog(
                 Text("Chiudi")
             }
         },
+    )
+}
+
+/** Al posto della ricerca, sotto controllo parentale e prima del PIN. */
+@Composable
+fun SearchLockedContent(padding: PaddingValues, onUnlock: () -> Unit) {
+    EmptyState(
+        icon = Icons.Default.Lock,
+        title = "Ricerca protetta",
+        description = "Il controllo genitori chiede il PIN per cercare nuovi manga.",
+        actionLabel = "Sblocca",
+        onAction = onUnlock,
+        modifier = Modifier.padding(padding),
     )
 }

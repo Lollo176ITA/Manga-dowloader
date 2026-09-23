@@ -47,6 +47,8 @@ data class AniListManga(
     val chapters: Int? = null,
     /** Formato AniList grezzo (MANGA, ONE_SHOT, NOVEL…), mostrato nel matching del tracking. */
     val format: String? = null,
+    /** Contenuto per adulti secondo AniList (in pratica: hentai). Vedi `isAdultContent`. */
+    val isAdult: Boolean = false,
 ) {
     /**
      * Titolo da usare per cercare sulle fonti: prima l'inglese (più comune sui siti EN tipo
@@ -337,6 +339,7 @@ class AniListClient(
                   status
                   chapters
                   format
+                  isAdult
                 }
               }
             }
@@ -388,6 +391,7 @@ class AniListClient(
                       status
                       chapters
                       format
+                      isAdult
                     }
                   }
                 }
@@ -478,6 +482,7 @@ class AniListClient(
                 status = mangaStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
                 chapters = obj["chapters"]?.jsonPrimitive?.intOrNull,
                 format = obj["format"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
+                isAdult = obj["isAdult"]?.jsonPrimitive?.booleanOrNull == true,
             )
         }
 

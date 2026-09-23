@@ -240,6 +240,38 @@ class AniListFavoritesSynchronizerTest {
         assertEquals(emptyList<Int>(), toggled)
     }
 
+    @Test
+    fun `i favourites che nessuna fonte ha finiscono nel gruppo Senza scan`() = runBlocking {
+        val favourites = listOf(media(1, "Introvabile"), media(2, "Berserk"), media(3, "Già in app"))
+        synchronizer(
+            favourites = favourites,
+            sourceResults = mapOf("Berserk" to listOf(searchResult("Berserk"))),
+        ).sync(listOf(appFavorite(3, "Già in app")))
+
+        val unmatched = syncStore.readUnmatchedFavorites()
+        assertEquals(listOf(1), unmatched.map { it.id })
+        assertEquals("Introvabile", unmatched.single().displayTitle())
+
+        // Tolto dai favourites AniList: non è più da trovare, sparisce anche dal gruppo.
+        synchronizer(favourites = listOf(media(2, "Berserk"), media(3, "Già in app")))
+            .sync(listOf(appFavorite(3, "Già in app")))
+        assertEquals(emptyList<UnmatchedAniListFavorite>(), syncStore.readUnmatchedFavorites())
+        assertEquals(emptySet<Int>(), syncStore.readFailedImports())
+    }
+
+    @Test
+    fun `Senza scan visibile esclude i titoli poi aggiunti e, col filtro, quelli per adulti`() {
+        val unmatched = listOf(
+            UnmatchedAniListFavorite(id = 1, titleRomaji = "A"),
+            UnmatchedAniListFavorite(id = 2, titleRomaji = "B", isAdult = true),
+            UnmatchedAniListFavorite(id = 3, titleRomaji = "C"),
+        )
+        val favoriteKeys = setOf(SeriesIdentity.keyForAniList(3))
+
+        assertEquals(listOf(1, 2), visibleUnmatchedAniListFavorites(unmatched, favoriteKeys, hideAdult = false).map { it.id })
+        assertEquals(listOf(1), visibleUnmatchedAniListFavorites(unmatched, favoriteKeys, hideAdult = true).map { it.id })
+    }
+
     private fun synchronizer(
         favourites: List<AniListManga>,
         sourceResults: Map<String, List<MangaSearchResult>> = emptyMap(),

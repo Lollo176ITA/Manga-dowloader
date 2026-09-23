@@ -120,6 +120,8 @@ private fun SettingRow(
     description: String? = null,
     /** Avviso in colore d'errore sotto la descrizione (es. una fonte che non risponde). */
     warning: String? = null,
+    /** `false` = riga bloccata (es. imposta da un'altra impostazione): si legge ma non si tocca. */
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -132,6 +134,7 @@ private fun SettingRow(
             .toggleable(
                 value = checked,
                 onValueChange = onCheckedChange,
+                enabled = enabled,
                 role = Role.Switch,
             )
             .padding(vertical = 8.dp),
@@ -162,6 +165,7 @@ private fun SettingRow(
         Switch(
             checked = checked,
             onCheckedChange = null,
+            enabled = enabled,
         )
     }
 }
@@ -634,11 +638,30 @@ fun ParentalControlContent(
     onToggleParental: (Boolean) -> Unit,
     onRequestChangePin: () -> Unit,
     onToggleBiometric: (Boolean) -> Unit,
+    hideAdultContent: Boolean = false,
+    onToggleHideAdultContent: (Boolean) -> Unit = {},
 ) {
     Column {
+        // Col controllo genitori il filtro è imposto: la riga resta visibile (si capisce che
+        // è attivo) ma non si tocca, perché si spegne solo spegnendo il parentale col PIN.
+        SettingRow(
+            title = "Nascondi manga per adulti",
+            description = if (parentalControlEnabled) {
+                "Sempre attivo con il controllo genitori"
+            } else {
+                "Toglie da ricerca, Scopri e Consigliati i titoli che AniList segna come " +
+                    "per adulti o ecchi. È un filtro, non una garanzia: un titolo che " +
+                    "AniList non conosce può passare."
+            },
+            checked = hideAdultContent || parentalControlEnabled,
+            onCheckedChange = onToggleHideAdultContent,
+            enabled = !parentalControlEnabled,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         SettingRow(
             title = "Controllo genitori",
-            description = "Richiedi un PIN per accedere alla ricerca e ai contenuti",
+            description = "Chiede un PIN per aprire la ricerca, nasconde Scopri e Consigliati " +
+                "e i manga per adulti. Senza PIN non si disattiva.",
             checked = parentalControlEnabled,
             onCheckedChange = onToggleParental,
         )
@@ -649,9 +672,13 @@ fun ParentalControlContent(
             }
             if (isBiometricAvailable) {
                 Spacer(modifier = Modifier.height(8.dp))
+                // Il telefono accetta qualsiasi impronta registrata: su quello di un ragazzo c'è
+                // quasi sempre anche la sua, e lo sblocco biometrico lo lascerebbe entrare.
                 SettingRow(
                     title = "Sblocco biometrico",
                     description = "Usa l'impronta o il volto per sbloccare",
+                    warning = "Attivalo solo se sul telefono ci sono unicamente le tue " +
+                        "impronte e il tuo volto: il sistema accetta chiunque sia registrato.",
                     checked = biometricEnabled,
                     onCheckedChange = onToggleBiometric,
                 )

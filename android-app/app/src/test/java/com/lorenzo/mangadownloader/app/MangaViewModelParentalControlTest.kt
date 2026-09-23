@@ -73,7 +73,7 @@ class MangaViewModelParentalControlTest {
     }
 
     @Test
-    fun confirmingPinSetup_enablesParentalAndAutoEnablesBiometricWhenAvailable() {
+    fun confirmingPinSetup_enablesParentalWithBiometricOff() {
         val viewModel = createViewModel()
         viewModel.setParentalControlEnabled(true)
 
@@ -82,7 +82,9 @@ class MangaViewModelParentalControlTest {
         val state = viewModel.state.value
         assertTrue(state.settings.parentalControlEnabled)
         assertTrue(state.settings.parentalPinConfigured)
-        assertEquals(state.isBiometricAvailable, state.settings.parentalBiometricEnabled)
+        // Il telefono accetta ogni impronta registrata, anche quella del figlio: l'impronta
+        // si accende solo su scelta esplicita.
+        assertFalse(state.settings.parentalBiometricEnabled)
         assertNotNull(state.settings.parentalPinSalt)
         assertNotNull(state.settings.parentalPinHash)
         assertEquals(AppTab.LIBRARY, state.currentTab)
@@ -233,6 +235,46 @@ class MangaViewModelParentalControlTest {
             viewModel.setParentalControlEnabled(true)
             savePin(viewModel)
         }
+    }
+
+    @Test
+    fun wrongPins_lockTheEntryForAWhile_evenAcrossRestarts() {
+        val viewModel = createConfiguredViewModel()
+        viewModel.selectTab(AppTab.SEARCH)
+        repeat(4) {
+            viewModel.onParentalPinEntryChange("000000")
+            viewModel.confirmParentalPinEntry()
+        }
+        assertEquals("PIN non corretto", viewModel.state.value.parentalPinEntryState?.errorMessage)
+
+        viewModel.onParentalPinEntryChange("000000")
+        viewModel.confirmParentalPinEntry()
+        assertEquals(
+            "PIN non corretto. Riprova tra 30 secondi",
+            viewModel.state.value.parentalPinEntryState?.errorMessage,
+        )
+
+        // Riaprire l'app non azzera il blocco, e durante il blocco neanche il PIN giusto passa.
+        val restarted = createViewModel()
+        restarted.selectTab(AppTab.SEARCH)
+        restarted.onParentalPinEntryChange(TEST_PIN)
+        restarted.confirmParentalPinEntry()
+        assertTrue(
+            restarted.state.value.parentalPinEntryState?.errorMessage.orEmpty().startsWith("Troppi tentativi"),
+        )
+        assertFalse(restarted.state.value.currentTab == AppTab.SEARCH)
+
+        // Blocco scaduto: il PIN giusto apre e azzera il conto.
+        application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putLong("parental_pin_locked_until", 0L).commit()
+        restarted.onParentalPinEntryChange(TEST_PIN)
+        restarted.confirmParentalPinEntry()
+        assertEquals(AppTab.SEARCH, restarted.state.value.currentTab)
+        assertEquals(
+            0,
+            application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getInt("parental_pin_failed_attempts", -1).coerceAtLeast(0),
+        )
     }
 
     private fun savePin(viewModel: MangaViewModel, pin: String = TEST_PIN) {

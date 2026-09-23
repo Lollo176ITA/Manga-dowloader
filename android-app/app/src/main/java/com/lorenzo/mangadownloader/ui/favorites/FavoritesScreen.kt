@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.favorites
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
@@ -17,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
@@ -27,16 +31,19 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.anilist.UnmatchedAniListFavorite
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
@@ -50,6 +57,7 @@ import com.lorenzo.mangadownloader.domain.series.sortFavorites
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.FavoriteActionsDialog
 import com.lorenzo.mangadownloader.ui.components.FavoriteCard
+import com.lorenzo.mangadownloader.ui.components.MangaPosterCard
 import com.lorenzo.mangadownloader.ui.components.SearchField
 import com.lorenzo.mangadownloader.ui.components.icon
 
@@ -80,6 +88,9 @@ fun FavoritesScreen(
     onRenameShelf: (String, String) -> Boolean = { _, _ -> false },
     onDeleteShelf: (String) -> Unit = {},
     onSetShelves: (FavoriteManga, Set<String>) -> Unit = { _, _ -> },
+    // Favourites AniList che nessuna fonte espone: il tap ne rifà la ricerca.
+    unmatchedAniList: List<UnmatchedAniListFavorite> = emptyList(),
+    onPickUnmatched: (UnmatchedAniListFavorite) -> Unit = {},
 ) {
     val displayed = remember(
         favorites, query, sort, statusByKey, seenByKey, filterReadingState, readingStateByKey,
@@ -102,6 +113,15 @@ fun FavoritesScreen(
     var actionsFor by remember { mutableStateOf<FavoriteManga?>(null) }
     var shelvesFor by remember { mutableStateOf<FavoriteManga?>(null) }
     var showShelvesManager by remember { mutableStateOf(false) }
+    var unmatchedExpanded by rememberSaveable { mutableStateOf(false) }
+    // Non sono preferiti dell'app: con un filtro attivo non c'entrano, con una ricerca sì.
+    val unmatchedShown = remember(unmatchedAniList, query, filterReadingState, filterShelfId) {
+        if (filterReadingState != null || filterShelfId != null) {
+            emptyList()
+        } else {
+            unmatchedAniList.filter { query.isBlank() || it.displayTitle().contains(query.trim(), ignoreCase = true) }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -255,6 +275,26 @@ fun FavoritesScreen(
                                 notice = noticesByKey[favorite.canonicalKey()],
                             )
                         }
+                        if (unmatchedShown.isNotEmpty()) {
+                            item(key = "unmatched-header", span = { GridItemSpan(maxLineSpan) }) {
+                                UnmatchedAniListHeader(
+                                    count = unmatchedShown.size,
+                                    expanded = unmatchedExpanded,
+                                    onToggle = { unmatchedExpanded = !unmatchedExpanded },
+                                )
+                            }
+                            if (unmatchedExpanded) {
+                                items(unmatchedShown, key = { "anilist-${it.id}" }) { entry ->
+                                    MangaPosterCard(
+                                        coverModel = entry.coverUrl,
+                                        title = entry.displayTitle(),
+                                        onClick = { onPickUnmatched(entry) },
+                                        onClickLabel = "Cerca sulle fonti",
+                                        cardStateDescription = "Senza scan",
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -307,6 +347,38 @@ fun FavoritesScreen(
             onRenameShelf = onRenameShelf,
             onDeleteShelf = onDeleteShelf,
             onDismiss = { showShelvesManager = false },
+        )
+    }
+}
+
+/**
+ * Intestazione del gruppo "Senza scan": spiega perché quei titoli non sono tra i preferiti
+ * (nessuna fonte li ha) e cosa fa il tocco, che è insieme spiegazione e rimedio.
+ */
+@Composable
+private fun UnmatchedAniListHeader(count: Int, expanded: Boolean, onToggle: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(top = 12.dp, bottom = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Senza scan · $count",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Comprimi" else "Espandi",
+            )
+        }
+        Text(
+            text = "Preferiti del tuo account AniList che nessuna fonte attiva ha. " +
+                "Tocca un titolo per cercarlo di nuovo.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

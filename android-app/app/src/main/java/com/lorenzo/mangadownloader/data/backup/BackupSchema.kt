@@ -189,6 +189,7 @@ data class SettingsBackup(
     val smartCleanupKeepPreviousChapters: Int = 3,
     val parentalControlEnabled: Boolean = false,
     val parentalBiometricEnabled: Boolean = false,
+    val hideAdultContent: Boolean = false,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
     val highResImages: Boolean = false,
@@ -255,6 +256,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     smartCleanupKeepPreviousChapters = smartCleanupKeepPreviousChapters,
     parentalControlEnabled = parentalControlEnabled,
     parentalBiometricEnabled = parentalBiometricEnabled,
+    hideAdultContent = hideAdultContent,
     labsEnabled = labsEnabled,
     downloadDevUpdates = downloadDevUpdates,
     highResImages = highResImages,
@@ -283,6 +285,10 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
  * manomesso non produce stato invalido) e tenendo i campi protetti dal device corrente:
  * PIN hash/salt, `parentalPinConfigured`, `tutorialCompleted` non vengono mai sovrascritti.
  * `parentalControlEnabled` viene riacceso solo se sul device c'è già un PIN configurato.
+ *
+ * Un ripristino non può **indebolire** un controllo parentale attivo: altrimenti bastava
+ * ripristinare un backup vecchio (o modificato a mano) per spegnerlo, o per accendere lo sblocco
+ * con l'impronta, senza conoscere il PIN. Quando è attivo, i suoi campi restano quelli attuali.
  */
 fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     // Le chip per fonte singola non esistono più: uno scope SOURCE in un backup di una
@@ -304,8 +310,14 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     autoDownloadBatchSize = autoDownloadBatchSize.coerceAtLeast(1),
     smartCleanupEnabled = smartCleanupEnabled,
     smartCleanupKeepPreviousChapters = smartCleanupKeepPreviousChapters.coerceAtLeast(0),
-    parentalControlEnabled = parentalControlEnabled && current.parentalPinConfigured,
-    parentalBiometricEnabled = parentalBiometricEnabled,
+    parentalControlEnabled = current.parentalControlEnabled ||
+        (parentalControlEnabled && current.parentalPinConfigured),
+    parentalBiometricEnabled = if (current.parentalControlEnabled) {
+        current.parentalBiometricEnabled
+    } else {
+        parentalBiometricEnabled
+    },
+    hideAdultContent = hideAdultContent,
     labsEnabled = labsEnabled,
     downloadDevUpdates = downloadDevUpdates,
     highResImages = highResImages,

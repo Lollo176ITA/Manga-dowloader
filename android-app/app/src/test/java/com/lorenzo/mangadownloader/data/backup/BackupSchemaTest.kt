@@ -221,4 +221,36 @@ class BackupSchemaTest {
         val added = mergeFavoriteUpdates(current, mapOf("k2" to FavoriteSeenState("1")))
         assertEquals(2, added.size)
     }
+
+    @Test
+    fun applyTo_cannotWeakenAnActiveParentalControl() {
+        val current = AppSettings(
+            parentalControlEnabled = true,
+            parentalPinConfigured = true,
+            parentalBiometricEnabled = false,
+        )
+        // Backup vecchio o modificato a mano: parentale spento, impronta accesa.
+        val tampered = AppSettings(parentalControlEnabled = false, parentalBiometricEnabled = true).toBackup()
+
+        val restored = tampered.applyTo(current)
+
+        assertTrue(restored.parentalControlEnabled)
+        assertFalse(restored.parentalBiometricEnabled)
+    }
+
+    @Test
+    fun applyTo_withoutParentalControl_takesTheBackupValues() {
+        val current = AppSettings(parentalPinConfigured = true)
+        val backup = AppSettings(
+            parentalControlEnabled = true,
+            parentalBiometricEnabled = true,
+            hideAdultContent = true,
+        ).toBackup()
+
+        val restored = backup.applyTo(current)
+
+        assertTrue(restored.parentalControlEnabled)
+        assertTrue(restored.parentalBiometricEnabled)
+        assertTrue(restored.hideAdultContent)
+    }
 }

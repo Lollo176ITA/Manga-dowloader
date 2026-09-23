@@ -256,7 +256,8 @@ class AniListClientTest {
                           "description": null,
                           "status": "RELEASING",
                           "chapters": null,
-                          "format": "MANGA"
+                          "format": "MANGA",
+                          "isAdult": true
                         }
                       ]
                     }
@@ -272,6 +273,7 @@ class AniListClientTest {
         assertEquals(30002, favourites.single().id)
         assertEquals(listOf("Berserk: Ougon Jidai-hen"), favourites.single().synonyms)
         assertTrue("la paginazione va seguita finché hasNextPage è true", hasNextPage)
+        assertTrue("isAdult serve al filtro per i minori", favourites.single().isAdult)
     }
 
     @Test

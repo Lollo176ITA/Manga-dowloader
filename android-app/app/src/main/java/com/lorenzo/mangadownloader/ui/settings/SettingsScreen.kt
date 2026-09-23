@@ -60,6 +60,7 @@ fun SettingsScreen(
     onToggleParentalControl: (Boolean) -> Unit,
     onRequestChangeParentalPin: () -> Unit,
     onToggleParentalBiometric: (Boolean) -> Unit,
+    onToggleHideAdultContent: (Boolean) -> Unit = {},
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
     onToggleHighResImages: (Boolean) -> Unit,
@@ -173,6 +174,8 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 onToggleParental = onToggleParentalControl,
                 onRequestChangePin = onRequestChangeParentalPin,
                 onToggleBiometric = onToggleParentalBiometric,
+                hideAdultContent = settings.hideAdultContent,
+                onToggleHideAdultContent = onToggleHideAdultContent,
             )
         }
 

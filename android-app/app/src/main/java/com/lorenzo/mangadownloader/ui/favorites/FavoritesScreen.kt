@@ -10,16 +10,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -37,8 +42,10 @@ import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.FavoriteSourceNotice
 import com.lorenzo.mangadownloader.domain.series.FavoriteReadingState
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 import com.lorenzo.mangadownloader.domain.series.FavoriteSort
 import com.lorenzo.mangadownloader.domain.series.filterFavorites
+import com.lorenzo.mangadownloader.domain.series.filterFavoritesByShelf
 import com.lorenzo.mangadownloader.domain.series.sortFavorites
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.FavoriteActionsDialog
@@ -66,20 +73,35 @@ fun FavoritesScreen(
     onSelectReadingState: (FavoriteReadingState?) -> Unit,
     onReadNow: (FavoriteManga) -> Unit,
     onRemoveFavorite: (FavoriteManga) -> Unit,
+    shelves: FavoriteShelves = FavoriteShelves(),
+    filterShelfId: String? = null,
+    onSelectShelf: (String?) -> Unit = {},
+    onCreateShelf: (String) -> String? = { null },
+    onRenameShelf: (String, String) -> Boolean = { _, _ -> false },
+    onDeleteShelf: (String) -> Unit = {},
+    onSetShelves: (FavoriteManga, Set<String>) -> Unit = { _, _ -> },
 ) {
     val displayed = remember(
         favorites, query, sort, statusByKey, seenByKey, filterReadingState, readingStateByKey,
+        shelves, filterShelfId,
     ) {
         sortFavorites(
-            filterFavorites(favorites, query, filterReadingState, readingStateByKey),
+            filterFavoritesByShelf(
+                filterFavorites(favorites, query, filterReadingState, readingStateByKey),
+                filterShelfId,
+                shelves,
+            ),
             sort,
             statusByKey,
             seenByKey,
         )
     }
+    val shelfCounts = remember(shelves, favorites) { shelves.countsIn(favorites) }
 
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<FavoriteManga?>(null) }
+    var shelvesFor by remember { mutableStateOf<FavoriteManga?>(null) }
+    var showShelvesManager by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -126,7 +148,7 @@ fun FavoritesScreen(
                     IconButton(onClick = { sortMenuExpanded = true }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Ordina preferiti",
+                            contentDescription = "Ordina preferiti e scaffali",
                         )
                     }
                     DropdownMenu(
@@ -147,6 +169,43 @@ fun FavoritesScreen(
                                 },
                             )
                         }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Gestisci scaffali") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Label, contentDescription = null) },
+                            onClick = {
+                                sortMenuExpanded = false
+                                showShelvesManager = true
+                            },
+                        )
+                    }
+                }
+            }
+            // Gli scaffali dell'utente, solo se ne ha creati: chi non li usa non vede una
+            // riga in più. Qui lo scroll orizzontale serve, i nomi li sceglie l'utente.
+            if (shelves.shelves.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LazyRow(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(shelves.shelves, key = { it.id }) { shelf ->
+                            FilterChip(
+                                selected = filterShelfId == shelf.id,
+                                onClick = { onSelectShelf(shelf.id.takeIf { filterShelfId != it }) },
+                                label = {
+                                    Text("${shelf.name} · ${shelfCounts[shelf.id] ?: 0}", maxLines = 1)
+                                },
+                            )
+                        }
+                    }
+                    IconButton(onClick = { showShelvesManager = true }) {
+                        Icon(Icons.Outlined.Edit, contentDescription = "Gestisci scaffali")
                     }
                 }
             }
@@ -171,6 +230,7 @@ fun FavoritesScreen(
                         onAction = {
                             onQueryChange("")
                             onSelectReadingState(null)
+                            onSelectShelf(null)
                         },
                     )
                 }
@@ -214,6 +274,39 @@ fun FavoritesScreen(
                 actionsFor = null
             },
             onDismiss = { actionsFor = null },
+            shelvesSummary = shelves.shelfIdsOf(favorite)
+                .mapNotNull { shelves.shelf(it)?.name }
+                .joinToString(", ")
+                .ifEmpty { "Su nessuno scaffale" },
+            onEditShelves = {
+                shelvesFor = favorite
+                actionsFor = null
+            },
+        )
+    }
+
+    shelvesFor?.let { favorite ->
+        ShelfPickerDialog(
+            favoriteTitle = favorite.title,
+            shelves = shelves.shelves,
+            initiallySelected = shelves.shelfIdsOf(favorite),
+            onCreateShelf = onCreateShelf,
+            onConfirm = { ids ->
+                onSetShelves(favorite, ids)
+                shelvesFor = null
+            },
+            onDismiss = { shelvesFor = null },
+        )
+    }
+
+    if (showShelvesManager) {
+        ShelvesManageDialog(
+            shelves = shelves.shelves,
+            countsByShelf = shelfCounts,
+            onCreateShelf = onCreateShelf,
+            onRenameShelf = onRenameShelf,
+            onDeleteShelf = onDeleteShelf,
+            onDismiss = { showShelvesManager = false },
         )
     }
 }

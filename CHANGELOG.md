@@ -6,6 +6,10 @@
 
 ## 2026-09-23
 
+### Aggiunto
+
+- Scaffali per i preferiti: puoi creare scaffali con il nome che vuoi ("Da rileggere", "Per le vacanze"…) e mettere ogni preferito su uno o più scaffali dal suo menu. Gli scaffali compaiono come filtro sotto gli stati di lettura, e si rinominano o eliminano da "Gestisci scaffali". Sono inclusi nel backup.
+
 ### Migliorato
 
 - Ogni serie ha la sua coda di download: il pulsante di stop sulla card ferma solo quella serie, mentre "Ferma download" in basso continua a fermarle tutte.

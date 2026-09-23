@@ -4,6 +4,7 @@ import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
+import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesStore
 import com.lorenzo.mangadownloader.data.store.FavoritesStore
 import com.lorenzo.mangadownloader.data.store.ReadingDiaryStore
@@ -12,6 +13,8 @@ import com.lorenzo.mangadownloader.data.store.RecentSearchesStore
 import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
+import com.lorenzo.mangadownloader.domain.series.mergeFavoriteShelves
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -23,6 +26,7 @@ import java.io.OutputStream
  */
 class BackupManager(
     private val favoritesStore: FavoritesStore,
+    private val favoriteShelvesStore: FavoriteShelvesStore,
     private val favoriteUpdatesStore: FavoriteUpdatesStore,
     private val favoriteDescriptionsStore: FavoriteDescriptionsStore,
     private val recentSearchesStore: RecentSearchesStore,
@@ -43,6 +47,7 @@ class BackupManager(
         settings = settingsStore.read().toBackup(),
         readingMemory = readingMemoryStore.read().mapValues { (_, record) -> record.toBackupEntry() },
         readingDiary = readingDiaryStore.read().mapValues { (_, stats) -> stats.toBackupEntry() },
+        favoriteShelves = favoriteShelvesStore.read(),
     )
 
     /** Scrive il backup come JSON UTF-8 sullo stream fornito (aperto/chiuso dal chiamante). */
@@ -64,6 +69,7 @@ class BackupManager(
         val recentSearches: List<String>
         val favoriteUpdates: Map<String, FavoriteSeenState>
         val favoriteDescriptions: Map<String, String>
+        val favoriteShelves: FavoriteShelves
         when (mode) {
             BackupRestoreMode.REPLACE -> {
                 favorites = backup.favorites.mapNotNull { it.toFavoriteManga() }
@@ -72,12 +78,14 @@ class BackupManager(
                     .take(RecentSearchesStore.MAX_RECENT_SEARCHES)
                 favoriteUpdates = backup.favoriteUpdates
                 favoriteDescriptions = backup.favoriteDescriptions
+                favoriteShelves = backup.favoriteShelves
             }
             BackupRestoreMode.MERGE -> {
                 favorites = mergeFavorites(currentFavorites, backup.favorites)
                 recentSearches = mergeRecentSearches(recentSearchesStore.read(), backup.recentSearches)
                 favoriteUpdates = mergeFavoriteUpdates(favoriteUpdatesStore.read(), backup.favoriteUpdates)
                 favoriteDescriptions = favoriteDescriptionsStore.read() + backup.favoriteDescriptions
+                favoriteShelves = mergeFavoriteShelves(favoriteShelvesStore.read(), backup.favoriteShelves)
             }
         }
         // Memoria e diario di lettura si UNISCONO sempre, anche in REPLACE: azzerarli
@@ -91,6 +99,7 @@ class BackupManager(
         recentSearchesStore.persist(recentSearches)
         favoriteUpdatesStore.write(favoriteUpdates)
         favoriteDescriptionsStore.write(favoriteDescriptions)
+        favoriteShelvesStore.write(favoriteShelves)
         settingsStore.persist(settings)
         readingMemoryStore.persist(readingMemory)
         readingDiaryStore.persist(readingDiary)
@@ -100,6 +109,7 @@ class BackupManager(
             settings = settings,
             recentSearches = recentSearches,
             favoriteDescriptions = favoriteDescriptions,
+            favoriteShelves = favoriteShelves,
             readingMemory = readingMemory,
             readingDiary = readingDiary,
             favoritesTotal = favorites.size,
@@ -115,6 +125,7 @@ data class BackupRestoreResult(
     val settings: AppSettings,
     val recentSearches: List<String>,
     val favoriteDescriptions: Map<String, String>,
+    val favoriteShelves: FavoriteShelves,
     val readingMemory: Map<String, ReadChapterMemory>,
     val readingDiary: Map<String, ReadingDayStats>,
     val favoritesTotal: Int,

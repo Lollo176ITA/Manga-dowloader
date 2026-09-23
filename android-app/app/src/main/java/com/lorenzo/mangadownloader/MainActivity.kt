@@ -922,6 +922,13 @@ private fun MangaDownloaderAppContent(
                             onBrowse = goToSearchTab,
                             onSelectSort = viewModel::setFavoriteSort,
                             onSelectReadingState = viewModel::setFavoriteFilterReadingState,
+                            shelves = state.favoriteShelves,
+                            filterShelfId = state.favoriteFilterShelfId,
+                            onSelectShelf = viewModel::setFavoriteFilterShelf,
+                            onCreateShelf = viewModel::createFavoriteShelf,
+                            onRenameShelf = viewModel::renameFavoriteShelf,
+                            onDeleteShelf = viewModel::deleteFavoriteShelf,
+                            onSetShelves = viewModel::setShelvesForFavorite,
                             onReadNow = viewModel::readNowFromFavorite,
                             onRemoveFavorite = { favorite ->
                                 viewModel.toggleFavorite(favorite)

@@ -21,6 +21,7 @@ import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.diaryDayOf
 import com.lorenzo.mangadownloader.domain.reading.mergedWith
 import com.lorenzo.mangadownloader.domain.reading.seriesKeyOf
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 import com.lorenzo.mangadownloader.domain.series.FavoriteSort
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
 import com.lorenzo.mangadownloader.ui.components.CardDensity
@@ -56,6 +57,8 @@ data class MangaBackup(
     val settings: SettingsBackup = SettingsBackup(),
     val readingMemory: Map<String, ReadingMemoryBackupEntry> = emptyMap(),
     val readingDiary: Map<String, ReadingDiaryBackupEntry> = emptyMap(),
+    /** Campo additivo: i backup precedenti non l'hanno e restano validi. */
+    val favoriteShelves: FavoriteShelves = FavoriteShelves(),
 )
 
 /** Forma nel backup di un record della memoria di lettura; combacia con `ReadingMemoryStore`. */

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.StarBorder
@@ -332,6 +333,9 @@ fun FavoriteActionsDialog(
     // Avviso sull'approvvigionamento: qui c'è lo spazio per il testo esteso che sulla card
     // sta solo come icona.
     notice: FavoriteSourceNotice? = null,
+    // Scaffali: riga mostrata solo se il chiamante gestisce gli scaffali.
+    shelvesSummary: String? = null,
+    onEditShelves: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -357,6 +361,14 @@ fun FavoriteActionsDialog(
                     description = null,
                     onClick = onRead,
                 )
+                onEditShelves?.let { onEdit ->
+                    FavoriteActionRow(
+                        icon = Icons.AutoMirrored.Outlined.Label,
+                        title = "Scaffali",
+                        description = shelvesSummary,
+                        onClick = onEdit,
+                    )
+                }
                 // Rimozione locale e immediata (nessun fetch di rete come dal dettaglio);
                 // il ripensamento passa dalla snackbar "Annulla" mostrata dal chiamante.
                 FavoriteActionRow(

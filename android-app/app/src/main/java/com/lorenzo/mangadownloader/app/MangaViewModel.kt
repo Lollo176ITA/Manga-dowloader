@@ -70,6 +70,7 @@ import com.lorenzo.mangadownloader.data.sources.recordSourceProbeSuccess
 import com.lorenzo.mangadownloader.data.sources.sourcesToQuery
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
+import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSourceHealthStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSourceNotice
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
@@ -119,6 +120,7 @@ import com.lorenzo.mangadownloader.domain.reading.withReadingMemoryApplied
 import com.lorenzo.mangadownloader.domain.sanitizeParentalPin
 import com.lorenzo.mangadownloader.domain.searchSourcesIncrementally
 import com.lorenzo.mangadownloader.domain.series.FavoriteReadingState
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 import com.lorenzo.mangadownloader.domain.series.FavoriteSort
 import com.lorenzo.mangadownloader.domain.series.FavoritesSeriesMigration
 import com.lorenzo.mangadownloader.domain.series.GroupedSearchResult
@@ -142,6 +144,7 @@ import com.lorenzo.mangadownloader.ui.reader.unexpandedReaderPages
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -407,6 +410,9 @@ data class MangaUiState(
      */
     val favoriteSeriesKeys: Set<String> = emptySet(),
     val favoriteFilterReadingState: FavoriteReadingState? = null,
+    /** Scaffali scelti dall'utente e filtro attivo (`null` = tutti i preferiti). */
+    val favoriteShelves: FavoriteShelves = FavoriteShelves(),
+    val favoriteFilterShelfId: String? = null,
     // Mappe indicizzate per SeriesKey (vedi FavoritesSeriesMigration): sopravvivono al
     // cambio fonte, che per un preferito è un evento normale.
     val favoriteStatusByKey: Map<String, MangaPublicationStatus> = emptyMap(),
@@ -529,8 +535,10 @@ class MangaViewModel internal constructor(
     private val readingMemoryStore = ReadingMemoryStore(prefs)
     private val readingDiaryStore = ReadingDiaryStore(prefs)
     private val homeFeedCacheStore = HomeFeedCacheStore(prefs)
+    private val favoriteShelvesStore = FavoriteShelvesStore(prefs)
     private val backupManager = BackupManager(
         favoritesStore = favoritesStore,
+        favoriteShelvesStore = favoriteShelvesStore,
         favoriteUpdatesStore = favoriteUpdatesStore,
         favoriteDescriptionsStore = favoriteDescriptionsStore,
         recentSearchesStore = recentSearchesStore,
@@ -584,6 +592,7 @@ class MangaViewModel internal constructor(
             favoriteSeriesKeys = favoriteSeriesKeys(initialFavorites),
             favoriteSeenStates = initialFavoriteSeen,
             favoriteStatusByKey = initialFavoriteSeen.toStatusMap(),
+            favoriteShelves = favoriteShelvesStore.read(),
             favoriteNotices = favoriteSourceHealthStore.read()
                 .mapNotNull { (key, health) -> favoriteSourceNotice(health)?.let { key to it } }
                 .toMap(),
@@ -761,6 +770,41 @@ class MangaViewModel internal constructor(
 
     fun setFavoriteFilterReadingState(state: FavoriteReadingState?) {
         updateState { copy(favoriteFilterReadingState = state) }
+    }
+
+    fun setFavoriteFilterShelf(shelfId: String?) {
+        updateState { copy(favoriteFilterShelfId = shelfId) }
+    }
+
+    /** Crea uno scaffale e restituisce il suo id; `null` se il nome è vuoto o già usato. */
+    fun createFavoriteShelf(name: String): String? {
+        val id = UUID.randomUUID().toString()
+        val updated = favoriteShelvesStore.update { it.withNewShelf(name, id) } ?: return null
+        updateState { copy(favoriteShelves = updated) }
+        return id
+    }
+
+    /** `false` se il nome è vuoto o già usato da un altro scaffale. */
+    fun renameFavoriteShelf(shelfId: String, name: String): Boolean {
+        val updated = favoriteShelvesStore.update { it.withRenamedShelf(shelfId, name) } ?: return false
+        updateState { copy(favoriteShelves = updated) }
+        return true
+    }
+
+    /** Elimina lo scaffale; i preferiti restano, perdono solo l'etichetta. */
+    fun deleteFavoriteShelf(shelfId: String) {
+        val updated = favoriteShelvesStore.update { it.withoutShelf(shelfId) } ?: return
+        updateState {
+            copy(
+                favoriteShelves = updated,
+                favoriteFilterShelfId = favoriteFilterShelfId.takeIf { it != shelfId },
+            )
+        }
+    }
+
+    fun setShelvesForFavorite(favorite: FavoriteManga, shelfIds: Set<String>) {
+        val updated = favoriteShelvesStore.update { it.withShelvesFor(favorite, shelfIds) } ?: return
+        updateState { copy(favoriteShelves = updated) }
     }
 
     /**
@@ -965,6 +1009,9 @@ class MangaViewModel internal constructor(
                     favoriteSeriesKeys = favoriteSeriesKeys(result.favorites),
                     favoriteSeenStates = restoredSeen,
                     favoriteStatusByKey = restoredSeen.toStatusMap(),
+                    favoriteShelves = result.favoriteShelves,
+                    favoriteFilterShelfId = favoriteFilterShelfId
+                        ?.takeIf { result.favoriteShelves.shelf(it) != null },
                     favoriteUpdates = if (clearFeed) emptyList() else favoriteUpdates,
                     recentSearches = result.recentSearches,
                     settings = result.settings,

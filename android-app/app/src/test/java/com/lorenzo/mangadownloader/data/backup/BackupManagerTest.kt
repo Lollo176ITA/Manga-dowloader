@@ -8,6 +8,7 @@ import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.ThemeMode
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
+import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesStore
 import com.lorenzo.mangadownloader.data.store.FavoritesStore
 import com.lorenzo.mangadownloader.data.store.ReadingDiaryStore
@@ -17,6 +18,7 @@ import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.home.HomeBlock
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -45,6 +47,7 @@ class BackupManagerTest {
 
     private fun manager() = BackupManager(
         favoritesStore = FavoritesStore(prefs()),
+        favoriteShelvesStore = FavoriteShelvesStore(prefs()),
         favoriteUpdatesStore = FavoriteUpdatesStore(prefs()),
         favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs()),
         recentSearchesStore = RecentSearchesStore(prefs()),
@@ -223,5 +226,26 @@ class BackupManagerTest {
             restored.homeBlockOrder,
         )
         assertEquals(setOf(HomeBlock.DISCOVER), restored.hiddenHomeBlocks)
+    }
+
+    @Test
+    fun shelves_roundTrip_andMergeByName() {
+        val favA = favorite("A", 1)
+        FavoritesStore(prefs()).persist(listOf(favA))
+        val shelves = FavoriteShelves()
+            .withNewShelf("Da rileggere", "s1")!!
+            .withShelvesFor(favA, setOf("s1"))
+        FavoriteShelvesStore(prefs()).write(shelves)
+        val out = ByteArrayOutputStream()
+        manager().export(out, nowMs = 1L)
+
+        // Sul telefono "nuovo" esiste già uno scaffale con lo stesso nome ma un altro id.
+        prefs().edit().clear().commit()
+        FavoriteShelvesStore(prefs()).write(FavoriteShelves().withNewShelf("da RILEGGERE", "local")!!)
+        val result = manager().restore(out.toByteArray().inputStream(), BackupRestoreMode.MERGE)!!
+
+        assertEquals(listOf("local"), result.favoriteShelves.shelves.map { it.id })
+        assertEquals(setOf("local"), result.favoriteShelves.shelfIdsOf(favA))
+        assertEquals(result.favoriteShelves, FavoriteShelvesStore(prefs()).read())
     }
 }

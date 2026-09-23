@@ -10,10 +10,11 @@
 - **Lettura online o download**: dalla lista capitoli un tocco apre il capitolo in streaming, l'icona accanto lo scarica. I capitoli scaricati diventano file `.cbz` in `Android/data/com.lorenzo.mangadownloader/files/Download/MangaDownloader/<manga>/`.
 - **Download in background** con `WorkManager` e notifica di avanzamento. I capitoli già salvati vengono saltati.
 - **Reader** verticale o a pagine, con gestione delle pagine doppie (adatta, dividi, ruota) e dei capitoli molto lunghi.
-- **Preferiti** con controllo periodico dei nuovi capitoli, notifiche e feed "Aggiornamenti". Se una fonte non risponde, l'app ripiega su un'altra fonte collegata alla stessa serie.
-- **AniList**: tracciamento dei progressi e sincronizzazione dei preferiti nei due sensi.
-- **Home** con "Riprendi", "Scopri" e consigliati; cronologia e statistiche di lettura.
-- **Backup/ripristino**, parental control, schermata "Segnala un problema", aggiornamento automatico dalle GitHub Release (anche preview, se attivate).
+- **Preferiti** con controllo periodico dei nuovi capitoli, notifiche e feed "Aggiornamenti", filtri per stato di lettura e scaffali con nomi scelti dall'utente. Se una fonte non risponde, l'app ripiega su un'altra fonte collegata alla stessa serie.
+- **AniList**: tracciamento dei progressi e sincronizzazione dei preferiti nei due sensi; i preferiti AniList che nessuna fonte ha restano visibili nel gruppo "Senza scan".
+- **Home** con "Riprendi", "Scopri" e consigliati; cronologia e statistiche di lettura; widget per la schermata Home del telefono con l'ultima lettura e i nuovi capitoli.
+- **Controllo genitori**: PIN per la ricerca (con blocco dopo troppi tentativi), filtro dei manga per adulti, vetrine AniList nascoste. Il filtro per adulti si può usare anche da solo.
+- **Backup/ripristino**, schermata "Segnala un problema", aggiornamento automatico dalle GitHub Release (anche preview, se attivate).
 
 Le novità di ogni versione sono in [CHANGELOG.md](CHANGELOG.md), che l'app mostra anche nella schermata "Novità".
 
@@ -51,13 +52,13 @@ Sorgenti in `android-app/app/src/main/java/com/lorenzo/mangadownloader/`, divisi
 
 | Package | Contenuto |
 | --- | --- |
-| *(radice)* | `MainActivity`, `MangaApplication`, `DownloadWorker`, `FavoriteUpdatesWorker` |
+| *(radice)* | `MainActivity`, `MangaApplication`, `DownloadWorker`, `FavoriteUpdatesWorker`, `ReadingWidgetReceiver` |
 | `app/` | `MangaViewModel`, navigazione (`Screen`), effetti di sistema, messaggi d'errore |
 | `data/` | modelli, rete, fonti (`sources/`), libreria su disco, AniList, persistenza (`store/`), backup, segnalazioni, aggiornamenti |
 | `domain/` | logica pura senza Android né Compose: identità delle serie, progressi di lettura, blocchi della Home |
 | `ui/` | tema, componenti condivisi e una cartella per schermata |
 
-**Le quattro classi nella radice non vanno spostate né rinominate.** Android e WorkManager le identificano per nome completo della classe: spostarle romperebbe le icone già in Home, i controlli periodici dei preferiti (registrati con `ExistingPeriodicWorkPolicy.KEEP`) e i download in coda sui telefoni che hanno già l'app.
+**Le classi nella radice non vanno spostate né rinominate.** Android e WorkManager le identificano per nome completo della classe: spostarle romperebbe le icone e i widget già in Home, i controlli periodici dei preferiti (registrati con `ExistingPeriodicWorkPolicy.KEEP`) e i download in coda sui telefoni che hanno già l'app.
 
 I test (`src/test/...`) stanno nello stesso package della classe che verificano; quelli che coprono più aree, come i test del `MangaViewModel`, stanno in `app/`.
 

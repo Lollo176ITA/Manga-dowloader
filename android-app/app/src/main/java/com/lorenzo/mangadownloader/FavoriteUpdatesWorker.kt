@@ -56,6 +56,7 @@ import com.lorenzo.mangadownloader.domain.series.FavoriteIdentityResolver
 import com.lorenzo.mangadownloader.domain.series.FavoritesSeriesMigration
 import com.lorenzo.mangadownloader.domain.series.favoriteSourceCandidates
 import com.lorenzo.mangadownloader.domain.series.fetchFromFirstAvailable
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -249,6 +250,7 @@ class FavoriteUpdatesWorker(
         // (una voce sola che espande le singole) invece di N notifiche sparse.
         if (notifiedCount > 0) {
             notifier.notifySummary(feedStore.read().filter { !it.seen })
+            ReadingWidget.updateAll(context)
         }
         } finally {
             // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà

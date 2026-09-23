@@ -115,7 +115,9 @@ import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
 import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
+import com.lorenzo.mangadownloader.domain.reading.ResumeTarget
 import com.lorenzo.mangadownloader.domain.reading.canReopenStreaming
+import com.lorenzo.mangadownloader.domain.reading.computeHomeResume
 import com.lorenzo.mangadownloader.domain.reading.diaryDayKey
 import com.lorenzo.mangadownloader.domain.reading.displayLabel
 import com.lorenzo.mangadownloader.domain.reading.mergedWith
@@ -150,6 +152,7 @@ import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
 import com.lorenzo.mangadownloader.ui.reader.expandSpreadPages
 import com.lorenzo.mangadownloader.ui.reader.readPageBounds
 import com.lorenzo.mangadownloader.ui.reader.unexpandedReaderPages
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
@@ -3836,6 +3839,35 @@ class MangaViewModel internal constructor(
     }
 
     /** Scrive memoria e diario di lettura su disco solo se diversi dagli ultimi persistiti. */
+    /** App in background: salva le letture e ridisegna il widget "Continua a leggere". */
+    fun onAppBackgrounded() {
+        persistReadingMemoryIfChanged()
+        val app = getApplication<Application>()
+        viewModelScope.launch { ReadingWidget.updateAll(app) }
+    }
+
+    /**
+     * Tocco sul widget: riapre l'ultima lettura in corso, la stessa del blocco "Riprendi" della
+     * Home. La libreria viene riletta prima, perché all'apertura a freddo non è ancora caricata.
+     */
+    fun resumeLatestReading() {
+        viewModelScope.launch {
+            val snapshot = try {
+                scanLibrarySnapshot()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _state.value.library
+            }
+            updateState { withLibrarySnapshot(snapshot) }
+            when (val target = computeHomeResume(_state.value.library, _state.value.readingMemory)?.target) {
+                is ResumeTarget.Downloaded -> openReader(target.chapter)
+                is ResumeTarget.Streaming -> resumeStreamingChapter(target.memory)
+                null -> Unit
+            }
+        }
+    }
+
     private fun persistReadingMemoryIfChanged() {
         val memory = _state.value.readingMemory
         if (memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory) {

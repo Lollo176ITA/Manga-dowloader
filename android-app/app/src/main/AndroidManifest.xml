@@ -60,6 +60,20 @@
                     android:scheme="mangapp" />
             </intent-filter>
         </activity>
+
+        <!-- Widget "Continua a leggere". Come MainActivity, il launcher salva il nome completo
+             della classe: spostarla o rinominarla fa sparire i widget già messi in Home. -->
+        <receiver
+            android:name=".ReadingWidgetReceiver"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/reading_widget_info" />
+        </receiver>
     </application>
 
 </manifest>

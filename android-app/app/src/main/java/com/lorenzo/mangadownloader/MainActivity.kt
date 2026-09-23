@@ -107,6 +107,7 @@ import com.lorenzo.mangadownloader.ui.theme.MangaDownloaderTheme
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialAnchor
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialOverlay
 import com.lorenzo.mangadownloader.ui.updates.UpdatesScreen
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -120,6 +121,13 @@ class MainActivity : FragmentActivity() {
         setContent {
             MangaDownloaderApp()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // L'app va in background: è lì che il widget torna visibile, quindi è il momento di
+        // ridisegnarlo con le letture appena fatte.
+        ViewModelProvider(this)[MangaViewModel::class.java].onAppBackgrounded()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -149,6 +157,11 @@ class MainActivity : FragmentActivity() {
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
         val viewModel = ViewModelProvider(this)[MangaViewModel::class.java]
+        if (intent.getBooleanExtra(ReadingWidget.EXTRA_RESUME_READING, false)) {
+            intent.removeExtra(ReadingWidget.EXTRA_RESUME_READING)
+            viewModel.resumeLatestReading()
+            return
+        }
         if (intent.getBooleanExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED, false)) {
             intent.removeExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED)
             viewModel.openUpdatesFromNotification()

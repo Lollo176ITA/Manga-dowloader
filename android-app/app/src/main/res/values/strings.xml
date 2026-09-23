@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MangApp</string>
+    <string name="reading_widget_description">Riprendi l\'ultima lettura e vedi i nuovi capitoli dei preferiti</string>
 </resources>

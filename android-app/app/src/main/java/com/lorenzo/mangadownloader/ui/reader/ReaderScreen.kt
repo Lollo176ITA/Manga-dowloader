@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -346,6 +347,8 @@ private fun ReaderContent(
                 initialPageIndex = initialPageIndex,
                 resumeButtonVisible = resumeButtonVisible,
                 resumeButtonBottomPadding = resumeButtonBottomPadding,
+                chapterNavBarVisible = resumeButtonVisible &&
+                    (previousChapter != null || nextChapter != null),
                 onOpenPrevious = onOpenPrevious,
                 onOpenNext = onOpenNext,
                 onPageVisible = onPageVisible,
@@ -369,6 +372,7 @@ private fun VerticalReader(
     initialPageIndex: Int,
     resumeButtonVisible: Boolean,
     resumeButtonBottomPadding: Dp,
+    chapterNavBarVisible: Boolean,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onPageVisible: (pageIndex: Int, pageCount: Int, allowCompletion: Boolean) -> Unit,
@@ -391,6 +395,13 @@ private fun VerticalReader(
     val readerScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
     val context = LocalContext.current
+    // Spazio in fondo alla lista per la barra capitoli flottante: senza, la riga
+    // Precedente/Successivo finisce sotto la barra (da ingranditi resta cliccabile
+    // solo la parte di parola che sporge).
+    val listBottomPadding by animateDpAsState(
+        targetValue = if (chapterNavBarVisible) ReaderChapterNavBarReservedHeight else 8.dp,
+        label = "readerListBottomPadding",
+    )
 
     DisposableEffect(chapterKey) {
         onDispose { zoomFlingJob?.cancel() }
@@ -560,6 +571,12 @@ private fun VerticalReader(
                         pass = PointerEventPass.Initial,
                     )
                     zoomFlingJob?.cancel()
+                    // Da ingranditi il pan a un dito parte solo oltre il touch slop: il tremolio
+                    // di un tap non va consumato, altrimenti il tap (fullscreen) e i pulsanti
+                    // Precedente/Successivo dentro la lista vengono annullati.
+                    val touchSlop = viewConfiguration.touchSlop
+                    var panStarted = false
+                    var slopDistance = Offset.Zero
                     var velocityTracker: VelocityTracker? = if (readerScale > minScale) {
                         VelocityTracker().apply {
                             addPosition(firstDown.uptimeMillis, firstDown.position)
@@ -572,6 +589,7 @@ private fun VerticalReader(
                         val pressedChanges = event.changes.filter { it.pressed }
                         if (pressedChanges.size >= 2) {
                             velocityTracker = null
+                            panStarted = true
                             zoomFlingJob?.cancel()
                             val zoomChange = event.calculateZoom()
                             val panChange = event.calculatePan()
@@ -612,13 +630,18 @@ private fun VerticalReader(
                                 velocityTracker = it
                             }
                             tracker.addPosition(change.uptimeMillis, change.position)
-                            if (panChange != Offset.Zero) {
+                            if (!panStarted) {
+                                slopDistance += panChange
+                                panStarted = slopDistance.getDistance() > touchSlop
+                            }
+                            if (panStarted && panChange != Offset.Zero) {
                                 applyZoomPanDelta(readerScale, panChange)
                                 change.consume()
                             }
                         }
                     } while (event.changes.any { it.pressed })
                     velocityTracker
+                        ?.takeIf { panStarted }
                         ?.calculateVelocity()
                         ?.let { velocity ->
                             startZoomFling(
@@ -687,7 +710,7 @@ private fun VerticalReader(
                     translationX = readerOffsetX
                     translationY = readerOffsetY
                 },
-            contentPadding = PaddingValues(vertical = 8.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = listBottomPadding),
             verticalArrangement = Arrangement.Top,
         ) {
             item("reader-nav-top") {
@@ -966,12 +989,18 @@ private fun ZoomablePage(
             .pointerInput(page.stableKey) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    // Pan a un dito solo oltre il touch slop: un tap che trema non va consumato,
+                    // altrimenti da ingranditi non si riesce più a entrare/uscire dal fullscreen.
+                    val touchSlop = viewConfiguration.touchSlop
+                    var panStarted = false
+                    var slopDistance = Offset.Zero
                     do {
                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                         val pressedChanges = event.changes.filter { it.pressed }
                         if (pressedChanges.size >= 2) {
                             val zoomChange = event.calculateZoom()
                             val panChange = event.calculatePan()
+                            panStarted = true
                             if (zoomChange != 1f || panChange != Offset.Zero) {
                                 val nextScale = (scale * zoomChange).coerceIn(minScale, maxScale)
                                 val effective = nextScale / scale
@@ -991,7 +1020,11 @@ private fun ZoomablePage(
                             // Pan dentro la pagina ingrandita: consuma così il pager non sfoglia.
                             val change = pressedChanges.first()
                             val panChange = change.positionChange()
-                            if (panChange != Offset.Zero) {
+                            if (!panStarted) {
+                                slopDistance += panChange
+                                panStarted = slopDistance.getDistance() > touchSlop
+                            }
+                            if (panStarted && panChange != Offset.Zero) {
                                 offsetX += panChange.x
                                 offsetY += panChange.y
                                 clamp()
@@ -1234,6 +1267,9 @@ private fun prefetchReaderPages(
 private const val ReaderPageItemOffset = 1
 private const val MinZoomFlingVelocityPxPerSecond = 120f
 private const val ReaderPrefetchPagesAhead = 3
+
+// Ingombro della barra capitoli flottante (56dp + 12dp di margine) più un po' di respiro.
+private val ReaderChapterNavBarReservedHeight = 80.dp
 
 // Ingombro delle pagine non ancora caricate (spinner/errore): evita item ad altezza
 // zero in verticale e dà un bersaglio visibile al "tocca per riprovare".

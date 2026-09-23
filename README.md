@@ -12,7 +12,7 @@
 - **Reader** verticale o a pagine, con gestione delle pagine doppie (adatta, dividi, ruota) e dei capitoli molto lunghi.
 - **Preferiti** con controllo periodico dei nuovi capitoli, notifiche e feed "Aggiornamenti", filtri per stato di lettura e scaffali con nomi scelti dall'utente. Se una fonte non risponde, l'app ripiega su un'altra fonte collegata alla stessa serie.
 - **AniList**: tracciamento dei progressi e sincronizzazione dei preferiti nei due sensi; i preferiti AniList che nessuna fonte ha restano visibili nel gruppo "Senza scan".
-- **Home** con "Riprendi", "Scopri" e consigliati; cronologia e statistiche di lettura; widget per la schermata Home del telefono con l'ultima lettura e i nuovi capitoli.
+- **Home** con "Riprendi", "Scopri" e consigliati; cronologia e statistiche di lettura; widget 4×1 per la schermata Home del telefono con l'ultima lettura, da aggiungere anche dalle impostazioni.
 - **Controllo genitori**: PIN per la ricerca (con blocco dopo troppi tentativi), filtro dei manga per adulti, vetrine AniList nascoste. Il filtro per adulti si può usare anche da solo.
 - **Backup/ripristino**, schermata "Segnala un problema", aggiornamento automatico dalle GitHub Release (anche preview, se attivate).
 

@@ -31,13 +31,21 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
@@ -49,6 +57,7 @@ import com.lorenzo.mangadownloader.ui.components.NumberSettingField
 import com.lorenzo.mangadownloader.ui.components.appCardColors
 import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidgetPinning
 
 /**
  * Card di una sezione delle impostazioni: intestazione (icona + titolo) e contenuto. Le sezioni
@@ -527,6 +536,41 @@ fun ReportProblemContent(
 }
 
 /** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
+/**
+ * Widget "Continua a leggere": chi non sa che esiste non lo va a cercare tra i widget del
+ * telefono, quindi si offre da qui. Lo stato ("già nella Home") si rilegge a ogni ritorno
+ * sull'app, perché l'aggiunta avviene nel dialog del launcher.
+ */
+@Composable
+fun ReadingWidgetSettingsContent() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var refreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val placed = remember(refreshTick) { ReadingWidgetPinning.isPlaced(context) }
+    val canPin = remember { ReadingWidgetPinning.canRequestPin(context) }
+    val description = when {
+        placed -> "È già nella schermata Home. Riprendi l'ultima lettura con un tocco."
+        canPin -> "Una striscia 4×1 nella schermata Home con l'ultima lettura: un tocco la riapre."
+        else -> "Tieni premuto su uno spazio vuoto della schermata Home, scegli Widget e cerca MangApp."
+    }
+    SettingsActionRow(
+        title = if (canPin && !placed) "Aggiungi il widget alla Home" else "Widget \"Continua a leggere\"",
+        description = description,
+        onClick = if (canPin && !placed) {
+            { ReadingWidgetPinning.requestPin(context) }
+        } else {
+            null
+        },
+    )
+}
+
 @Composable
 fun RestartTutorialContent(onRestart: () -> Unit) {
     SettingsActionRow(

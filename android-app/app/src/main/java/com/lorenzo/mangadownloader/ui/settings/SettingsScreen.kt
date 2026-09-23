@@ -149,6 +149,8 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
         SettingsSection(title = "App", icon = Icons.Default.Settings) {
             RestartTutorialContent(onRestart = onRestartTutorial)
             SettingsDivider()
+            ReadingWidgetSettingsContent()
+            SettingsDivider()
             AniListAccountContent(
                 viewerName = aniListViewerName,
                 isConnecting = isAniListConnecting,

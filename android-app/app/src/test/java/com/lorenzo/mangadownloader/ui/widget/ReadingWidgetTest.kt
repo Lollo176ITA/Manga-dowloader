@@ -12,17 +12,13 @@ import androidx.compose.ui.unit.dp
 import androidx.glance.appwidget.compose
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
-import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
-import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesFeedStore
 import com.lorenzo.mangadownloader.data.store.ReadingMemoryStore
 import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,68 +55,49 @@ class ReadingWidgetTest {
         chapterUrl = "https://mangapill.com/chapters/3-12/berserk-chapter-12",
     )
 
-    private fun event(title: String, chapter: String, at: Long, seen: Boolean = false) = FavoriteUpdateEvent(
-        title = title,
-        sourceId = MangaSourceIds.MANGAPILL,
-        mangaUrl = "https://mangapill.com/manga/${title.hashCode()}",
-        chapterLabel = chapter,
-        timestampMillis = at,
-        seen = seen,
-    )
-
     @Test
-    fun data_usesHomeResumeRules_andNewestUpdatesFirst() {
-        val feed = listOf(
-            event("A", "Capitolo 1", at = 1, seen = true),
-            event("B", "Capitolo 2", at = 4),
-            event("C", "Capitolo 3", at = 3),
-            event("D", "Capitolo 4", at = 2),
-        )
+    fun resume_usesHomeRules_andSubtitleShowsWhereYouStopped() {
+        val resume = readingWidgetResume(emptyList(), mapOf("streaming:abc" to streamingRead))
 
-        val data = buildReadingWidgetData(
-            library = emptyList(),
-            memory = mapOf("streaming:abc" to streamingRead),
-            feed = feed,
-        )
-
-        assertEquals("Berserk", data.resume?.seriesTitle)
-        assertEquals("Pagina 8 di 40", data.resume?.progressLabel())
-        assertEquals(listOf("B", "C", "D"), data.updates.map { it.title })
-        assertEquals(3, data.unseenCount)
+        assertEquals("Berserk", resume?.seriesTitle)
+        assertEquals("Capitolo 12 · pagina 8 di 40", resume?.widgetSubtitle())
     }
 
     @Test
-    fun data_withoutReopenableReading_hasNoResume() {
-        val data = buildReadingWidgetData(
-            library = emptyList(),
-            // Record storico senza coordinate: la Home non lo offre, il widget nemmeno.
-            memory = mapOf("streaming:abc" to streamingRead.copy(chapterUrl = "")),
-            feed = emptyList(),
-        )
-        assertNull(data.resume)
+    fun resume_withoutReopenableReading_isNull() {
+        // Record storico senza coordinate: la Home non lo offre, il widget nemmeno.
+        assertNull(readingWidgetResume(emptyList(), mapOf("streaming:abc" to streamingRead.copy(chapterUrl = ""))))
     }
 
     @Test
-    fun tallWidget_showsResumeAndUpdates() {
+    fun strip4x1_showsOnlyTheReading() {
         ReadingMemoryStore(prefs()).persist(mapOf("streaming:abc" to streamingRead))
-        FavoriteUpdatesFeedStore(prefs()).write(listOf(event("One Piece", "Capitolo 1130", at = 5)))
 
-        val texts = render("reading-widget-tall", DpSize(260.dp, 260.dp))
+        val texts = render("reading-widget-4x1", DpSize(300.dp, 64.dp))
 
-        assertTrue(texts.toString(), "Berserk" in texts)
-        assertTrue(texts.toString(), "Capitolo 12 · Pagina 8 di 40" in texts)
-        assertTrue(texts.toString(), "Nuovi capitoli · 1" in texts)
-        assertTrue(texts.toString(), "One Piece" in texts)
+        assertEquals(listOf("Berserk", "Capitolo 12 · pagina 8 di 40"), texts)
     }
 
     @Test
-    fun compactWidget_showsOnlyResume() {
-        FavoriteUpdatesFeedStore(prefs()).write(listOf(event("One Piece", "Capitolo 1130", at = 5)))
+    fun strip4x1_withoutReadings_invitesToOpenTheApp() {
+        val texts = render("reading-widget-4x1-empty", DpSize(300.dp, 64.dp))
 
-        val texts = render("reading-widget-compact", DpSize(250.dp, 120.dp))
+        assertEquals(listOf("Continua a leggere", "Nessuna lettura in corso"), texts)
+    }
 
-        assertTrue(texts.toString(), "Nessuna lettura in corso" in texts)
-        assertFalse(texts.toString(), "One Piece" in texts)
+    @Test
+    fun strip4x1_withCover_fitsALowCell() {
+        // Copertina locale (file:// ) al posto dell'URL della fonte: niente rete nei test.
+        val coverFile = File(context.cacheDir, "cover.png")
+        Bitmap.createBitmap(90, 128, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFFB71C1C.toInt()) }
+            .let { bitmap -> coverFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+        ReadingMemoryStore(prefs()).persist(
+            mapOf("streaming:abc" to streamingRead.copy(coverUrl = coverFile.toURI().toString())),
+        )
+
+        val texts = render("reading-widget-4x1-cover", DpSize(300.dp, 52.dp))
+
+        assertEquals(listOf("Berserk", "Capitolo 12 · pagina 8 di 40"), texts)
     }
 
     /** Compone il widget, applica le RemoteViews a una view vera e ne raccoglie i testi. */

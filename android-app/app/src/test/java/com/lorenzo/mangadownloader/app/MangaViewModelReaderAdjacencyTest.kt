@@ -9,6 +9,7 @@ import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -75,6 +76,32 @@ class MangaViewModelReaderAdjacencyTest {
         val state = viewModel.state.value
         assertNull(state.readerPreviousChapter)
         assertEquals(series.chapters[1].relativePath, state.readerNextChapter?.relativePath)
+    }
+
+    /**
+     * Sfogliando, l'avanzamento aggiorna solo il capitolo del reader: la libreria non viene
+     * ricostruita a ogni pagina. Chiudendo il reader l'avanzamento arriva anche lì.
+     */
+    @Test
+    fun pageProgress_reachesLibraryOnlyWhenReaderCloses() {
+        val viewModel = createViewModel()
+        viewModel.refreshLibrary(forceRefresh = true)
+        waitForLibrary(viewModel)
+        val chapter = viewModel.state.value.library.single().chapters[1]
+        viewModel.openReader(chapter)
+        val libraryBefore = viewModel.state.value.library
+
+        viewModel.saveReaderPagePosition(pageIndex = 3, pageCount = 10, allowCompletion = true)
+
+        assertEquals(3, viewModel.state.value.readerChapter?.readerPageIndex)
+        assertSame(libraryBefore, viewModel.state.value.library)
+
+        viewModel.closeReader()
+
+        val libraryChapter = viewModel.state.value.library.single().chapters
+            .single { it.relativePath == chapter.relativePath }
+        assertEquals(3, libraryChapter.readerPageIndex)
+        assertEquals(10, libraryChapter.readerPageCount)
     }
 
     /**

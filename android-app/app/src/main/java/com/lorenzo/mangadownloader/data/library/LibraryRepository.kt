@@ -285,27 +285,42 @@ object SeriesMetadataJson {
     }
 }
 
+data class ScannedSeries(
+    val series: DownloadedSeries,
+    val metadata: SeriesMetadata?,
+)
+
 object LibraryScanner {
     fun scan(
         root: File,
         isRead: (String) -> Boolean,
         readerPagePosition: (String) -> ReaderPagePosition? = { null },
-    ): List<DownloadedSeries> {
+    ): List<DownloadedSeries> = scanWithMetadata(root, isRead, readerPagePosition).map { it.series }
+
+    /**
+     * Come [scan], ma restituisce anche i metadati letti per ogni serie (`null` se mancanti o
+     * illeggibili): chi deve completarli li riusa invece di rileggere e riparsare il JSON.
+     */
+    fun scanWithMetadata(
+        root: File,
+        isRead: (String) -> Boolean,
+        readerPagePosition: (String) -> ReaderPagePosition? = { null },
+    ): List<ScannedSeries> {
         if (!root.exists()) return emptyList()
 
         return root.listFiles()
             ?.filter { it.isDirectory }
             .orEmpty()
             .mapNotNull { directory -> scanSeriesDirectory(root, directory, isRead, readerPagePosition) }
-            .sortedBy { it.title.lowercase(Locale.US) }
+            .sortedBy { it.series.title.lowercase(Locale.US) }
     }
 
-    fun scanSeriesDirectory(
+    private fun scanSeriesDirectory(
         root: File,
         directory: File,
         isRead: (String) -> Boolean,
-        readerPagePosition: (String) -> ReaderPagePosition? = { null },
-    ): DownloadedSeries? {
+        readerPagePosition: (String) -> ReaderPagePosition?,
+    ): ScannedSeries? {
         if (!directory.isDirectory) return null
 
         val metadata = SeriesMetadataJson.read(File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME))
@@ -378,7 +393,7 @@ object LibraryScanner {
             .coerceAtLeast(chapters.size)
             .coerceAtLeast(readChapterIds.size)
 
-        return DownloadedSeries(
+        val series = DownloadedSeries(
             sourceId = sourceId,
             title = metadata?.title?.takeIf { it.isNotBlank() }
                 ?: directory.name.replace('_', ' ').trim(),
@@ -389,6 +404,7 @@ object LibraryScanner {
             totalChapterCount = totalChapterCount,
             readChapterIds = readChapterIds,
         )
+        return ScannedSeries(series, metadata)
     }
 
     private fun resolveCoverFile(
@@ -451,8 +467,9 @@ class LibraryRepository(
             }
         }
         val root = DownloadStorage.libraryRoot(context)
-        val series = LibraryScanner.scan(root, ::isChapterRead, ::readerPagePosition)
-        series.forEach(::backfillMetadata)
+        val scanned = LibraryScanner.scanWithMetadata(root, ::isChapterRead, ::readerPagePosition)
+        scanned.forEach { backfillMetadata(it.series, it.metadata) }
+        val series = scanned.map { it.series }
         cachedSnapshot = series
         cachedSnapshotAtMs = System.currentTimeMillis()
         return series
@@ -783,9 +800,8 @@ class LibraryRepository(
             .forEach { it.deleteRecursively() }
     }
 
-    private fun backfillMetadata(series: DownloadedSeries) {
+    private fun backfillMetadata(series: DownloadedSeries, existingMetadata: SeriesMetadata?) {
         val metadataFile = File(series.directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        val existingMetadata = SeriesMetadataJson.read(metadataFile)
         if (existingMetadata != null) {
             val resolvedSourceId = MangaSourceCatalog.resolveSourceId(
                 sourceId = existingMetadata.sourceId,

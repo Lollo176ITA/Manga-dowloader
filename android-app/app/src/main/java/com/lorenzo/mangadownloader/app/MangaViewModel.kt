@@ -17,7 +17,6 @@ import com.lorenzo.mangadownloader.data.anilist.AniListAuth
 import com.lorenzo.mangadownloader.data.anilist.AniListAuthException
 import com.lorenzo.mangadownloader.data.anilist.AniListClient
 import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSyncStore
-import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSynchronizer
 import com.lorenzo.mangadownloader.data.anilist.AniListListStatus
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.anilist.AniListSort
@@ -25,10 +24,10 @@ import com.lorenzo.mangadownloader.data.anilist.AniListStore
 import com.lorenzo.mangadownloader.data.anilist.AniListTracking
 import com.lorenzo.mangadownloader.data.anilist.AniListViewer
 import com.lorenzo.mangadownloader.data.anilist.UnmatchedAniListFavorite
-import com.lorenzo.mangadownloader.data.anilist.aniListImportSourcesSignature
 import com.lorenzo.mangadownloader.data.anilist.matchAniListCandidate
 import com.lorenzo.mangadownloader.data.anilist.newAniListFavorites
 import com.lorenzo.mangadownloader.data.anilist.visibleUnmatchedAniListFavorites
+import com.lorenzo.mangadownloader.data.anilist.realAniListFavoritesSynchronizer
 import com.lorenzo.mangadownloader.data.backup.BackupManager
 import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
 import com.lorenzo.mangadownloader.data.backup.BackupRestoreResult
@@ -152,11 +151,12 @@ import java.io.IOException
 import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -638,6 +638,15 @@ class MangaViewModel internal constructor(
     private var streamingPrefetchJob: Job? = null
     private val readStateMutex = Mutex()
 
+    /** Avanzamento (pagina, totale) non ancora riportato sulla libreria: vedi saveReaderPagePosition. */
+    private val pendingLibraryProgress = mutableMapOf<String, Pair<Int, Int>>()
+
+    // Scritture di memoria e diario di lettura: fuori dal main thread ma in fila (FIFO), così
+    // l'ultima versione accodata è anche l'ultima scritta. Scope non legato a viewModelScope:
+    // una scrittura accodata mentre l'app si chiude deve arrivare comunque su disco.
+    private val readingMemoryDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val readingMemoryWriter = CoroutineScope(SupervisorJob() + readingMemoryDispatcher)
+
     /**
      * Capitolo da aprire non appena i dettagli della serie saranno caricati: è così che la
      * cronologia riapre una lettura in streaming, di cui conosce l'indirizzo ma non l'elenco
@@ -974,7 +983,8 @@ class MangaViewModel internal constructor(
     /** Esporta il backup nel documento scelto (SAF). L'IO gira fuori dal main thread. */
     fun exportBackup(uri: Uri) {
         viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
+            // Dietro le scritture di memoria/diario già accodate: il backup le deve contenere.
+            val ok = withContext(readingMemoryDispatcher) {
                 runCatching {
                     getApplication<Application>().contentResolver.openOutputStream(uri)?.use { out ->
                         backupManager.export(out, System.currentTimeMillis())
@@ -990,7 +1000,9 @@ class MangaViewModel internal constructor(
     /** Importa un backup dal documento scelto (SAF) e riflette i dati ripristinati nello stato. */
     fun importBackup(uri: Uri, mode: BackupRestoreMode) {
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
+            // Sulla stessa coda delle scritture di memoria/diario: una scrittura vecchia ancora
+            // in attesa non deve arrivare dopo il ripristino e sovrascriverlo.
+            val result = withContext(readingMemoryDispatcher) {
                 runCatching {
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
                         backupManager.restore(input, mode)
@@ -1112,6 +1124,7 @@ class MangaViewModel internal constructor(
         streamingPrefetchJob?.cancel()
         markUpdatesSeenForManga(MangaSourceCatalog.identityKey(sourceId, mangaUrl))
         updateState { clearedReaderState().copy(showUpdates = false) }
+        pendingLibraryProgress.clear()
         selectManga(
             MangaSearchResult(
                 sourceId = sourceId,
@@ -1134,6 +1147,7 @@ class MangaViewModel internal constructor(
                 favoriteUpdates = favoriteUpdatesFeedStore.read(),
             )
         }
+        pendingLibraryProgress.clear()
     }
 
     /** Marca come visti tutti gli eventi del feed relativi a un manga (tap su notifica). */
@@ -1226,8 +1240,17 @@ class MangaViewModel internal constructor(
         updateSettings { it.copy(privacyBrightnessEnabled = enabled) }
     }
 
-    fun setReaderBrightness(brightness: Float) {
-        updateSettings { it.copy(readerBrightness = brightness.coerceIn(0f, 1f)) }
+    /**
+     * Trascinamento dello slider luminosità: solo stato, così l'oscuramento segue il dito.
+     * Il salvataggio arriva al rilascio ([commitReaderBrightness]): persistere a ogni frame
+     * riscriveva l'intero JSON delle impostazioni decine di volte al secondo.
+     */
+    fun previewReaderBrightness(brightness: Float) {
+        updateState { copy(settings = settings.copy(readerBrightness = brightness.coerceIn(0f, 1f))) }
+    }
+
+    fun commitReaderBrightness() {
+        settingsStore.persist(_state.value.settings)
     }
 
     fun setReaderPageSpacing(spacingDp: Int) {
@@ -1318,14 +1341,6 @@ class MangaViewModel internal constructor(
 
     fun setUseDynamicColor(enabled: Boolean) {
         updateSettings { it.copy(useDynamicColor = enabled) }
-    }
-
-    fun toggleFavoriteFromResult(result: MangaSearchResult) {
-        toggleFavorite(
-            result.toFavoriteManga(
-                seriesKey = currentSeriesKey(result.sourceId, result.mangaUrl, result.title),
-            ),
-        )
     }
 
     /**
@@ -1898,6 +1913,7 @@ class MangaViewModel internal constructor(
                 errorMessage = null,
             ).clearedReaderState()
         }
+        pendingLibraryProgress.clear()
     }
 
     fun setReadingMode(mode: ReadingMode) {
@@ -2390,27 +2406,40 @@ class MangaViewModel internal constructor(
             }
         }
 
+        val memoryUpdate = readerMemoryUpdate(
+            chapter = chapter,
+            pagesSeen = nextPageIndex + 1,
+            pageCount = safePageCount,
+            newlyRead = newlyRead,
+        )
+        // Libreria e serie aperta non si vedono col reader aperto: ricostruirle a ogni pagina
+        // (e con loro le etichette dei preferiti in MainActivity) costava più dell'avanzamento
+        // stesso. Si allineano alla chiusura del reader, o subito se il capitolo è finito.
+        if (newlyRead) {
+            pendingLibraryProgress.remove(chapter.relativePath)
+        } else {
+            pendingLibraryProgress[chapter.relativePath] = nextPageIndex to safePageCount
+        }
+
+        // Una sola emissione per pagina: avanzamento, eventuale "letto" streaming e memoria.
         updateState {
             withReaderProgress(
                 relativePath = chapter.relativePath,
                 pageIndex = nextPageIndex,
                 pageCount = safePageCount,
                 markRead = newlyRead,
+                applyToLibrary = newlyRead,
             ).let { state ->
                 if (streamingReadId != null) {
                     state.copy(selectedMangaReadChapterIds = state.selectedMangaReadChapterIds + streamingReadId)
                 } else {
                     state
                 }
-            }
+            }.withReaderMemoryUpdate(memoryUpdate)
         }
-
-        recordReaderProgressInMemory(
-            chapter = chapter,
-            pagesSeen = nextPageIndex + 1,
-            pageCount = safePageCount,
-            newlyRead = newlyRead,
-        )
+        if (memoryUpdate?.persistNow == true) {
+            persistReadingMemoryIfChanged()
+        }
 
         if (newlyRead) {
             maybeSyncAniListOnChapterRead(chapter)
@@ -2510,9 +2539,10 @@ class MangaViewModel internal constructor(
         streamingCacheJob?.cancel()
         streamingPrefetchJob?.cancel()
         // Consolida su disco le pagine avanzate durante la sessione di lettura (la scrittura
-        // per-swipe è deliberatamente rimandata, vedi recordReaderProgressInMemory).
+        // per-swipe è deliberatamente rimandata, vedi readerMemoryUpdate).
         persistReadingMemoryIfChanged()
         updateState { clearedReaderState() }
+        pendingLibraryProgress.clear()
     }
 
     fun dismissError() {
@@ -2667,6 +2697,7 @@ class MangaViewModel internal constructor(
                     val baseState = if (clearReader) clearedReaderState() else this
                     baseState.withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false)
                 }
+                if (clearReader) pendingLibraryProgress.clear()
                 persistReadingMemoryIfChanged()
             } catch (e: CancellationException) {
                 throw e
@@ -3280,12 +3311,15 @@ class MangaViewModel internal constructor(
         ).withReaderAdjacency(updatedReader?.relativePath ?: readerPath)
     }
 
-    /** Scrive memoria e diario di lettura su disco solo se diversi dagli ultimi persistiti. */
     /** App in background: salva le letture e ridisegna il widget "Continua a leggere". */
     fun onAppBackgrounded() {
-        persistReadingMemoryIfChanged()
+        val write = persistReadingMemoryIfChanged()
         val app = getApplication<Application>()
-        viewModelScope.launch { ReadingWidget.updateAll(app) }
+        viewModelScope.launch {
+            // Il widget legge la memoria dalle prefs: prima deve essere arrivata su disco.
+            write?.join()
+            ReadingWidget.updateAll(app)
+        }
     }
 
     /**
@@ -3310,16 +3344,22 @@ class MangaViewModel internal constructor(
         }
     }
 
-    private fun persistReadingMemoryIfChanged() {
+    /**
+     * Scrive memoria e diario di lettura su disco solo se diversi dagli ultimi persistiti.
+     * La serializzazione (una voce per ogni capitolo mai letto) gira su [readingMemoryDispatcher],
+     * non sul main thread. Ritorna la scrittura accodata, o `null` se non c'era niente da fare.
+     */
+    private fun persistReadingMemoryIfChanged(): Job? {
         val memory = _state.value.readingMemory
-        if (memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory) {
-            readingMemoryStore.persist(memory)
-            lastPersistedReadingMemory = memory
-        }
         val diary = _state.value.readingDiary
-        if (diary !== lastPersistedReadingDiary && diary != lastPersistedReadingDiary) {
-            readingDiaryStore.persist(diary)
-            lastPersistedReadingDiary = diary
+        val memoryChanged = memory !== lastPersistedReadingMemory && memory != lastPersistedReadingMemory
+        val diaryChanged = diary !== lastPersistedReadingDiary && diary != lastPersistedReadingDiary
+        if (!memoryChanged && !diaryChanged) return null
+        if (memoryChanged) lastPersistedReadingMemory = memory
+        if (diaryChanged) lastPersistedReadingDiary = diary
+        return readingMemoryWriter.launch {
+            if (memoryChanged) readingMemoryStore.persist(memory)
+            if (diaryChanged) readingDiaryStore.persist(diary)
         }
     }
 
@@ -3331,16 +3371,17 @@ class MangaViewModel internal constructor(
     }
 
     /**
-     * Registra nella memoria di lettura persistente l'avanzamento del reader (merge monotono:
-     * i numeri non regrediscono). Vale per scaricati e streaming: le statistiche contano anche
+     * Calcola il record della memoria di lettura per l'avanzamento del reader (merge monotono:
+     * i numeri non regrediscono), da applicare con [withReaderMemoryUpdate] nella stessa
+     * emissione di stato dell'avanzamento di pagina; `null` se non cambia niente. Vale per scaricati e streaming: le statistiche contano anche
      * le letture online e sopravvivono all'eliminazione dei download.
      */
-    private fun recordReaderProgressInMemory(
+    private fun readerMemoryUpdate(
         chapter: ReaderChapter,
         pagesSeen: Int,
         pageCount: Int,
         newlyRead: Boolean,
-    ) {
+    ): ReaderMemoryUpdate? {
         val streaming = chapter.streamingChapter
         val seriesKey: String
         val seriesTitle: String
@@ -3378,29 +3419,33 @@ class MangaViewModel internal constructor(
         )
         val current = _state.value.readingMemory[chapter.relativePath]
         val next = current?.mergedWith(record) ?: record
-        if (next == current) return
+        if (next == current) return null
 
         // Diario giornaliero: registra i delta reali di questa sessione (pagine avanzate,
         // capitolo appena finito), mai i valori assoluti — le riletture non gonfiano i numeri.
-        val dayKey = diaryDayKey(now)
-        val chaptersDelta = if (next.isRead && current?.isRead != true && newlyRead) 1 else 0
-        val pagesDelta = (next.pagesRead - (current?.pagesRead ?: 0)).coerceAtLeast(0)
-        updateState {
-            copy(
-                readingMemory = readingMemory + (chapter.relativePath to next),
-                readingDiary = pruneReadingDiary(
-                    readingDiary.withReadingActivity(dayKey, chaptersDelta, pagesDelta),
-                    today = LocalDate.now(),
-                ),
-            )
-        }
-        // Su disco solo ai passaggi significativi (nuovo record, capitolo completato): la
-        // posizione per-pagina è già durevole nelle prefs del reader e riserializzare
-        // l'intera mappa a ogni swipe crescerebbe col totale dei capitoli mai letti.
-        // Il resto viene scritto alla chiusura del reader e a ogni snapshot libreria.
-        if (current == null || next.isRead != current.isRead) {
-            persistReadingMemoryIfChanged()
-        }
+        return ReaderMemoryUpdate(
+            relativePath = chapter.relativePath,
+            record = next,
+            dayKey = diaryDayKey(now),
+            chaptersDelta = if (next.isRead && current?.isRead != true && newlyRead) 1 else 0,
+            pagesDelta = (next.pagesRead - (current?.pagesRead ?: 0)).coerceAtLeast(0),
+            // Su disco solo ai passaggi significativi (nuovo record, capitolo completato): la
+            // posizione per-pagina è già durevole nelle prefs del reader e riserializzare
+            // l'intera mappa a ogni swipe crescerebbe col totale dei capitoli mai letti.
+            // Il resto viene scritto alla chiusura del reader e a ogni snapshot libreria.
+            persistNow = current == null || next.isRead != current.isRead,
+        )
+    }
+
+    private fun MangaUiState.withReaderMemoryUpdate(update: ReaderMemoryUpdate?): MangaUiState {
+        if (update == null) return this
+        return copy(
+            readingMemory = readingMemory + (update.relativePath to update.record),
+            readingDiary = pruneReadingDiary(
+                readingDiary.withReadingActivity(update.dayKey, update.chaptersDelta, update.pagesDelta),
+                today = LocalDate.now(),
+            ),
+        )
     }
 
     /**
@@ -3457,6 +3502,7 @@ class MangaViewModel internal constructor(
         pageIndex: Int? = null,
         pageCount: Int? = null,
         markRead: Boolean = false,
+        applyToLibrary: Boolean = true,
     ): MangaUiState {
         val readChapterId = if (markRead) {
             (selectedDownloadedSeries?.chapters.orEmpty() + library.flatMap { it.chapters })
@@ -3480,6 +3526,7 @@ class MangaViewModel internal constructor(
             }
         }
 
+        if (!applyToLibrary) return copy(readerChapter = updatedReader)
         return copy(
             library = library.map {
                 it.withReaderProgressApplied(relativePath, pageIndex, pageCount, markRead, readChapterId)
@@ -3714,26 +3761,15 @@ class MangaViewModel internal constructor(
         aniListFavoritesSyncJob?.cancel()
         aniListFavoritesSyncJob = viewModelScope.launch {
             try {
-                val synchronizer = AniListFavoritesSynchronizer(
+                val synchronizer = realAniListFavoritesSynchronizer(
+                    client = aniListClient,
+                    token = token,
+                    viewerId = viewerId,
+                    registry = sourceRegistry,
                     syncStore = aniListFavoritesSyncStore,
                     seriesLinksStore = seriesLinksStore,
-                    fetchFavourites = {
-                        withContext(Dispatchers.IO) {
-                            aniListClient.fetchFavouriteManga(token, viewerId)
-                        }
-                    },
-                    toggleFavourite = { mediaId ->
-                        withContext(Dispatchers.IO) {
-                            aniListClient.toggleFavouriteManga(token, mediaId)
-                        }
-                    },
-                    searchSources = ::searchAllEnabledSources,
-                    sourcesSignature = {
-                        aniListImportSourcesSignature(
-                            disabledSourceIds = _state.value.settings.disabledSourceIds,
-                            unavailableSourceIds = skippedSourceIds(),
-                        )
-                    },
+                    disabledSourceIds = { _state.value.settings.disabledSourceIds },
+                    unavailableSourceIds = ::skippedSourceIds,
                 )
                 val imported = synchronizer.sync(snapshot)
                 updateState {
@@ -3763,38 +3799,6 @@ class MangaViewModel internal constructor(
             }
         }
     }
-
-    /**
-     * Ricerca su **tutte** le fonti attive, ignorando l'ambito di lingua scelto per la tab
-     * Cerca: un preferito importato da AniList può stare su qualsiasi fonte, e restringerlo
-     * alla lingua della ricerca lo renderebbe introvabile senza ragione.
-     *
-     * I risultati vengono **alternati** fra le fonti come nella ricerca normale, non accodati
-     * a blocchi: chi importa prende il primo che combacia, e concatenando avrebbe sempre e
-     * solo la fonte in cima al catalogo — una scelta che non ha niente a che vedere con la
-     * serie cercata.
-     */
-    private suspend fun searchAllEnabledSources(query: String): List<MangaSearchResult> =
-        withContext(Dispatchers.IO) {
-            coroutineScope {
-                val perSource = MangaSourceCatalog
-                    .descriptorsForScope(
-                        SearchScope.ALL,
-                        // Anche qui le fonti che non rispondono restano fuori: un import
-                        // costa una ricerca su tutte, e aspettarne una morta le rallenta tutte.
-                        _state.value.settings.disabledSourceIds + skippedSourceIds(),
-                    )
-                    .map { descriptor ->
-                        async {
-                            runCatching {
-                                sourceRegistry.requireById(descriptor.id).searchManga(query)
-                            }.getOrDefault(emptyList())
-                        }
-                    }
-                    .awaitAll()
-                MangaSourceCatalog.interleaveBySource(perSource)
-            }
-        }
 
     /** Apre il dialog di matching per la serie aperta nel dettaglio, cercandone il titolo. */
     fun openAniListMatch() {
@@ -4215,8 +4219,16 @@ class MangaViewModel internal constructor(
         return withContext(Dispatchers.IO) { libraryRepository.scanLibrary(forceRefresh) }
     }
 
+    /**
+     * Chiude il reader. Riporta anche su libreria e serie aperta l'avanzamento tenuto da parte
+     * durante la lettura (vedi saveReaderPagePosition): il chiamante svuota poi
+     * [pendingLibraryProgress], fuori da `updateState` perché la lambda può essere rieseguita.
+     */
     private fun MangaUiState.clearedReaderState(): MangaUiState {
-        return copy(
+        val withProgress = pendingLibraryProgress.entries.fold(this) { state, (relativePath, progress) ->
+            state.withReaderProgress(relativePath, pageIndex = progress.first, pageCount = progress.second)
+        }
+        return withProgress.copy(
             readerChapter = null,
             readerPreviousChapter = null,
             readerNextChapter = null,
@@ -4251,6 +4263,16 @@ class MangaViewModel internal constructor(
  * rimuovere/rimpiazzare il file. Best-effort: qualsiasi errore ⇒ false (si riscarica).
  */
 @OptIn(coil3.annotation.ExperimentalCoilApi::class)
+/** Aggiornamento di memoria e diario di lettura per una pagina avanzata nel reader. */
+private class ReaderMemoryUpdate(
+    val relativePath: String,
+    val record: ReadChapterMemory,
+    val dayKey: String,
+    val chaptersDelta: Int,
+    val pagesDelta: Int,
+    val persistNow: Boolean,
+)
+
 /** Capitolo streaming da aprire quando arriveranno i dettagli della sua serie. */
 private data class PendingStreamingChapter(
     val mangaUrl: String,

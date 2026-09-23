@@ -68,6 +68,7 @@ import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
 import com.lorenzo.mangadownloader.data.model.MangaDetails
+import com.lorenzo.mangadownloader.data.model.ReaderChapter
 import com.lorenzo.mangadownloader.data.model.toSearchResult
 import com.lorenzo.mangadownloader.data.report.CrashReporter
 import com.lorenzo.mangadownloader.data.report.FeedbackReporter
@@ -591,7 +592,8 @@ private fun MangaDownloaderAppContent(
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                     onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
                     onOpenSettings = viewModel::openSettings,
-                    onReaderBrightnessChange = viewModel::setReaderBrightness,
+                    onReaderBrightnessChange = viewModel::previewReaderBrightness,
+                    onReaderBrightnessChangeFinished = viewModel::commitReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
                     // Leggendo in streaming si può tenere il capitolo: le pagine sono già
@@ -657,8 +659,14 @@ private fun MangaDownloaderAppContent(
         screenStateHolder.SaveableStateProvider(state.saveableScreenKey()) {
         when (state.currentScreen()) {
             Screen.Reader -> {
+                // Il capitolo cambia a ogni pagina solo per l'avanzamento, che al reader non
+                // serve: `remember` confronta per uguaglianza e restituisce la stessa istanza
+                // finché il capitolo resta quello, così ReaderScreen salta la ricomposizione
+                // mentre si sfoglia.
+                val chapterWithoutProgress = state.readerChapter?.withoutReaderProgress()
+                val readerChapter = remember(chapterWithoutProgress) { chapterWithoutProgress }
                 ReaderScreen(
-                    chapter = state.readerChapter,
+                    chapter = readerChapter,
                     previousChapter = state.readerPreviousChapter,
                     nextChapter = state.readerNextChapter,
                     pages = state.readerPages,
@@ -1104,6 +1112,17 @@ private fun MangaDownloaderAppContent(
             )
         }
 }
+
+/** Il capitolo senza l'avanzamento di lettura (pagina, totale, ultimo accesso). */
+private fun ReaderChapter.withoutReaderProgress(): ReaderChapter = copy(
+    readerPageIndex = null,
+    readerPageCount = null,
+    downloadedChapter = downloadedChapter?.copy(
+        readerPageIndex = null,
+        readerPageCount = null,
+        lastReadAtMillis = null,
+    ),
+)
 
 private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
     if (!enabled) return 0f

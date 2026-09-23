@@ -6,11 +6,11 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.lorenzo.mangadownloader.DownloadWorker
@@ -33,7 +33,7 @@ internal fun rememberDownloadWorkUiState(
     val scope = rememberCoroutineScope()
     val workManager = remember(appContext) { WorkManager.getInstance(appContext) }
     val workInfos by remember(workManager) { DownloadWorker.observeAll(workManager) }
-        .observeAsState(emptyList())
+        .collectAsStateWithLifecycle(emptyList())
     val activeWorkInfos = remember(workInfos) { workInfos.filter(WorkInfo::isActiveDownload) }
     // Capitoli completati per ogni download attivo: cambia quando uno qualsiasi avanza. Con
     // le catene per serie possono esserci più worker RUNNING (chi aspetta il turno lo è).

@@ -81,6 +81,7 @@ fun AppTopBar(
     onToggleFavoriteSeries: () -> Unit,
     onOpenSettings: () -> Unit,
     onReaderBrightnessChange: (Float) -> Unit,
+    onReaderBrightnessChangeFinished: () -> Unit,
     onSelectReadingMode: (ReadingMode) -> Unit,
     onSelectSpreadPageMode: (SpreadPageMode) -> Unit,
     /**
@@ -179,6 +180,7 @@ fun AppTopBar(
                     expanded = brightnessExpanded,
                     onExpandedChange = { brightnessExpanded = it },
                     onBrightnessChange = onReaderBrightnessChange,
+                    onBrightnessChangeFinished = onReaderBrightnessChangeFinished,
                 )
             }
 
@@ -359,6 +361,7 @@ private fun ReaderBrightnessAction(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onBrightnessChange: (Float) -> Unit,
+    onBrightnessChangeFinished: () -> Unit,
 ) {
     Box {
         FilledIconToggleButton(
@@ -399,6 +402,7 @@ private fun ReaderBrightnessAction(
                 Slider(
                     value = brightness.coerceIn(0f, 1f),
                     onValueChange = onBrightnessChange,
+                    onValueChangeFinished = onBrightnessChangeFinished,
                     valueRange = 0f..1f,
                     modifier = Modifier.padding(top = 4.dp),
                 )

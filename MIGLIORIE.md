@@ -34,6 +34,56 @@
 
 ---
 
+## ⚡ Prestazioni
+
+- [ ] **Un solo file SharedPreferences per impostazioni, preferiti e memoria di lettura** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: 16 store del ViewModel condividono `SettingsStore.PREFS_NAME`, compreso [ReadingMemoryStore](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/store/ReadingMemoryStore.kt), che tiene un JSON con una voce per ogni capitolo mai letto, senza tetto. Ogni `apply()` (cambio di un'impostazione, preferito, feed) riscrive su disco l'intero file, memoria di lettura compresa.
+  - Cosa fare: spostare memoria e diario di lettura in un file proprio (o in DataStore), con migrazione una tantum. Si lega alla voce sulle prefs per-capitolo più in basso.
+
+- [ ] **Nessun Baseline Profile** 🔎 — Impatto Medio · Sforzo Medio
+  - Dove: `app/build.gradle.kts` ha R8 attivo ma niente `profileinstaller` né modulo `baselineprofile`. Le app Compose senza profilo eseguono in JIT il codice di avvio e del primo scroll.
+  - Cosa fare: modulo `:baselineprofile` con Macrobenchmark (avvio → Home → Libreria → reader) generato sull'emulatore. Il guadagno va misurato prima e dopo.
+
+---
+
+## 🧹 Snellimento & architettura
+
+- [ ] **Estrarre altri controller dal ViewModel (4300 righe)** ✅ — Impatto Medio · Sforzo Alto
+  - Stesso schema già usato per `ParentalControlController` e `TutorialController`: classe che condivide il `MutableStateFlow`, esposta come `viewModel.xxx`.
+  - Candidati, dal più isolato al più intrecciato: **Home/Scopri** (`loadDiscovery`, `loadRecommendations`, `refreshHomeFeeds`, generi, ~300 righe) → **AniList** (auth, match, tracker, sync, ~550 righe) → **Preferiti e scaffali** → **Reader** (apertura, streaming, prefetch, avanzamento, adiacenze: ~1100 righe, il più accoppiato con libreria e memoria di lettura).
+
+- [ ] **`MangaUiState` monolitico e schermate che lo ricevono intero** ✅ — Impatto Medio · Sforzo Alto
+  - Dove: `MangaUiState` ha ~90 campi; `AppTopBar`, `HomeScreen`, `LibraryScreen`, `SearchScreen`, `StatsScreen` e `TutorialOverlay` prendono `state: MangaUiState`, quindi rigirano a ogni emissione qualsiasi.
+  - Cosa fare: sotto-stati per area (`ReaderUiState`, `LibraryUiState`, `FavoritesUiState`, `ParentalUiState`…, sul modello di `DiscoveryUiState`/`AniListUiState` che esistono già) e ogni schermata riceve solo il suo. Va di pari passo con l'estrazione dei controller.
+
+- [ ] **`MangaDownloaderAppContent` è un unico composable di ~900 righe** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: [MainActivity.kt:200-1106](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L200): launcher dei permessi, backup, snackbar, top/bottom bar, pager, `when` delle schermate e dialog, tutto nello stesso scope di ricomposizione.
+  - Cosa fare: separare `AppScaffold`, `ScreenHost` (il `when`) e `AppDialogsHost`, ognuno con i soli parametri che usa. Rende efficaci i due punti sopra.
+
+- [ ] **File troppo grossi da navigare** 🔎 — Impatto Basso · Sforzo Medio
+  - `UiComponents.kt` (1045 righe, componenti eterogenei) e `ReaderScreen.kt` (1280 righe, con `VerticalReader` da solo ~410). Solo organizzazione: dividere per componente, nessun guadagno di prestazioni.
+
+---
+
+## 📦 Librerie
+
+- [ ] **Zoom e pagine lunghissime del reader scritti a mano** 🔎 — Impatto Medio · Sforzo Alto
+  - Dove: [TallPageNormalizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizer.kt) (322 righe: spezza le pagine alte in fasce su disco), [ReaderTallPage.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/ReaderTallPage.kt) (281, budget di memoria e sample size), `ZoomablePage` in `ReaderScreen.kt` (~130, pinch/pan/doppio tap).
+  - Candidata: [Telephoto](https://github.com/saket/telephoto) (`zoomable-image-coil3`): zoom + *subsampling* (decodifica a tessere, come le mappe), che è proprio il problema delle pagine webtoon. Potrebbe sostituire gran parte di quelle ~700 righe.
+  - Rischi: il reader verticale zooma l'intera lista, non la singola immagine, e i gesti sono stati ritoccati da poco (tap e Precedente/Successivo da ingranditi). Serve prima una prova su un ramo, non una sostituzione alla cieca.
+
+- [ ] **Baseline Profile (`profileinstaller` + plugin `baselineprofile`)** — vedi la voce in ⚡ Prestazioni.
+
+- Valutate e **scartate**, a oggi:
+  - **DataStore** per le prefs che crescono: la variante Preferences riscrive comunque l'intero file a ogni modifica, quindi non risolve il problema; separare i file basta.
+  - **Room**: sarebbe lo strumento giusto *se* si spostano posizioni/letto per capitolo e memoria di lettura in un DB (query per serie, potatura, statistiche). Costa plugin KSP e migrazione dei dati; ha senso solo insieme a quella voce, non da solo.
+  - **Hilt/Koin**: l'app crea a mano ~16 store e 2 repository condivisi; un framework DI aggiungerebbe codice generato e build più lente senza togliere complessità vera.
+  - **Navigation Compose**: vedi la voce rinviata sulla navigazione.
+  - **Jakarta Mail** è la dipendenza più pesante, ma è una scelta già accettata per le segnalazioni senza backend.
+  - **`material-icons-extended`** (81 icone usate su migliaia): R8 elimina il resto in release, quindi l'APK non ne soffre; pesa solo sulle build debug. Passare ai drawable Material Symbols è pulizia, non prestazioni.
+
+---
+
 ## 🔒 Controllo genitori
 
 - [ ] **Ricerca "tutto o niente" sotto controllo genitori** 🔎 — Impatto Medio · Sforzo Basso

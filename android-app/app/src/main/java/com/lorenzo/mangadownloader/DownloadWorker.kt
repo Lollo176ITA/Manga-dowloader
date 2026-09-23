@@ -18,7 +18,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.lifecycle.LiveData
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -36,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -478,8 +478,8 @@ class DownloadWorker(
         }
 
         /** Tutti i download, di ogni serie e di ogni stato. */
-        fun observeAll(workManager: WorkManager): LiveData<List<WorkInfo>> =
-            workManager.getWorkInfosByTagLiveData(ALL_DOWNLOADS_TAG)
+        fun observeAll(workManager: WorkManager): Flow<List<WorkInfo>> =
+            workManager.getWorkInfosByTagFlow(ALL_DOWNLOADS_TAG)
 
         /** Ferma ogni download, compresi quelli rimasti nella vecchia coda unica. */
         fun stopAll(context: Context) {

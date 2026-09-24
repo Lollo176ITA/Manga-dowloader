@@ -28,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,8 +46,69 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.lorenzo.mangadownloader.app.AppSystemEffects
+import com.lorenzo.mangadownloader.app.AppTab
+import com.lorenzo.mangadownloader.app.MangaUiState
+import com.lorenzo.mangadownloader.app.MangaViewModel
+import com.lorenzo.mangadownloader.app.Screen
+import com.lorenzo.mangadownloader.app.canHandleBack
+import com.lorenzo.mangadownloader.app.currentScreen
+import com.lorenzo.mangadownloader.app.hidesAdultContent
+import com.lorenzo.mangadownloader.app.saveableScreenKey
+import com.lorenzo.mangadownloader.app.tabPageIndex
+import com.lorenzo.mangadownloader.app.unmatchedAniListFavoritesToShow
+import com.lorenzo.mangadownloader.app.visibleTabs
+import com.lorenzo.mangadownloader.app.withoutAdultContent
+import com.lorenzo.mangadownloader.data.anilist.AniListAuth
+import com.lorenzo.mangadownloader.data.anilist.AniListScoreFormat
+import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
+import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.MangaDetails
+import com.lorenzo.mangadownloader.data.model.ReaderChapter
+import com.lorenzo.mangadownloader.data.model.toSearchResult
+import com.lorenzo.mangadownloader.data.report.CrashReporter
+import com.lorenzo.mangadownloader.data.report.FeedbackReporter
+import com.lorenzo.mangadownloader.data.store.unseenCount
+import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
+import com.lorenzo.mangadownloader.domain.series.LibraryMatching
+import com.lorenzo.mangadownloader.domain.series.favoriteReadingStatesByKey
+import com.lorenzo.mangadownloader.ui.anilist.AniListMatchDialog
+import com.lorenzo.mangadownloader.ui.anilist.AniListTrackerDialog
+import com.lorenzo.mangadownloader.ui.components.AppBottomBar
+import com.lorenzo.mangadownloader.ui.components.AppTopBar
+import com.lorenzo.mangadownloader.ui.components.AvailableUpdateDialog
+import com.lorenzo.mangadownloader.ui.components.ConfirmationDialog
+import com.lorenzo.mangadownloader.ui.components.LocalCardDensity
+import com.lorenzo.mangadownloader.ui.components.NotificationPermissionRationaleDialog
+import com.lorenzo.mangadownloader.ui.components.ParentalPinEntryDialog
+import com.lorenzo.mangadownloader.ui.components.ParentalPinSetupDialog
+import com.lorenzo.mangadownloader.ui.detail.DetailScreen
+import com.lorenzo.mangadownloader.ui.favorites.FavoritesScreen
+import com.lorenzo.mangadownloader.ui.history.HistoryScreen
+import com.lorenzo.mangadownloader.ui.history.StatsScreen
+import com.lorenzo.mangadownloader.ui.home.DiscoverGenreScreen
+import com.lorenzo.mangadownloader.ui.home.HomeScreen
+import com.lorenzo.mangadownloader.ui.info.ChangelogScreen
+import com.lorenzo.mangadownloader.ui.info.ReportProblemScreen
+import com.lorenzo.mangadownloader.ui.library.DownloadedSeriesScreen
+import com.lorenzo.mangadownloader.ui.library.LibraryScreen
+import com.lorenzo.mangadownloader.ui.library.rememberDownloadWorkUiState
+import com.lorenzo.mangadownloader.ui.reader.ReaderScreen
+import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.search.SearchLockedContent
+import com.lorenzo.mangadownloader.ui.search.SearchScreen
+import com.lorenzo.mangadownloader.ui.settings.BackupScreen
+import com.lorenzo.mangadownloader.ui.settings.SettingsScreen
+import com.lorenzo.mangadownloader.ui.settings.StorageScreen
+import com.lorenzo.mangadownloader.ui.theme.MangaDownloaderTheme
+import com.lorenzo.mangadownloader.ui.tutorial.TutorialAnchor
+import com.lorenzo.mangadownloader.ui.tutorial.TutorialOverlay
+import com.lorenzo.mangadownloader.ui.updates.UpdatesScreen
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -62,6 +122,13 @@ class MainActivity : FragmentActivity() {
         setContent {
             MangaDownloaderApp()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // L'app va in background: è lì che il widget torna visibile, quindi è il momento di
+        // ridisegnarlo con le letture appena fatte.
+        ViewModelProvider(this)[MangaViewModel::class.java].onAppBackgrounded()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -91,6 +158,11 @@ class MainActivity : FragmentActivity() {
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
         val viewModel = ViewModelProvider(this)[MangaViewModel::class.java]
+        if (intent.getBooleanExtra(ReadingWidget.EXTRA_RESUME_READING, false)) {
+            intent.removeExtra(ReadingWidget.EXTRA_RESUME_READING)
+            viewModel.resumeLatestReading()
+            return
+        }
         if (intent.getBooleanExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED, false)) {
             intent.removeExtra(FavoriteUpdateNotifier.EXTRA_OPEN_UPDATES_FEED)
             viewModel.openUpdatesFromNotification()
@@ -110,7 +182,7 @@ class MainActivity : FragmentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     MangaDownloaderTheme(
         themeMode = state.settings.themeMode,
         useDynamicColor = state.settings.useDynamicColor,
@@ -140,7 +212,6 @@ private fun MangaDownloaderAppContent(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val downloadWorkUiState = rememberDownloadWorkUiState(context, viewModel, snackbarHostState)
-    val workManager = downloadWorkUiState.manager
     val downloadStatuses = downloadWorkUiState.statuses
     val scope = rememberCoroutineScope()
     // Conserva lo stato salvabile (posizione di scroll in testa) di ogni schermata quando
@@ -407,9 +478,9 @@ private fun MangaDownloaderAppContent(
         readerOpen = state.readerChapter != null,
         readerFullscreen = isReaderFullscreen,
         keepReaderScreenOn = state.settings.keepScreenOnEnabled,
-        onBiometricSucceeded = viewModel::onBiometricAuthenticationSucceeded,
-        onUsePinInstead = viewModel::usePinInsteadOfBiometric,
-        onBiometricCancelled = viewModel::cancelBiometricAuthentication,
+        onBiometricSucceeded = viewModel.parental::onBiometricSucceeded,
+        onUsePinInstead = viewModel.parental::usePinInsteadOfBiometric,
+        onBiometricCancelled = viewModel.parental::cancelBiometric,
     )
 
     // Porta l'utente alla ricerca dagli stati vuoti (es. Libreria/Preferiti vuoti):
@@ -460,12 +531,12 @@ private fun MangaDownloaderAppContent(
     TutorialOverlay(
         state = state,
         onFallbackCompleted = {
-            viewModel.onTutorialFallbackCompleted()
+            viewModel.tutorial.onFallbackCompleted()
             // A tour appena concluso il valore delle notifiche è chiaro: è il momento
             // giusto per chiedere il permesso, con la spiegazione del perché.
             maybeAskNotificationsPermission()
         },
-        onAdvancePhase = viewModel::advanceTutorialPhase,
+        onAdvancePhase = viewModel.tutorial::advancePhase,
         onTargetTap = { anchor ->
             when (anchor) {
                 TutorialAnchor.SEARCH_RESULT_FIRST -> {
@@ -506,7 +577,7 @@ private fun MangaDownloaderAppContent(
             }
         },
         onFinish = { keepSample ->
-            viewModel.onTutorialFinish(keepSample)
+            viewModel.tutorial.onFinish(keepSample)
             maybeAskNotificationsPermission()
         },
     ) {
@@ -521,9 +592,35 @@ private fun MangaDownloaderAppContent(
                     onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
                     onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
                     onOpenSettings = viewModel::openSettings,
-                    onReaderBrightnessChange = viewModel::setReaderBrightness,
+                    onReaderBrightnessChange = viewModel::previewReaderBrightness,
+                    onReaderBrightnessChangeFinished = viewModel::commitReaderBrightness,
                     onSelectReadingMode = viewModel::setReaderReadingMode,
                     onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
+                    // Leggendo in streaming si può tenere il capitolo: le pagine sono già
+                    // state scaricate per mostrarlo, quindi salvarlo è a un tocco invece che
+                    // a un giro completo (esci → dettaglio → selettore intervallo).
+                    onSaveStreamingChapter = state.readerChapter?.streamingChapter?.let { streaming ->
+                        {
+                            onStartDownload(
+                                MangaDetails(
+                                    sourceId = streaming.sourceId,
+                                    title = streaming.mangaTitle,
+                                    // La copertina correda la serie salvata: si prende dal
+                                    // dettaglio da cui siamo entrati, e solo se è la stessa serie.
+                                    coverUrl = state.selected
+                                        ?.takeIf { it.mangaUrl == streaming.mangaUrl }
+                                        ?.coverUrl,
+                                    mangaUrl = streaming.mangaUrl,
+                                    chapters = streaming.chapters,
+                                ),
+                                streaming.chapter,
+                                streaming.chapter,
+                            )
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Capitolo aggiunto ai download")
+                            }
+                        }
+                    },
                     unseenUpdatesCount = unseenCount(state.favoriteUpdates),
                     onOpenUpdates = viewModel::openUpdates,
                     onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
@@ -562,8 +659,14 @@ private fun MangaDownloaderAppContent(
         screenStateHolder.SaveableStateProvider(state.saveableScreenKey()) {
         when (state.currentScreen()) {
             Screen.Reader -> {
+                // Il capitolo cambia a ogni pagina solo per l'avanzamento, che al reader non
+                // serve: `remember` confronta per uguaglianza e restituisce la stessa istanza
+                // finché il capitolo resta quello, così ReaderScreen salta la ricomposizione
+                // mentre si sfoglia.
+                val chapterWithoutProgress = state.readerChapter?.withoutReaderProgress()
+                val readerChapter = remember(chapterWithoutProgress) { chapterWithoutProgress }
                 ReaderScreen(
-                    chapter = state.readerChapter,
+                    chapter = readerChapter,
                     previousChapter = state.readerPreviousChapter,
                     nextChapter = state.readerNextChapter,
                     pages = state.readerPages,
@@ -607,6 +710,7 @@ private fun MangaDownloaderAppContent(
                     library = state.library,
                     padding = innerPadding,
                     onOpenChapter = viewModel::openReader,
+                    onResumeStreamingChapter = viewModel::resumeStreamingChapter,
                 )
             }
             Screen.Stats -> {
@@ -618,7 +722,11 @@ private fun MangaDownloaderAppContent(
             }
             Screen.DiscoverGenre -> {
                 DiscoverGenreScreen(
-                    discovery = state.discovery,
+                    discovery = if (state.settings.hidesAdultContent()) {
+                        state.discovery.withoutAdultContent()
+                    } else {
+                        state.discovery
+                    },
                     padding = innerPadding,
                     onPick = viewModel::onPickAniListManga,
                     onShowInfo = viewModel::showDiscoveryInfo,
@@ -673,7 +781,7 @@ private fun MangaDownloaderAppContent(
                     onSelectThemeMode = viewModel::setThemeMode,
                     onSelectCardDensity = viewModel::setCardDensity,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onRestartTutorial = viewModel::restartTutorial,
+                    onRestartTutorial = viewModel.tutorial::restart,
                     onConnectAniList = {
                         scope.launch {
                             if (!AniListAuth.isConfigured()) {
@@ -700,7 +808,6 @@ private fun MangaDownloaderAppContent(
                     onBatchChange = viewModel::setAutoDownloadBatchSize,
                     onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
                     onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
-                    onToggleStreamingReader = viewModel::setStreamingReaderEnabled,
                     onSelectReadingMode = viewModel::setReadingMode,
                     onSelectSpreadPageMode = viewModel::setSpreadPageMode,
                     onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
@@ -708,9 +815,10 @@ private fun MangaDownloaderAppContent(
                     onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
                     onSetSourceEnabled = viewModel::setSourceEnabled,
                     onToggleShowHomeTab = viewModel::setShowHomeTab,
-                    onToggleParentalControl = viewModel::setParentalControlEnabled,
-                    onRequestChangeParentalPin = viewModel::requestChangeParentalPin,
-                    onToggleParentalBiometric = viewModel::setParentalBiometricEnabled,
+                    onToggleParentalControl = viewModel.parental::setEnabled,
+                    onRequestChangeParentalPin = viewModel.parental::requestChangePin,
+                    onToggleParentalBiometric = viewModel.parental::setBiometricEnabled,
+                    onToggleHideAdultContent = viewModel::setHideAdultContent,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
                     onToggleHighResImages = viewModel::setHighResImages,
@@ -755,7 +863,6 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     downloadedChapterKeys = downloadedChapterKeys,
                     readChapterIds = readChapterIds,
-                    streamingReaderEnabled = state.settings.streamingReaderEnabled,
                     autoDownloadEnabled = state.settings.autoDownloadEnabled,
                     showSourceSelector = state.selectedSeriesLink != null,
                     sourceOptions = state.sourceOptions,
@@ -766,7 +873,7 @@ private fun MangaDownloaderAppContent(
                     onLinkAniList = viewModel::openAniListMatch,
                     onOpenAniListTracker = viewModel::openAniListTracker,
                     onStart = onStartDownload,
-                    onOpenStreamingChapter = viewModel::openStreamingReader,
+                    onReadChapter = viewModel::openChapterFromDetail,
                     onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
                 )
             }
@@ -792,6 +899,7 @@ private fun MangaDownloaderAppContent(
                             editMode = homeEditMode,
                             padding = innerPadding,
                             onResume = viewModel::openReader,
+                            onResumeStreamingChapter = viewModel::resumeStreamingChapter,
                             onOpenUpdate = viewModel::openMangaFromUpdate,
                             onOpenAllUpdates = viewModel::openUpdates,
                             onOpenHistory = viewModel::openHistory,
@@ -805,28 +913,40 @@ private fun MangaDownloaderAppContent(
                             onOpenGenre = viewModel::openDiscoverGenre,
                             onSearchFirst = goToSearchTab,
                             onStartTutorial = {
-                                viewModel.onTutorialWelcomeStart()
+                                viewModel.tutorial.onWelcomeStart()
                                 // Il tour interattivo parte dalla tab Cerca (primo spotlight sulla
                                 // barra di ricerca): portaci l'utente, rispettando il lock parentale.
                                 goToSearchTab()
                             },
-                            onDismissTutorial = viewModel::onTutorialWelcomeSkip,
+                            onDismissTutorial = viewModel.tutorial::onWelcomeSkip,
                             onMoveBlock = viewModel::moveHomeBlock,
                             onSetBlockHidden = viewModel::setHomeBlockHidden,
                         )
-                        AppTab.SEARCH -> SearchScreen(
-                            state = state,
-                            padding = innerPadding,
-                            onQueryChange = viewModel::onQueryChange,
-                            onClearRecentSearches = viewModel::clearRecentSearches,
-                            onRefresh = viewModel::submitSearch,
-                            onSelectSeries = viewModel::selectSeries,
-                            onToggleFavorite = viewModel::toggleFavoriteFromGroup,
-                            onShowInfo = viewModel::showMangaInfo,
-                            onDismissInfo = viewModel::dismissMangaInfo,
-                            onSelectLanguage = viewModel::selectLanguageSearch,
-                            onSelectAllSources = viewModel::selectAllSourcesSearch,
-                        )
+                        // Sotto controllo parentale la pagina Cerca si vede solo dopo il PIN: con
+                        // uno swipe ci si arriva comunque, e dietro al dialog del PIN restavano
+                        // visibili le ricerche precedenti e i loro risultati.
+                        AppTab.SEARCH -> if (
+                            state.settings.parentalControlEnabled && state.currentTab != AppTab.SEARCH
+                        ) {
+                            SearchLockedContent(
+                                padding = innerPadding,
+                                onUnlock = { viewModel.selectTab(AppTab.SEARCH) },
+                            )
+                        } else {
+                            SearchScreen(
+                                state = state,
+                                padding = innerPadding,
+                                onQueryChange = viewModel::onQueryChange,
+                                onClearRecentSearches = viewModel::clearRecentSearches,
+                                onRefresh = viewModel::submitSearch,
+                                onSelectSeries = viewModel::selectSeries,
+                                onToggleFavorite = viewModel::toggleFavoriteFromGroup,
+                                onShowInfo = viewModel::showMangaInfo,
+                                onDismissInfo = viewModel::dismissMangaInfo,
+                                onSelectLanguage = viewModel::selectLanguageSearch,
+                                onSelectAllSources = viewModel::selectAllSourcesSearch,
+                            )
+                        }
                         AppTab.FAVORITES -> FavoritesScreen(
                             favorites = state.favorites,
                             query = state.favoritesQuery,
@@ -844,6 +964,16 @@ private fun MangaDownloaderAppContent(
                             onBrowse = goToSearchTab,
                             onSelectSort = viewModel::setFavoriteSort,
                             onSelectReadingState = viewModel::setFavoriteFilterReadingState,
+                            shelves = state.favoriteShelves,
+                            filterShelfId = state.favoriteFilterShelfId,
+                            onSelectShelf = viewModel::setFavoriteFilterShelf,
+                            onCreateShelf = viewModel::createFavoriteShelf,
+                            onRenameShelf = viewModel::renameFavoriteShelf,
+                            onDeleteShelf = viewModel::deleteFavoriteShelf,
+                            onSetShelves = viewModel::setShelvesForFavorite,
+                            unmatchedAniList = state.unmatchedAniListFavoritesToShow(),
+                            // Come i titoli di Scopri: il pager segue da solo il cambio di tab.
+                            onPickUnmatched = { viewModel.onPickAniListManga(it.toAniListManga()) },
                             onReadNow = viewModel::readNowFromFavorite,
                             onRemoveFavorite = { favorite ->
                                 viewModel.toggleFavorite(favorite)
@@ -867,8 +997,9 @@ private fun MangaDownloaderAppContent(
                             onDeleteReadChapters = viewModel::deleteReadChapters,
                             onQueryChange = viewModel::onLibraryQueryChange,
                             onBrowse = goToSearchTab,
-                            onStopDownloads = {
-                                workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME)
+                            onStopDownloads = { DownloadWorker.stopAll(context) },
+                            onStopSeriesDownload = { status ->
+                                DownloadWorker.stopWork(context, status.workIds)
                             },
                             onResume = viewModel::openReader,
                             onSelectSort = viewModel::setLibrarySort,
@@ -924,19 +1055,19 @@ private fun MangaDownloaderAppContent(
     state.parentalPinSetupState?.let { setupState ->
         ParentalPinSetupDialog(
             state = setupState,
-            onPinChange = { viewModel.onParentalPinSetupChange(pin = it) },
-            onConfirmPinChange = { viewModel.onParentalPinSetupChange(confirmPin = it) },
-            onDismiss = viewModel::dismissParentalPinSetup,
-            onConfirm = viewModel::confirmParentalPinSetup,
+            onPinChange = { viewModel.parental.onPinSetupChange(pin = it) },
+            onConfirmPinChange = { viewModel.parental.onPinSetupChange(confirmPin = it) },
+            onDismiss = viewModel.parental::dismissPinSetup,
+            onConfirm = viewModel.parental::confirmPinSetup,
         )
     }
 
     state.parentalPinEntryState?.let { pinEntryState ->
         ParentalPinEntryDialog(
             state = pinEntryState,
-            onPinChange = viewModel::onParentalPinEntryChange,
-            onDismiss = viewModel::dismissParentalPinEntry,
-            onConfirm = viewModel::confirmParentalPinEntry,
+            onPinChange = viewModel.parental::onPinEntryChange,
+            onDismiss = viewModel.parental::dismissPinEntry,
+            onConfirm = viewModel.parental::confirmPinEntry,
         )
     }
 
@@ -981,6 +1112,17 @@ private fun MangaDownloaderAppContent(
             )
         }
 }
+
+/** Il capitolo senza l'avanzamento di lettura (pagina, totale, ultimo accesso). */
+private fun ReaderChapter.withoutReaderProgress(): ReaderChapter = copy(
+    readerPageIndex = null,
+    readerPageCount = null,
+    downloadedChapter = downloadedChapter?.copy(
+        readerPageIndex = null,
+        readerPageCount = null,
+        lastReadAtMillis = null,
+    ),
+)
 
 private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
     if (!enabled) return 0f

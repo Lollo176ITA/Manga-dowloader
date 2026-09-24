@@ -20,12 +20,43 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.lorenzo.mangadownloader.app.AppSettings
+import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.anilist.AniListAuthException
+import com.lorenzo.mangadownloader.data.anilist.AniListClient
+import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSyncStore
+import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSynchronizer
+import com.lorenzo.mangadownloader.data.anilist.AniListResolutionAttemptsStore
+import com.lorenzo.mangadownloader.data.anilist.AniListStore
+import com.lorenzo.mangadownloader.data.anilist.newAniListFavorites
+import com.lorenzo.mangadownloader.data.anilist.realAniListFavoritesSynchronizer
+import com.lorenzo.mangadownloader.data.model.canonicalKey
+import com.lorenzo.mangadownloader.data.model.identityKey
+import com.lorenzo.mangadownloader.data.network.SharedHttpClient
+import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
+import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
+import com.lorenzo.mangadownloader.data.sources.SourceHealthStore
+import com.lorenzo.mangadownloader.data.sources.isSourceSkipped
+import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
+import com.lorenzo.mangadownloader.data.store.FavoriteSourceHealthStore
+import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
+import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesFeedStore
+import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesStore
+import com.lorenzo.mangadownloader.data.store.FavoritesStore
+import com.lorenzo.mangadownloader.data.store.SeriesLinksStore
+import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.data.store.appendUpdateEvent
+import com.lorenzo.mangadownloader.data.store.computeFavoriteUpdate
+import com.lorenzo.mangadownloader.data.store.recordSourceFailure
+import com.lorenzo.mangadownloader.data.store.recordSourceSuccess
+import com.lorenzo.mangadownloader.data.store.shouldPollFavorite
+import com.lorenzo.mangadownloader.domain.series.FavoriteIdentityResolver
+import com.lorenzo.mangadownloader.domain.series.FavoritesSeriesMigration
+import com.lorenzo.mangadownloader.domain.series.favoriteSourceCandidates
+import com.lorenzo.mangadownloader.domain.series.fetchFromFirstAvailable
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 /**
@@ -250,25 +281,15 @@ class FavoriteUpdatesWorker(
         val token = aniListStore.readToken() ?: return favorites
         val viewerId = aniListStore.readViewer()?.id ?: return favorites
         return try {
-            val imported = AniListFavoritesSynchronizer(
+            val imported = realAniListFavoritesSynchronizer(
+                client = aniListClient,
+                token = token,
+                viewerId = viewerId,
+                registry = registry,
                 syncStore = syncStore,
                 seriesLinksStore = seriesLinksStore,
-                fetchFavourites = {
-                    withContext(Dispatchers.IO) { aniListClient.fetchFavouriteManga(token, viewerId) }
-                },
-                toggleFavourite = { mediaId ->
-                    withContext(Dispatchers.IO) { aniListClient.toggleFavouriteManga(token, mediaId) }
-                },
-                searchSources = { query ->
-                    searchEnabledSources(
-                        registry = registry,
-                        disabledSourceIds = settings.disabledSourceIds + unavailableSourceIds,
-                        query = query,
-                    )
-                },
-                sourcesSignature = {
-                    aniListImportSourcesSignature(settings.disabledSourceIds, unavailableSourceIds)
-                },
+                disabledSourceIds = { settings.disabledSourceIds },
+                unavailableSourceIds = { unavailableSourceIds },
             ).sync(favorites)
             val fresh = newAniListFavorites(imported, favorites)
             if (fresh.isEmpty()) {
@@ -286,30 +307,6 @@ class FavoriteUpdatesWorker(
             favorites
         } catch (_: Exception) {
             favorites
-        }
-    }
-
-    /**
-     * Ricerca su tutte le fonti attive, ignorando i fallimenti della singola fonte. Risultati
-     * alternati fra le fonti come nella ricerca dell'app: accodarli a blocchi farebbe vincere
-     * sempre la fonte in cima al catalogo.
-     */
-    private suspend fun searchEnabledSources(
-        registry: MangaSourceRegistry,
-        disabledSourceIds: Set<String>,
-        query: String,
-    ): List<MangaSearchResult> = withContext(Dispatchers.IO) {
-        coroutineScope {
-            val perSource = MangaSourceCatalog
-                .descriptorsForScope(SearchScope.ALL, disabledSourceIds)
-                .map { descriptor ->
-                    async {
-                        runCatching { registry.requireById(descriptor.id).searchManga(query) }
-                            .getOrDefault(emptyList())
-                    }
-                }
-                .awaitAll()
-            MangaSourceCatalog.interleaveBySource(perSource)
         }
     }
 }

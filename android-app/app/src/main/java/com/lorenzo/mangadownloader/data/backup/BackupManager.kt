@@ -1,0 +1,134 @@
+package com.lorenzo.mangadownloader.data.backup
+
+import com.lorenzo.mangadownloader.app.AppSettings
+import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
+import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
+import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
+import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesStore
+import com.lorenzo.mangadownloader.data.store.FavoritesStore
+import com.lorenzo.mangadownloader.data.store.ReadingDiaryStore
+import com.lorenzo.mangadownloader.data.store.ReadingMemoryStore
+import com.lorenzo.mangadownloader.data.store.RecentSearchesStore
+import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
+import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
+import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
+import com.lorenzo.mangadownloader.domain.series.mergeFavoriteShelves
+import java.io.InputStream
+import java.io.OutputStream
+
+/**
+ * Coordinatore Android-facing del backup (l'unico pezzo non puro). Costruito nel ViewModel dagli
+ * store esistenti. Raccoglie i dati in un [MangaBackup] e, in ripristino, ri-persiste via gli
+ * stessi store. L'IO sul file lo possiede il chiamante (MainActivity apre/chiude lo stream SAF):
+ * qui si riceve uno stream già aperto e non lo si chiude.
+ */
+class BackupManager(
+    private val favoritesStore: FavoritesStore,
+    private val favoriteShelvesStore: FavoriteShelvesStore,
+    private val favoriteUpdatesStore: FavoriteUpdatesStore,
+    private val favoriteDescriptionsStore: FavoriteDescriptionsStore,
+    private val recentSearchesStore: RecentSearchesStore,
+    private val settingsStore: SettingsStore,
+    private val readingMemoryStore: ReadingMemoryStore,
+    private val readingDiaryStore: ReadingDiaryStore,
+    private val appVersionName: String,
+) {
+
+    fun buildBackup(nowMs: Long): MangaBackup = MangaBackup(
+        schemaVersion = BACKUP_SCHEMA_VERSION,
+        exportedAtMs = nowMs,
+        appVersionName = appVersionName,
+        favorites = favoritesStore.read().map { it.toBackupEntry() },
+        favoriteUpdates = favoriteUpdatesStore.read(),
+        favoriteDescriptions = favoriteDescriptionsStore.read(),
+        recentSearches = recentSearchesStore.read(),
+        settings = settingsStore.read().toBackup(),
+        readingMemory = readingMemoryStore.read().mapValues { (_, record) -> record.toBackupEntry() },
+        readingDiary = readingDiaryStore.read().mapValues { (_, stats) -> stats.toBackupEntry() },
+        favoriteShelves = favoriteShelvesStore.read(),
+    )
+
+    /** Scrive il backup come JSON UTF-8 sullo stream fornito (aperto/chiuso dal chiamante). */
+    fun export(output: OutputStream, nowMs: Long) {
+        output.write(encodeBackup(buildBackup(nowMs)).toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * Legge e applica un backup dallo stream. Persiste su tutti gli store e restituisce i valori
+     * per aggiornare lo stato della UI; `null` se il file non è un backup valido (gli store
+     * restano intatti).
+     */
+    fun restore(input: InputStream, mode: BackupRestoreMode): BackupRestoreResult? {
+        val raw = input.readBytes().toString(Charsets.UTF_8)
+        val backup = decodeBackup(raw) ?: return null
+
+        val currentFavorites = favoritesStore.read()
+        val favorites: List<FavoriteManga>
+        val recentSearches: List<String>
+        val favoriteUpdates: Map<String, FavoriteSeenState>
+        val favoriteDescriptions: Map<String, String>
+        val favoriteShelves: FavoriteShelves
+        when (mode) {
+            BackupRestoreMode.REPLACE -> {
+                favorites = backup.favorites.mapNotNull { it.toFavoriteManga() }
+                recentSearches = backup.recentSearches
+                    .mapNotNull { it.trim().takeIf(String::isNotBlank) }
+                    .take(RecentSearchesStore.MAX_RECENT_SEARCHES)
+                favoriteUpdates = backup.favoriteUpdates
+                favoriteDescriptions = backup.favoriteDescriptions
+                favoriteShelves = backup.favoriteShelves
+            }
+            BackupRestoreMode.MERGE -> {
+                favorites = mergeFavorites(currentFavorites, backup.favorites)
+                recentSearches = mergeRecentSearches(recentSearchesStore.read(), backup.recentSearches)
+                favoriteUpdates = mergeFavoriteUpdates(favoriteUpdatesStore.read(), backup.favoriteUpdates)
+                favoriteDescriptions = favoriteDescriptionsStore.read() + backup.favoriteDescriptions
+                favoriteShelves = mergeFavoriteShelves(favoriteShelvesStore.read(), backup.favoriteShelves)
+            }
+        }
+        // Memoria e diario di lettura si UNISCONO sempre, anche in REPLACE: azzerarli
+        // perderebbe letture che il backup (magari di una versione vecchia, senza i campi)
+        // non ha, e il seed dal prossimo scan della libreria li ripopolerebbe comunque in parte.
+        val readingMemory = mergeReadingMemory(readingMemoryStore.read(), backup.readingMemory)
+        val readingDiary = mergeReadingDiary(readingDiaryStore.read(), backup.readingDiary)
+        val settings = backup.settings.applyTo(settingsStore.read())
+
+        favoritesStore.persist(favorites)
+        recentSearchesStore.persist(recentSearches)
+        favoriteUpdatesStore.write(favoriteUpdates)
+        favoriteDescriptionsStore.write(favoriteDescriptions)
+        favoriteShelvesStore.write(favoriteShelves)
+        settingsStore.persist(settings)
+        readingMemoryStore.persist(readingMemory)
+        readingDiaryStore.persist(readingDiary)
+
+        return BackupRestoreResult(
+            favorites = favorites,
+            settings = settings,
+            recentSearches = recentSearches,
+            favoriteDescriptions = favoriteDescriptions,
+            favoriteShelves = favoriteShelves,
+            readingMemory = readingMemory,
+            readingDiary = readingDiary,
+            favoritesTotal = favorites.size,
+            favoritesAdded = (favorites.size - currentFavorites.size).coerceAtLeast(0),
+            mode = mode,
+        )
+    }
+}
+
+/** Esito di un ripristino: i valori già persistiti, da riflettere nello stato della UI. */
+data class BackupRestoreResult(
+    val favorites: List<FavoriteManga>,
+    val settings: AppSettings,
+    val recentSearches: List<String>,
+    val favoriteDescriptions: Map<String, String>,
+    val favoriteShelves: FavoriteShelves,
+    val readingMemory: Map<String, ReadChapterMemory>,
+    val readingDiary: Map<String, ReadingDayStats>,
+    val favoritesTotal: Int,
+    val favoritesAdded: Int,
+    val mode: BackupRestoreMode,
+)

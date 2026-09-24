@@ -6,6 +6,10 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import com.lorenzo.mangadownloader.data.library.LibraryRepository
+import com.lorenzo.mangadownloader.data.network.SharedHttpClient
+import com.lorenzo.mangadownloader.data.report.CrashReporter
+import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
 
 class MangaApplication : Application(), SingletonImageLoader.Factory {
 

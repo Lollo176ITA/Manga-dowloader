@@ -1,0 +1,83 @@
+package com.lorenzo.mangadownloader.app
+
+import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
+
+/**
+ * Schermata attualmente in primo piano. Prima la navigazione era implicita nell'ordine di
+ * un `when` con booleani/nullable sparsi (`showSettings`, `selected`, `readerChapter`, …)
+ * replicato in 4 punti (rendering, BackHandler, canHandleBack, showPager).
+ *
+ * Qui la gerarchia è codificata **una volta sola** in [currentScreen]: i campi di stato
+ * restano l'unica fonte di verità (niente stack parallelo da tenere in sync), ma la
+ * decisione di *quale* schermata mostrare e di *cosa fa il back* diventa un tipo sigillato
+ * esaustivo e testabile. [Screen.Tabs] è la root (il pager Cerca/Preferiti/Libreria).
+ */
+sealed interface Screen {
+    data object Tabs : Screen
+    data object Detail : Screen
+    data object DownloadedSeries : Screen
+    data object Reader : Screen
+    data object Settings : Screen
+    data object StorageManager : Screen
+    data object Backup : Screen
+    data object Changelog : Screen
+    data object Updates : Screen
+    data object History : Screen
+    data object Stats : Screen
+    data object Feedback : Screen
+    data object DiscoverGenre : Screen
+}
+
+/**
+ * Schermata in primo piano derivata dallo stato. L'ordine codifica lo "stack" implicito:
+ * il reader sta sopra tutto, poi la gestione memoria (sopra le impostazioni), le impostazioni,
+ * il dettaglio, la serie scaricata (solo nella tab Libreria) e infine le tab.
+ */
+fun MangaUiState.currentScreen(): Screen = when {
+    readerChapter != null -> Screen.Reader
+    showStorageManager -> Screen.StorageManager
+    showBackup -> Screen.Backup
+    showFeedback -> Screen.Feedback
+    showChangelog -> Screen.Changelog
+    showSettings -> Screen.Settings
+    // Il dettaglio sta SOPRA il feed Aggiornamenti: aprendo un manga dal feed, il back
+    // (clearSelection) riporta al feed con gli altri eventi ancora evidenziati.
+    selected != null -> Screen.Detail
+    showUpdates -> Screen.Updates
+    showHistory -> Screen.History
+    showStats -> Screen.Stats
+    discovery.selectedGenre != null -> Screen.DiscoverGenre
+    currentTab == AppTab.LIBRARY && selectedDownloadedSeries != null -> Screen.DownloadedSeries
+    else -> Screen.Tabs
+}
+
+/** C'è una schermata da chiudere col tasto "indietro"? (cioè non siamo già sulle tab). */
+fun MangaUiState.canHandleBack(): Boolean = currentScreen() != Screen.Tabs
+
+/** Tab mostrate nella bottom bar / pager: Home · Cerca · Preferiti · Libreria (Home opzionale). */
+fun MangaUiState.visibleTabs(): List<AppTab> =
+    if (settings.showHomeTab) AppTab.entries else AppTab.entries.filterNot { it == AppTab.HOME }
+
+/** Indice della tab tra quelle visibili (per il pager), o 0 se non visibile. */
+fun MangaUiState.tabPageIndex(tab: AppTab): Int =
+    visibleTabs().indexOf(tab).coerceAtLeast(0)
+
+/**
+ * Chiave per il [androidx.compose.runtime.saveable.SaveableStateHolder] che avvolge la
+ * schermata in primo piano: identifica *quale* stato salvabile (in primis la posizione di
+ * scroll) ripristinare quando si esce e si rientra in una schermata. Cambiare schermata
+ * smonta del tutto la precedente dalla composizione — senza questa chiave lo scroll si
+ * azzererebbe a ogni andata e ritorno (es. Impostazioni → Gestisci memoria → indietro).
+ *
+ * [Screen.Detail] e [Screen.DownloadedSeries] sono qualificate dal contenuto aperto (manga /
+ * serie) così due elementi diversi non si scambiano la posizione di scroll; per il resto basta
+ * il tipo di schermata. Il reader resta a chiave stabile: la sua posizione la ripristina già
+ * il ViewModel via `initialPageIndex`, e una chiave per-capitolo romperebbe la transizione.
+ */
+fun MangaUiState.saveableScreenKey(): String = when (currentScreen()) {
+    Screen.Detail -> "Detail:${selected?.mangaUrl.orEmpty()}"
+    Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.absolutePath.orEmpty()}"
+    Screen.DiscoverGenre -> "DiscoverGenre:${discovery.selectedGenre?.apiGenre.orEmpty()}"
+    else -> currentScreen().toString()
+}

@@ -4,6 +4,42 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-09-23
+
+### Aggiunto
+
+- Scaffali per i preferiti: puoi creare scaffali con il nome che vuoi ("Da rileggere", "Per le vacanze"…) e mettere ogni preferito su uno o più scaffali dal suo menu. Gli scaffali compaiono come filtro sotto gli stati di lettura, e si rinominano o eliminano da "Gestisci scaffali". Sono inclusi nel backup.
+- Widget "Continua a leggere" per la schermata Home del telefono: una striscia 4×1 identica alla card "Riprendi" della Home, con gli stessi colori (anche tema scuro e Material You), la copertina e il punto in cui ti eri fermato; un tocco riapre la lettura. Allungato a due righe mostra anche la barra di avanzamento. Si aggiunge da Impostazioni → App.
+- Gruppo "Senza scan" in fondo ai Preferiti: i preferiti del tuo account AniList che nessuna fonte attiva ha ora si vedono, invece di sparire senza spiegazioni. Toccandone uno l'app lo cerca di nuovo su tutte le fonti.
+- Nuova impostazione "Nascondi manga per adulti": toglie da ricerca, Scopri e Consigliati i titoli che AniList segna come per adulti o ecchi. Con il controllo genitori è sempre attiva.
+
+### Migliorato
+
+- Ogni serie ha la sua coda di download: il pulsante di stop sulla card ferma solo quella serie, mentre "Ferma download" in basso continua a fermarle tutte.
+
+### Corretto
+
+- Controllo genitori più difficile da aggirare: ripristinare un backup non lo disattiva più e non accende lo sblocco con l'impronta; dopo 5 PIN sbagliati l'inserimento si blocca per un po', anche chiudendo l'app; scorrendo fino alla scheda Cerca non si vedono più le ricerche precedenti prima di aver inserito il PIN.
+- Lo sblocco con l'impronta del controllo genitori non si attiva più da solo: il telefono accetta qualsiasi impronta registrata, compresa quella di un figlio. Si può ancora accendere dalle impostazioni.
+- Se il download di una serie non riesce, le serie accodate dopo partono lo stesso: prima fallivano tutte insieme senza nemmeno iniziare.
+- Un problema di rete su una serie non tiene più ferma l'intera coda mentre l'app ritenta: le altre serie vanno avanti.
+- Fermare un download non mostra più per errore la notifica "Download non riuscito".
+
+## 2026-08-30
+
+### Migliorato
+
+- La lista dei capitoli ora offre entrambe le azioni insieme: toccare la riga apre il capitolo, l'icona a destra lo scarica. Prima bisognava scegliere una volta per tutte fra le due cose con un interruttore nelle impostazioni, che di fatto teneva nascosta la lettura online a chi non andava a cercarlo.
+- Toccare un capitolo già scaricato apre la copia in libreria invece di riscaricarne le pagine dalla rete.
+- Leggendo in streaming, il capitolo successivo viene preparato mentre si finiscono le ultime pagine di quello corrente: premendo "avanti" si parte quasi subito, invece di aspettare a schermo vuoto che l'app scarichi l'elenco delle pagine e poi la prima immagine.
+- Dal lettore, un capitolo che stai leggendo in streaming si salva in libreria con un tocco, senza uscire e ripassare dal selettore di intervallo nel dettaglio.
+- Il blocco "Riprendi" della Home tiene conto anche delle letture in streaming: prima compariva solo con capitoli scaricati, quindi chi legge online non lo vedeva mai — e si ritrovava l'invito "la tua Home si riempie mentre leggi" dopo settimane di letture.
+- I capitoli letti in streaming si riaprono dalla cronologia e da "Letti di recente": prima erano righe che non reagivano al tocco. Le letture registrate dalle versioni precedenti restano non riapribili, perché di quelle non era stato annotato l'indirizzo.
+
+### Rimosso
+
+- L'impostazione "Leggi senza scaricare" non serve più: la lettura online è sempre disponibile dalla lista dei capitoli.
+
 ## 2026-08-26
 
 ### Aggiunto

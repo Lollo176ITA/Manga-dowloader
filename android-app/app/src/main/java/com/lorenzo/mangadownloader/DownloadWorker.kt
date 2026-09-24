@@ -18,16 +18,24 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lorenzo.mangadownloader.data.model.DownloadResult
+import com.lorenzo.mangadownloader.data.model.readingUnitPlural
+import com.lorenzo.mangadownloader.data.model.readingUnitSingular
+import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -52,6 +60,38 @@ class DownloadWorker(
             return Result.failure(workDataOf(PROGRESS_MESSAGE to "URL iniziale mancante"))
         }
 
+        // Una serie alla volta, come quando la coda era unica: il carico sulle fonti e la
+        // notifica restano quelli di prima. Chi aspetta resta RUNNING per WorkManager, quindi
+        // si promuove comunque a foreground: senza, JobScheduler lo fermerebbe dopo dieci
+        // minuti di attesa e lo rimetterebbe in coda con il backoff.
+        if (!seriesSlot.tryAcquire()) {
+            setProgress(
+                workDataOf(
+                    PROGRESS_WAITING to true,
+                    PROGRESS_SOURCE_ID to (inputSourceId ?: taggedSourceId),
+                    PROGRESS_SERIES_TITLE to taggedSeriesTitle,
+                    PROGRESS_MANGA_URL to taggedMangaUrl,
+                    PROGRESS_MESSAGE to "In coda",
+                ),
+            )
+            safeSetForeground(lastForegroundMessage ?: "Download in coda")
+            seriesSlot.acquire()
+        }
+        return try {
+            downloadSeries(firstUrl, lastUrl, inputSourceId, taggedSourceId, taggedSeriesTitle, taggedMangaUrl)
+        } finally {
+            seriesSlot.release()
+        }
+    }
+
+    private suspend fun downloadSeries(
+        firstUrl: String,
+        lastUrl: String?,
+        inputSourceId: String?,
+        taggedSourceId: String?,
+        taggedSeriesTitle: String?,
+        taggedMangaUrl: String?,
+    ): Result {
         return try {
             safeSetForeground(taggedSeriesTitle ?: "Preparazione download")
             val source = sourceRegistry.resolve(inputSourceId ?: taggedSourceId, firstUrl)
@@ -189,6 +229,7 @@ class DownloadWorker(
                 ),
             )
         } catch (ioe: IOException) {
+            // Ritenta solo questa serie: con una catena per serie le altre non aspettano.
             Result.retry()
         } catch (cancelled: DownloadStoppedException) {
             Result.success(
@@ -199,6 +240,9 @@ class DownloadWorker(
                     PROGRESS_MANGA_URL to taggedMangaUrl,
                 ),
             )
+        } catch (cancelled: CancellationException) {
+            // Stop mentre si aspetta la rete: non è un errore, niente notifica "non riuscito".
+            throw cancelled
         } catch (exc: Exception) {
             // first/last URL nell'output così la UI può proporre "Riprova" ri-accodando lo
             // stesso intervallo (il ramo failure prima non li conservava).
@@ -265,6 +309,7 @@ class DownloadWorker(
         if (!canShowForegroundNotification()) {
             return
         }
+        lastForegroundMessage = message
 
         try {
             setForeground(makeForegroundInfo(message))
@@ -366,7 +411,15 @@ class DownloadWorker(
     }
 
     companion object {
-        const val UNIQUE_WORK_NAME = "manga-download-work"
+        /**
+         * Tag che WorkManager mette da solo su ogni richiesta: il nome completo della classe.
+         * Raggruppa tutti i download, compresi quelli accodati dalle versioni che usavano
+         * un'unica catena `manga-download-work` (ancora in coda su chi aggiorna l'app).
+         */
+        val ALL_DOWNLOADS_TAG: String = DownloadWorker::class.java.name
+        private const val SERIES_WORK_PREFIX = "manga-download:"
+        /** `true` mentre il worker aspetta che finisca il download di un'altra serie. */
+        const val PROGRESS_WAITING = "progress_waiting"
         const val PROGRESS_MESSAGE = "progress_message"
         const val PROGRESS_DONE_CHAPTERS = "progress_done_chapters"
         const val PROGRESS_TOTAL_CHAPTERS = "progress_total_chapters"
@@ -393,6 +446,55 @@ class DownloadWorker(
         private const val PAGE_CONCURRENCY = 4
         private const val PAGE_PROGRESS_STRIDE = 5
         private const val PAGE_PROGRESS_MIN_INTERVAL_MS = 1_500L
+
+        /** Serie scaricate insieme (FIFO: kotlinx `Semaphore` serve le attese in ordine). */
+        private val seriesSlot = Semaphore(1)
+
+        /**
+         * Ultimo testo mostrato nella notifica di download: chi aspetta il suo turno si
+         * promuove a foreground con lo stesso id, e con un testo suo coprirebbe quello
+         * della serie che sta scaricando.
+         */
+        @Volatile
+        private var lastForegroundMessage: String? = null
+
+        /**
+         * Nome della catena WorkManager di una serie. Stessa chiave con cui la Libreria
+         * raggruppa i download ([MangaSourceCatalog.identityKeyOrNull]); senza serie
+         * riconoscibile ogni richiesta sta per conto suo.
+         */
+        fun seriesWorkName(
+            sourceId: String?,
+            mangaUrl: String?,
+            seriesTitle: String?,
+            firstUrl: String,
+        ): String {
+            val key = MangaSourceCatalog.identityKeyOrNull(
+                sourceId?.trim()?.takeIf(String::isNotBlank),
+                mangaUrl?.trim()?.takeIf(String::isNotBlank),
+                seriesTitle?.trim()?.takeIf(String::isNotBlank),
+            ) ?: "url:${firstUrl.trim()}"
+            return SERIES_WORK_PREFIX + key
+        }
+
+        /** Tutti i download, di ogni serie e di ogni stato. */
+        fun observeAll(workManager: WorkManager): Flow<List<WorkInfo>> =
+            workManager.getWorkInfosByTagFlow(ALL_DOWNLOADS_TAG)
+
+        /** Ferma ogni download, compresi quelli rimasti nella vecchia coda unica. */
+        fun stopAll(context: Context) {
+            WorkManager.getInstance(context).cancelAllWorkByTag(ALL_DOWNLOADS_TAG)
+        }
+
+        /**
+         * Ferma solo le richieste indicate (quelle di una serie, vedi `SeriesDownloadStatus`).
+         * Per id e non per nome di catena: così vale anche per i download accodati prima
+         * delle catene per serie.
+         */
+        fun stopWork(context: Context, workIds: Collection<UUID>) {
+            val workManager = WorkManager.getInstance(context)
+            workIds.forEach(workManager::cancelWorkById)
+        }
 
         fun enqueue(
             context: Context,
@@ -437,8 +539,12 @@ class DownloadWorker(
                 )
                 .build()
 
+            // Una catena per serie: due intervalli della stessa serie si scaricano uno dopo
+            // l'altro (stessa cartella), ma il fallimento o il retry di una serie non tocca
+            // le altre. Con l'unica catena di prima, una serie fallita faceva fallire tutte
+            // quelle accodate dopo.
             WorkManager.getInstance(context).enqueueUniqueWork(
-                UNIQUE_WORK_NAME,
+                seriesWorkName(sourceId, mangaUrl, seriesTitle, firstUrl),
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request,
             )

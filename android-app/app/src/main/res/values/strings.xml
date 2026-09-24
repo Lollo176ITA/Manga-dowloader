@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">MangApp</string>
+    <string name="reading_widget_description">Riprendi l\'ultima lettura con un tocco</string>
+    <string name="reading_widget_preview_title">Continua a leggere</string>
+    <string name="reading_widget_preview_subtitle">Capitolo 12 · pagina 8 di 40</string>
 </resources>

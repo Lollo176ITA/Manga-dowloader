@@ -9,44 +9,92 @@
 ## 🟢 Bug & quick win
 
 - [ ] **Letture SharedPreferences sincrone nel costruttore del ViewModel (main thread)** ✅ — *RINVIATO (2026-05-26): lo stato iniziale (tab con parental control, fase tutorial, preferiti) è costruito sincronamente da queste letture; renderle async non è un vero quick win (rischio flash/regressioni su tutorial e tab iniziale) e il guadagno è marginale con prefs piccole. Da fare con cura a parte.*
-  - Dove: `MangaViewModel` field init → `readFavorites()` (JSON a mano), `readSettings()`, `readRecentSearches()` eseguiti alla creazione (in composizione).
-  - Perché: I/O + parsing JSON sincroni all'avvio → jank potenziale man mano che i favoriti crescono.
+  - Dove: `MangaViewModel` field init → `settingsStore`, `favoriteUpdatesStore`, `readingMemoryStore`, `readingDiaryStore`, `recentSearchesStore`, `sourceHealthStore`, `favoriteUpdatesFeedStore` letti tutti alla creazione, più i preferiti e le descrizioni in `init`.
+  - Perché: I/O + parsing JSON sincroni all'avvio. Quasi tutti gli store sono piccoli o limitati (il feed ha `MAX_FEED_EVENTS`), ma `ReadingMemoryStore` tiene una voce per ogni capitolo letto e non ha tetto: è l'unico che cresce con l'uso.
   - Cosa fare: stato iniziale "vuoto/loading" e caricamento in `init { viewModelScope.launch(Dispatchers.IO) { … } }`. Impatto Medio · Sforzo Basso.
-
-- [ ] **I preferiti AniList che nessuna fonte espone sono invisibili** ✅ — Impatto Medio · Sforzo Medio
-  - Dove: [AniListFavoritesSynchronizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/AniListFavoritesSynchronizer.kt) — il match mancato finisce in `failedImports` e il titolo sparisce senza una parola.
-  - Perché: metti la stella su AniList, apri l'app e non è successo niente, senza sapere perché. Da 2026-08-28 l'elenco almeno non è più definitivo (si azzera quando cambiano le fonti interrogate, comprese quelle tornate su), ma resta muto.
-  - Cosa fare: un gruppo collassabile in fondo ai Preferiti ("Senza scan"), alimentato da `failedImports` + i metadati AniList, **non** da `FavoriteManga` — l'invariante "un preferito ha una fonte" va tenuta. Card cliccabile: il tap rifà la ricerca aggregata (`onPickAniListManga`), che è insieme la spiegazione e il rimedio.
-
-- [ ] **Il worker dei preferiti legge la salute delle fonti ma non la scrive** ✅ — Impatto Basso · Sforzo Basso
-  - Dove: [FavoriteUpdatesWorker.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt) — usa `SourceHealthStore` per saltare i siti giù, ma solo la ricerca in app aggiorna il contatore.
-  - Perché: non è un guasto (il cooldown scade da solo, quindi il worker non perpetua mai una decisione vecchia), ma il worker tocca ogni preferito ed è il segnale più ricco che abbiamo sulle fonti.
-  - Cosa fare: registrare l'esito per-fonte nel giro di controllo, filtrando con `isSourceOutage` come fa il ViewModel.
-
----
-
-## 📥 Download
-
-- [ ] **Stop davvero per-serie (oggi è "ferma tutto" con conferma)** 🔎 — Impatto Medio · Sforzo Medio
-  - Perché: lo stop dei download è protetto da conferma, ma resta globale: ferma l'intera coda WorkManager, non la singola serie. Tutti i download condividono un'unica catena `enqueueUniqueWork(UNIQUE_WORK_NAME, APPEND_OR_REPLACE)`, quindi cancellare per tag troncherebbe anche i work concatenati delle altre serie.
-  - Cosa fare: dare a ogni serie una propria unique work (`manga-download-<identityKey>`) con un tag globale condiviso, così lo stop per-card cancella solo quella serie (`cancelUniqueWork`) e il FAB ferma tutto (`cancelAllWorkByTag`); l'osservatore in MainActivity passa da `getWorkInfosForUniqueWorkLiveData` a `getWorkInfosByTagLiveData`. Valutare l'effetto sulla concorrenza (serie ora parallele).
 
 ---
 
 ## 🟡 Affidabilità & test mancanti
 
-- [ ] **Test del `DownloadWorker` (cuore dell'app)** 🔎
-  - Dove: [DownloadWorker.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/DownloadWorker.kt) — `doWork`, `enqueue`, retry/cancellazione, concorrenza con `Semaphore`/`Mutex`.
-  - Cosa fare: test di `enqueue` (constraint/tag) con `WorkManagerTestInitHelper`, e/o estrarre l'orchestrazione in una classe testabile con `MangaSource` fake (come `StreamingReadStateTest.TestMangaSource`). Impatto Alto · Sforzo Medio/Alto.
-
 - [ ] **Alimentare il `CrashReporter`/log sugli errori di parsing** 🔎
-  - Dove: le source lanciano `IllegalStateException("Nessun capitolo…")` senza dire *quale* selettore è fallito ([MangapillSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/MangapillSource.kt)).
-  - Cosa fare: loggare URL + selettore fallito su lista vuota; valutare un parsing-fallback (JSON-LD/`<title>`). Impatto Medio · Sforzo Medio.
+  - Dove: le source lanciano `IllegalStateException("Nessun capitolo…")` senza dire *quale* selettore è fallito ([MangapillSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/MangapillSource.kt)).
+  - Perché: un log sul telefono dell'utente non lo vede nessuno; serve che l'informazione arrivi con la segnalazione.
+  - Cosa fare: tenere gli ultimi errori delle fonti (fonte, URL, cosa non è stato trovato nella pagina) in un piccolo buffer e allegarli a "Segnala un problema". Impatto Medio · Sforzo Medio.
+
+- [ ] **Stato di lettura per-capitolo nelle SharedPreferences, senza tetto** ✅ — *RINVIATO (2026-09-23): migrazione pesante (dati utenti, streaming) per un costo che si sente solo con migliaia di capitoli.* Impatto Basso · Sforzo Alto
+  - Dove: [LibraryRepository.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/library/LibraryRepository.kt) — fino a 4 chiavi per capitolo in `manga_library_prefs` (`read::`, `reader_page_index::`, `reader_page_count::`, `reader_read_at::` + percorso), mai potate se non eliminando il capitolo. `saveReaderPagePosition` scrive a ogni avanzamento di pagina, e ogni `apply()` copia e riscrive l'intero file.
+  - Non è un bug di coerenza: il "letto" vive anche in `readChapterIds` dei metadati, ma la scansione li unisce in OR e "segna/togli letto" aggiorna entrambi.
+  - Cosa fare: posizione e "letto" dei capitoli scaricati nel JSON della serie (con migrazione una tantum dalle prefs), lasciando alle prefs solo lo streaming; oppure DataStore/Room per tutto.
+
+- [ ] **Navigazione a flag booleani invece di un back-stack esplicito** 🔎 — *RINVIATO (2026-09-23).* Impatto Basso · Sforzo Alto
+  - Dove: [Screen.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/Screen.kt) — `currentScreen()` ricava la schermata da `showX`/`selected != null` in ordine di priorità; ogni schermata nuova vuole un flag, un ramo nel `when`, un `closeX()` e un caso in `handleBack`.
+  - Già mitigato: la priorità è centralizzata in un tipo sigillato testabile, e le combinazioni "incoerenti" (es. `showSettings` + `showUpdates`) si risolvono in modo deterministico, come uno stack.
+  - Cosa fare, se le schermate crescono ancora: `List<Screen>` nello stato al posto dei flag `show*`, o Navigation Compose.
 
 ---
 
-## 🔧 Repo & tooling
+## ⚡ Prestazioni
 
-- [ ] **Rendere robusto il default-path di `bump_version.py`** 🔎
-  - Dove: `Path(__file__).resolve().parents[4]` in `.claude/skills/release-android/scripts/bump_version.py` dipende dalla profondità della cartella.
-  - Cosa fare: risalire fino a trovare `android-app/version.properties` o usare `git rev-parse --show-toplevel`. Impatto Basso · Sforzo Basso.
+- [ ] **Un solo file SharedPreferences per impostazioni, preferiti e memoria di lettura** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: 16 store del ViewModel condividono `SettingsStore.PREFS_NAME`, compreso [ReadingMemoryStore](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/store/ReadingMemoryStore.kt), che tiene un JSON con una voce per ogni capitolo mai letto, senza tetto. Ogni `apply()` (cambio di un'impostazione, preferito, feed) riscrive su disco l'intero file, memoria di lettura compresa.
+  - Cosa fare: spostare memoria e diario di lettura in un file proprio (o in DataStore), con migrazione una tantum. Si lega alla voce sulle prefs per-capitolo più in basso.
+
+- [ ] **Nessun Baseline Profile** 🔎 — Impatto Medio · Sforzo Medio
+  - Dove: `app/build.gradle.kts` ha R8 attivo ma niente `profileinstaller` né modulo `baselineprofile`. Le app Compose senza profilo eseguono in JIT il codice di avvio e del primo scroll.
+  - Cosa fare: modulo `:baselineprofile` con Macrobenchmark (avvio → Home → Libreria → reader) generato sull'emulatore. Il guadagno va misurato prima e dopo.
+
+---
+
+## 🧹 Snellimento & architettura
+
+- [ ] **Estrarre altri controller dal ViewModel (4300 righe)** ✅ — Impatto Medio · Sforzo Alto
+  - Stesso schema già usato per `ParentalControlController` e `TutorialController`: classe che condivide il `MutableStateFlow`, esposta come `viewModel.xxx`.
+  - Candidati, dal più isolato al più intrecciato: **Home/Scopri** (`loadDiscovery`, `loadRecommendations`, `refreshHomeFeeds`, generi, ~300 righe) → **AniList** (auth, match, tracker, sync, ~550 righe) → **Preferiti e scaffali** → **Reader** (apertura, streaming, prefetch, avanzamento, adiacenze: ~1100 righe, il più accoppiato con libreria e memoria di lettura).
+
+- [ ] **`MangaUiState` monolitico e schermate che lo ricevono intero** ✅ — Impatto Medio · Sforzo Alto
+  - Dove: `MangaUiState` ha ~90 campi; `AppTopBar`, `HomeScreen`, `LibraryScreen`, `SearchScreen`, `StatsScreen` e `TutorialOverlay` prendono `state: MangaUiState`, quindi rigirano a ogni emissione qualsiasi.
+  - Cosa fare: sotto-stati per area (`ReaderUiState`, `LibraryUiState`, `FavoritesUiState`, `ParentalUiState`…, sul modello di `DiscoveryUiState`/`AniListUiState` che esistono già) e ogni schermata riceve solo il suo. Va di pari passo con l'estrazione dei controller.
+
+- [ ] **`MangaDownloaderAppContent` è un unico composable di ~900 righe** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: [MainActivity.kt:200-1106](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L200): launcher dei permessi, backup, snackbar, top/bottom bar, pager, `when` delle schermate e dialog, tutto nello stesso scope di ricomposizione.
+  - Cosa fare: separare `AppScaffold`, `ScreenHost` (il `when`) e `AppDialogsHost`, ognuno con i soli parametri che usa. Rende efficaci i due punti sopra.
+
+- [ ] **File troppo grossi da navigare** 🔎 — Impatto Basso · Sforzo Medio
+  - `UiComponents.kt` (1045 righe, componenti eterogenei) e `ReaderScreen.kt` (1280 righe, con `VerticalReader` da solo ~410). Solo organizzazione: dividere per componente, nessun guadagno di prestazioni.
+
+---
+
+## 📦 Librerie
+
+- [ ] **Zoom e pagine lunghissime del reader scritti a mano** 🔎 — Impatto Medio · Sforzo Alto
+  - Dove: [TallPageNormalizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizer.kt) (322 righe: spezza le pagine alte in fasce su disco), [ReaderTallPage.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/ReaderTallPage.kt) (281, budget di memoria e sample size), `ZoomablePage` in `ReaderScreen.kt` (~130, pinch/pan/doppio tap).
+  - Candidata: [Telephoto](https://github.com/saket/telephoto) (`zoomable-image-coil3`): zoom + *subsampling* (decodifica a tessere, come le mappe), che è proprio il problema delle pagine webtoon. Potrebbe sostituire gran parte di quelle ~700 righe.
+  - Rischi: il reader verticale zooma l'intera lista, non la singola immagine, e i gesti sono stati ritoccati da poco (tap e Precedente/Successivo da ingranditi). Serve prima una prova su un ramo, non una sostituzione alla cieca.
+  - Testata: risultato insoddisfacente
+
+- [ ] **Baseline Profile (`profileinstaller` + plugin `baselineprofile`)** — vedi la voce in ⚡ Prestazioni.
+
+- Valutate e **scartate**, a oggi:
+  - **DataStore** per le prefs che crescono: la variante Preferences riscrive comunque l'intero file a ogni modifica, quindi non risolve il problema; separare i file basta.
+  - **Room**: sarebbe lo strumento giusto *se* si spostano posizioni/letto per capitolo e memoria di lettura in un DB (query per serie, potatura, statistiche). Costa plugin KSP e migrazione dei dati; ha senso solo insieme a quella voce, non da solo.
+  - **Hilt/Koin**: l'app crea a mano ~16 store e 2 repository condivisi; un framework DI aggiungerebbe codice generato e build più lente senza togliere complessità vera.
+  - **Navigation Compose**: vedi la voce rinviata sulla navigazione.
+  - **Jakarta Mail** è la dipendenza più pesante, ma è una scelta già accettata per le segnalazioni senza backend.
+  - **`material-icons-extended`** (81 icone usate su migliaia): R8 elimina il resto in release, quindi l'APK non ne soffre; pesa solo sulle build debug. Passare ai drawable Material Symbols è pulizia, non prestazioni.
+
+---
+
+## 🔒 Controllo genitori
+
+- [ ] **Ricerca "tutto o niente" sotto controllo genitori** 🔎 — Impatto Medio · Sforzo Basso
+  - Oggi con il parentale attivo la tab Cerca chiede il PIN, e dopo il PIN i risultati sono comunque filtrati. Un ragazzo quindi non può cercare niente da solo.
+  - Da decidere: un'opzione "Consenti la ricerca filtrata" che lascia cercare senza PIN, con il filtro per adulti sempre acceso. Scelta di prodotto, non tecnica.
+
+- [ ] **Il filtro per adulti non vede i titoli che AniList non conosce** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: [ContentFilter.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ContentFilter.kt) — il segnale viene dai candidati AniList della ricerca e da poche parole esplicite nel titolo.
+  - Cosa fare: leggere i generi dalla pagina del manga sulle fonti che li espongono (MangaWorld, Asura…) e bloccare il dettaglio se tra i generi c'è Hentai/Smut/Adult/Ecchi.
+
+- [ ] **Hash del PIN troppo veloce** 🔎 — Impatto Basso · Sforzo Basso
+  - Dove: [ParentalControlSecurity.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ParentalControlSecurity.kt) — SHA-256 con sale, un solo passaggio: chi legge le preferenze dell'app (root, backup di sistema) prova tutti i PIN a 6 cifre in un attimo.
+  - Cosa fare: PBKDF2 con molte iterazioni, migrando l'hash al primo sblocco riuscito.

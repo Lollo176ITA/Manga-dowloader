@@ -21,3 +21,7 @@ android-app/.kotlin/
 .idea/
 AGENTS.md
 .playwright*
+
+# Report del benchmark locale (scripts/perf.ps1): dipendono dalla macchina.
+perf-reports/
+__pycache__/

@@ -156,6 +156,23 @@ android {
                 "proguard-rules.pro",
             )
         }
+        // Build misurata dal modulo :benchmark (Macrobenchmark): identica alla release (R8
+        // compreso) ma firmata con la chiave debug e installata a parte (.benchmark), così non
+        // tocca i dati né la build debug sull'emulatore.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".benchmark"
+            isDebuggable = false
+            // Niente controllo aggiornamenti: il dialog "Aggiornamento disponibile" arriva
+            // asincrono dalla rete e può bloccare i tocchi a metà misura. Con questi valori la
+            // richiesta fallisce subito (porta chiusa) e i controlli automatici tacciono.
+            buildConfigField("String", "UPDATE_CONFIG_URL", "\"http://127.0.0.1:9/\"")
+            buildConfigField("String", "UPDATE_REPO_OWNER", "\"\"")
+            buildConfigField("String", "UPDATE_REPO_NAME", "\"\"")
+            buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"\"")
+        }
     }
 
     compileOptions {
@@ -220,6 +237,8 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("io.github.aldefy:lumen-android:1.0.0-beta20")
+    // Installa i profili ART (richiesto da Macrobenchmark; servirà anche al Baseline Profile).
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Invio email via SMTP per le segnalazioni (Jakarta Mail + runtime Angus per Android).
     implementation("org.eclipse.angus:jakarta.mail:2.0.5")
     implementation("org.eclipse.angus:angus-activation:2.0.3")

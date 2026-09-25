@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo build benchmark: tracciabile da Macrobenchmark e con le sezioni per composable. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+        <provider
+            android:name="com.lorenzo.mangadownloader.benchmark.ComposeTraceInstaller"
+            android:authorities="${applicationId}.composetrace"
+            android:exported="false" />
+    </application>
+</manifest>

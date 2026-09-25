@@ -126,13 +126,18 @@ def render(cur, prev, meta):
         lines.append("- Tra parentesi la differenza rispetto al giro precedente.")
     lines.append("")
 
-    failed = [n for n in SCENARIOS if n not in cur]
+    requested = meta.get("requested") or SCENARIOS
+    failed = [n for n in requested if n not in cur]
     if failed:
         lines += ["## Scenari falliti", ""]
         reasons = meta.get("failures", {})
         lines += [f"- ❌ `{n}`: {reasons.get(n, 'assente dal JSON (errore durante il benchmark: vedi output di Gradle)')}"
                   for n in failed]
         lines.append("")
+
+    skipped = [n for n in SCENARIOS if n not in requested]
+    if skipped:
+        lines += [f"- Non eseguiti (giro parziale, `-Only`): {', '.join(f'`{n}`' for n in skipped)}", ""]
 
     with_frames = [n for n in SCENARIOS if n in cur and cur[n]["frames"]]
     # Macrobenchmark scrive i conteggi anche quando non trova sezioni: "assente" = tutti a zero.
@@ -217,6 +222,7 @@ def main(argv):
     parser.add_argument("json")
     parser.add_argument("--out-dir", default=str(REPO / "perf-reports"))
     parser.add_argument("--gradle-exit", type=int, default=0)
+    parser.add_argument("--scenarios", help="giro parziale: scenari eseguiti, separati da virgola")
     parser.add_argument("--test-results", help="cartella dei risultati JUnit (TEST-*.xml) del giro")
     args = parser.parse_args(argv)
 
@@ -233,12 +239,16 @@ def main(argv):
     meta = {"date": stamp.replace("_", " "), "commit": commit, "branch": branch, "dirty": dirty,
             "device": build.get("model", "?"), "sdk": build.get("version", {}).get("sdk", "?"),
             "gradle_exit": args.gradle_exit, "emulator": is_emulator(build),
-            "failures": failure_reasons(args.test_results) if args.test_results else {}}
+            "failures": failure_reasons(args.test_results) if args.test_results else {},
+            "requested": [n.strip() for n in args.scenarios.split(",") if n.strip()] if args.scenarios else None}
 
     shutil.copyfile(source, out_dir / f"{stamp}.json")
     report = out_dir / f"{stamp}.md"
     report.write_text(render(cur, prev, meta), encoding="utf-8")
-    (out_dir / "latest.json").write_text(json.dumps({"json": f"{stamp}.json", "md": f"{stamp}.md"}), encoding="utf-8")
+    # Solo un giro completo diventa il riferimento: i parziali (-Only) si confrontano con
+    # l'ultimo completo, così "prima/dopo una miglioria" resta sulla stessa base.
+    if not meta["requested"]:
+        (out_dir / "latest.json").write_text(json.dumps({"json": f"{stamp}.json", "md": f"{stamp}.md"}), encoding="utf-8")
     print(report)
     return 0
 

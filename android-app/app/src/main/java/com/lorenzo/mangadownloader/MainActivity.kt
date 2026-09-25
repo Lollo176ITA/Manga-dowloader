@@ -28,14 +28,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -422,10 +425,18 @@ private fun MangaDownloaderAppContent(
         pageCount = { visibleTabs.size },
     )
     val showPager = state.currentScreen() == Screen.Tabs
-    val visiblePagerTab = when {
-        !showPager -> state.currentTab
-        pagerState.isScrollInProgress -> visibleTabs.getOrElse(pagerState.targetPage) { state.currentTab }
-        else -> visibleTabs.getOrElse(pagerState.currentPage) { state.currentTab }
+    // derivedStateOf: lo stato di scorrimento del pager cambia a ogni gesto, anche verticale;
+    // letto qui direttamente ricomponeva tutta la radice due volte per swipe. Così la radice si
+    // ricompone solo quando cambia davvero la tab visibile.
+    val currentTab = state.currentTab
+    val visiblePagerTab by remember(pagerState, visibleTabs, showPager, currentTab) {
+        derivedStateOf {
+            when {
+                !showPager -> currentTab
+                pagerState.isScrollInProgress -> visibleTabs.getOrElse(pagerState.targetPage) { currentTab }
+                else -> visibleTabs.getOrElse(pagerState.currentPage) { currentTab }
+            }
+        }
     }
     val canHandleBack = state.canHandleBack()
 
@@ -519,13 +530,20 @@ private fun MangaDownloaderAppContent(
         }
     }
 
-    LaunchedEffect(pagerState.currentPage, pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress) {
-            val newTab = visibleTabs.getOrElse(pagerState.currentPage) { state.currentTab }
-            if (state.currentTab != newTab) {
-                viewModel.selectTab(newTab)
+    // Pagina e scorrimento letti in snapshotFlow, non come chiavi dell'effetto: come chiavi
+    // ricomponevano la radice a ogni inizio e fine di scorrimento.
+    val latestVisibleTabs by rememberUpdatedState(visibleTabs)
+    val latestCurrentTab by rememberUpdatedState(state.currentTab)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage to pagerState.isScrollInProgress }
+            .collect { (page, scrolling) ->
+                if (!scrolling) {
+                    val newTab = latestVisibleTabs.getOrElse(page) { latestCurrentTab }
+                    if (latestCurrentTab != newTab) {
+                        viewModel.selectTab(newTab)
+                    }
+                }
             }
-        }
     }
 
     TutorialOverlay(

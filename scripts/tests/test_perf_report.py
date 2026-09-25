@@ -142,6 +142,37 @@ JUNIT = """<?xml version='1.0' encoding='UTF-8' ?>
 </testsuite>"""
 
 
+class OnlyFilterTest(unittest.TestCase):
+    def test_not_requested_scenarios_are_not_failures(self):
+        cur = perf_report.parse(data(bench("homeScroll", {"HomeScreen": 1.0})))
+        out = perf_report.render(cur, None, dict(META, requested=["homeScroll"]))
+        self.assertNotIn("❌", out)
+        self.assertIn("Non eseguiti", out)
+        self.assertIn("`readerScroll`", out)
+
+    def test_requested_but_missing_is_still_a_failure(self):
+        cur = perf_report.parse(data(bench("homeScroll", {"HomeScreen": 1.0})))
+        out = perf_report.render(cur, None, dict(META, requested=["homeScroll", "libraryScroll"]))
+        self.assertIn("❌ `libraryScroll`", out)
+
+    def test_partial_run_does_not_replace_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            reports = tmp / "r"
+            for i, (payload, extra) in enumerate([
+                (data(bench("homeScroll", {"HomeScreen": 2.0})), []),
+                (data(bench("homeScroll", {"HomeScreen": 5.0})), ["--scenarios", "homeScroll"]),
+                (data(bench("homeScroll", {"HomeScreen": 9.0})), ["--scenarios", "homeScroll"]),
+            ]):
+                src = tmp / f"in{i}.json"
+                src.write_text(json.dumps(payload), encoding="utf-8")
+                with mock.patch.object(perf_report, "git_meta", return_value=("abc1234", "dev", False)),                         mock.patch.object(perf_report, "timestamp", return_value=f"2099-01-01_000{i}"):
+                    perf_report.main([str(src), "--out-dir", str(reports), *extra])
+            # Il terzo giro (parziale) si confronta col primo (completo), non col secondo (parziale).
+            third = (reports / "2099-01-01_0002.md").read_text(encoding="utf-8")
+            self.assertIn("9 (+7)", third)
+
+
 class FailureReasonsTest(unittest.TestCase):
     def test_reads_first_line_of_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

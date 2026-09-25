@@ -8,11 +8,16 @@ import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TestName
 import org.junit.runner.RunWith
 
-private const val ITERATIONS = 5
+// 3 bastano: i conteggi di ricomposizione sono quasi deterministici, e ogni iterazione costa ~15 s.
+private const val ITERATIONS = 3
 private const val QUERY = "berserk"
 
 /**
@@ -23,6 +28,20 @@ private const val QUERY = "berserk"
 class UiScenariosBenchmark {
     @get:Rule
     val rule = MacrobenchmarkRule()
+
+    @get:Rule
+    val testName = TestName()
+
+    /**
+     * Giro parziale (`perf.ps1 -Only`): argomento `perfOnly=a+b`. Non il filtro `class=…#a,…#b`,
+     * che via Gradle esegue solo il primo metodo, né una regex, il cui `|` lo spezza cmd.
+     * Gli scenari esclusi vengono saltati subito, senza avviare nulla.
+     */
+    @Before
+    fun onlyRequestedScenarios() {
+        val only = InstrumentationRegistry.getArguments().getString("perfOnly") ?: return
+        assumeTrue(testName.methodName in only.split('+'))
+    }
 
     /** Reset + avvio fino alla Home + [prepare]; misura solo [measure]. */
     private fun scenario(

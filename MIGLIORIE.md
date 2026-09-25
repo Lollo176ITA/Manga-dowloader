@@ -48,14 +48,10 @@
   - Dove: 16 store del ViewModel condividono `SettingsStore.PREFS_NAME`, compreso [ReadingMemoryStore](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/store/ReadingMemoryStore.kt), che tiene un JSON con una voce per ogni capitolo mai letto, senza tetto. Ogni `apply()` (cambio di un'impostazione, preferito, feed) riscrive su disco l'intero file, memoria di lettura compresa.
   - Cosa fare: spostare memoria e diario di lettura in un file proprio (o in DataStore), con migrazione una tantum. Si lega alla voce sulle prefs per-capitolo più in basso.
 
-- [ ] **La radice si ricompone a ogni swipe verticale per colpa del pager** ✅ — Impatto Basso · Sforzo Basso
-  - Dove: [MainActivity.kt:425-429](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L425) — `visiblePagerTab` legge `pagerState.isScrollInProgress`/`targetPage`/`currentPage` direttamente nello scope di `MangaDownloaderAppContent`.
-  - Misurato (2026-09-25, release su Pixel_8 emulato): 2 ricomposizioni della radice per ogni swipe verticale su Home o Cerca, senza nessuna emissione di stato. Costano poco (~1,2 ms l'una), ma sono lavoro gratuito proprio durante lo scroll.
-  - Cosa fare: `val visiblePagerTab by remember { derivedStateOf { … } }`, così la radice si ricompone solo quando la tab cambia davvero.
-
-- [ ] **La Home resta composta (e si ricompone) mentre si usa un'altra tab** ✅ — Impatto Medio · Sforzo Basso
-  - Misurato (2026-09-25): scrivendo nella ricerca, ogni tasto (`query`) ricompone radice, `AppTopBar`, `AppBottomBar`, `TutorialOverlay`, `SearchScreen` **e `HomeScreen`**, che è fuori schermo ma resta composta dal `HorizontalPager`. Costo per tasto: 3–4,5 ms di composizione sul PC host (su un telefono medio va moltiplicato); 40% di frame in jank durante la digitazione, tastiera compresa.
-  - Cosa fare: capire perché il pager tiene la pagina Home (cache delle pagine vicine della foundation) e passare `HomeScreen` solo i campi che usa, così salta la ricomposizione quando cambia `query`. È il primo pezzo concreto della voce "`MangaUiState` monolitico".
+- [ ] **Barre, tutorial e tab vicine ricevono `state` intero e si ricompongono a ogni emissione** ✅ — *RINVIATO (2026-09-25): guadagno non percepibile rispetto alla complessità.* Impatto Basso · Sforzo Medio
+  - Misurato col benchmark (`/perf`): in `searchTyping` ogni tasto ricompone `AppTopBar`, `AppBottomBar`, `TutorialOverlay` e `SearchScreen` (9 ciascuno per 7 tasti); nel reader `AppTopBar` e `TutorialOverlay` si ricompongono a ogni salvataggio dell'avanzamento (6 in 15 swipe).
+  - Perché rinviato: la top bar è un titolo e qualche icona, una frazione dei ~5 ms di composizione per tasto (emulatore). Per evitarlo serve un modello dedicato per barra e tutorial (~60 righe ciascuno), una lambda stabile per "salva capitolo" e l'obbligo di tenere il modello allineato a ogni nuova azione della barra. Provato e annullato: troppa complessità per un effetto che sul telefono non si vede.
+  - Da riprendere solo se il benchmark mostra un costo reale (ms per tasto in crescita) o dentro un refactor più ampio dello stato.
 
 - [ ] **Nessun Baseline Profile** 🔎 — Impatto Medio · Sforzo Medio
   - Dove: `app/build.gradle.kts` ha R8 attivo ma niente `profileinstaller` né modulo `baselineprofile`. Le app Compose senza profilo eseguono in JIT il codice di avvio e del primo scroll.
@@ -72,7 +68,7 @@
 - [ ] **`MangaUiState` monolitico e schermate che lo ricevono intero** ✅ — Impatto Medio · Sforzo Alto
   - Dove: `MangaUiState` ha ~90 campi; `AppTopBar`, `HomeScreen`, `LibraryScreen`, `SearchScreen`, `StatsScreen` e `TutorialOverlay` prendono `state: MangaUiState`, quindi rigirano a ogni emissione qualsiasi.
   - Cosa fare: sotto-stati per area (`ReaderUiState`, `LibraryUiState`, `FavoritesUiState`, `ParentalUiState`…, sul modello di `DiscoveryUiState`/`AniListUiState` che esistono già) e ogni schermata riceve solo il suo. Va di pari passo con l'estrazione dei controller.
-  - Misurato (2026-09-25): strong skipping attivo e 547/741 composable saltabili, ma `MangaUiState` è una nuova istanza a ogni emissione, quindi chi lo riceve intero si ricompone sempre. Il reader, il percorso più caldo, è **già isolato** (0 ricomposizioni della radice in 15 swipe, frame p99 19 ms). Il guadagno reale è sulla digitazione in ricerca (vedi la voce "La Home resta composta" in Prestazioni). Conviene farlo **a pezzi**, schermata per schermata, non come refactor unico.
+  - Misurato (2026-09-25): strong skipping attivo e 547/741 composable saltabili, ma `MangaUiState` è una nuova istanza a ogni emissione, quindi chi lo riceve intero si ricompone sempre. Il reader, il percorso più caldo, è **quasi isolato**: `ReaderScreen` non si ricompone mai, la radice solo quando si salva l'avanzamento (4-6 volte in 15 swipe). Il guadagno reale è sulla digitazione in ricerca (vedi la voce "Barre, tutorial e tab vicine…" in Prestazioni, rinviata: il costo misurato è piccolo). Conviene farlo **a pezzi**, schermata per schermata, non come refactor unico.
 
 - [ ] **`MangaDownloaderAppContent` è un unico composable di ~900 righe** ✅ — Impatto Medio · Sforzo Medio
   - Dove: [MainActivity.kt:200-1106](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L200): launcher dei permessi, backup, snackbar, top/bottom bar, pager, `when` delle schermate e dialog, tutto nello stesso scope di ricomposizione.

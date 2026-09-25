@@ -25,3 +25,9 @@ AGENTS.md
 # Report del benchmark locale (scripts/perf.ps1): dipendono dalla macchina.
 perf-reports/
 __pycache__/
+
+# Roba locale di Claude / audit interni: non serve nel repo.
+docs/superpowers/
+.superpowers/
+RIUSO.md
+scripts/changelog.ps1

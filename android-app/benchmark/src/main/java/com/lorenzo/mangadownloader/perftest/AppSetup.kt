@@ -91,13 +91,17 @@ fun MacrobenchmarkScope.openTab(label: String) {
     device.waitForIdle()
 }
 
-/** Swipe verticali al centro dello schermo (contenuto verso l'alto: niente pull-to-refresh). */
+/**
+ * Swipe verticali al centro dello schermo (contenuto verso l'alto: niente pull-to-refresh).
+ * Via `input swipe` della shell: `UiDevice.swipe` inietta i passi uno alla volta aspettando
+ * l'app, e sull'emulatore sotto tracing costava ~1,7 s a gesto contro ~0,3 s.
+ */
 fun MacrobenchmarkScope.swipeUp(times: Int) {
     val x = device.displayWidth / 2
     val from = device.displayHeight * 3 / 4
     val to = device.displayHeight / 4
     repeat(times) {
-        device.swipe(x, from, x, to, 20)
+        device.executeShellCommand("input swipe $x $from $x $to 150")
         device.waitForIdle()
     }
 }

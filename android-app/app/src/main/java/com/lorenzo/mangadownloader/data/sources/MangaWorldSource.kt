@@ -8,6 +8,7 @@ import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
+import com.lorenzo.mangadownloader.domain.isAdultGenre
 import com.lorenzo.mangadownloader.domain.reading.chapterDateFromItalianDate
 import java.math.BigDecimal
 import java.util.Locale
@@ -131,6 +132,11 @@ class MangaWorldSource(
                     title = title,
                     mangaUrl = mangaUrl,
                     coverUrl = cover,
+                    // "Generi:" della card: link `archive?genre=<slug>` (adulti, ecchi, hentai...).
+                    isAdult = entry?.select("a[href*=genre=]").orEmpty().any { link ->
+                        isAdultGenre(link.text()) ||
+                            isAdultGenre(link.attr("href").substringAfter("genre=").substringBefore('&'))
+                    },
                 )
             }
             return results.values.toList()

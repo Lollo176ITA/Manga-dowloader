@@ -12,8 +12,12 @@ import java.math.BigDecimal
 import java.net.URI
 import java.util.Locale
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -149,6 +153,12 @@ class HastaTeamSource(
             }
         }
 
+        /** `adult` arriva come 0/1, ma si accetta anche un booleano o una stringa. */
+        private fun isAdultFlag(value: JsonElement?): Boolean {
+            val primitive = value as? JsonPrimitive ?: return false
+            return primitive.booleanOrNull ?: (primitive.intOrNull?.let { it != 0 } ?: false)
+        }
+
         fun parseSearchResponse(raw: String): List<MangaSearchResult> {
             val root = json.parseToJsonElement(raw).jsonObject
             val seen = linkedMapOf<String, MangaSearchResult>()
@@ -167,6 +177,8 @@ class HastaTeamSource(
                     title = title,
                     mangaUrl = mangaUrl,
                     coverUrl = item["thumbnail"]?.jsonPrimitive?.contentOrNull?.let(::absolutize),
+                    // Flag `adult` del sito (0/1) oppure un genere esplicito/ecchi.
+                    isAdult = isAdultFlag(item["adult"]) || item.hasAdultGenre(),
                 )
             }
             return seen.values.toList()

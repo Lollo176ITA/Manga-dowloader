@@ -65,7 +65,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         parentalBiometricEnabled = prefs.getBoolean(KEY_PARENTAL_BIOMETRIC_ENABLED, false),
         labsEnabled = prefs.getBoolean(KEY_LABS_ENABLED, false),
         downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
-        highResImages = prefs.getBoolean(KEY_HIGH_RES_IMAGES, false),
         privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
         readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f),
         readingMode = prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name)
@@ -122,7 +121,6 @@ class SettingsStore(private val prefs: SharedPreferences) {
         const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
         const val KEY_LABS_ENABLED = "labs_enabled"
         const val KEY_DOWNLOAD_DEV_UPDATES = "download_dev_updates"
-        const val KEY_HIGH_RES_IMAGES = "high_res_images"
         const val KEY_PRIVACY_BRIGHTNESS_ENABLED = "privacy_brightness_enabled"
         const val KEY_READER_BRIGHTNESS = "reader_brightness"
         const val KEY_READING_MODE = "reading_mode"

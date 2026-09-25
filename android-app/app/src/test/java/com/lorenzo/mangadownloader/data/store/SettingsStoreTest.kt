@@ -55,7 +55,6 @@ class SettingsStoreTest {
             parentalPinHash = "hash",
             labsEnabled = true,
             downloadDevUpdates = true,
-            highResImages = true,
             privacyBrightnessEnabled = true,
             readerBrightness = 0.4f,
             readingMode = ReadingMode.PAGED_RTL,
@@ -94,7 +93,7 @@ class SettingsStoreTest {
             .putString(SettingsStore.KEY_SEARCH_SOURCE_ID, MangaSourceIds.MANGAPILL)
             .putBoolean(SettingsStore.KEY_AUTO_DOWNLOAD_ENABLED, true)
             .putInt(SettingsStore.KEY_AUTO_DOWNLOAD_TRIGGER, 5)
-            .putBoolean(SettingsStore.KEY_HIGH_RES_IMAGES, true)
+            .putBoolean(SettingsStore.KEY_DOWNLOAD_DEV_UPDATES, true)
             .putString(SettingsStore.KEY_THEME_MODE, ThemeMode.DARK.name)
             .putString(SettingsStore.KEY_HOME_BLOCK_ORDER, "[\"DISCOVER\",\"RESUME\"]")
             .putString(SettingsStore.KEY_HOME_HIDDEN_BLOCKS, "[\"DISCOVER\"]")
@@ -106,7 +105,7 @@ class SettingsStoreTest {
         assertEquals(SearchScope.ENG, migrated.searchScope)
         assertTrue(migrated.autoDownloadEnabled)
         assertEquals(5, migrated.autoDownloadTriggerChapters)
-        assertTrue(migrated.highResImages)
+        assertTrue(migrated.downloadDevUpdates)
         assertEquals(ThemeMode.DARK, migrated.themeMode)
         assertEquals(HomeBlock.DISCOVER, migrated.homeBlockOrder.first())
         assertEquals(setOf(HomeBlock.DISCOVER), migrated.hiddenHomeBlocks)
@@ -117,7 +116,7 @@ class SettingsStoreTest {
         prefs.edit()
             .remove(SettingsStore.KEY_AUTO_DOWNLOAD_ENABLED)
             .remove(SettingsStore.KEY_AUTO_DOWNLOAD_TRIGGER)
-            .remove(SettingsStore.KEY_HIGH_RES_IMAGES)
+            .remove(SettingsStore.KEY_DOWNLOAD_DEV_UPDATES)
             .remove(SettingsStore.KEY_THEME_MODE)
             .remove(SettingsStore.KEY_HOME_BLOCK_ORDER)
             .remove(SettingsStore.KEY_HOME_HIDDEN_BLOCKS)
@@ -162,7 +161,7 @@ class SettingsStoreTest {
     fun corruptJson_fallsBackToLegacyAndPreservesLocalFields() {
         prefs.edit()
             .putString(SettingsStore.KEY_SETTINGS_JSON, "{broken")
-            .putBoolean(SettingsStore.KEY_HIGH_RES_IMAGES, true)
+            .putBoolean(SettingsStore.KEY_DOWNLOAD_DEV_UPDATES, true)
             .putString(SettingsStore.KEY_THEME_MODE, ThemeMode.DARK.name)
             .putBoolean(SettingsStore.KEY_PARENTAL_PIN_CONFIGURED, true)
             .putString(SettingsStore.KEY_PARENTAL_PIN_SALT, "salt")
@@ -173,7 +172,7 @@ class SettingsStoreTest {
 
         val restored = store.read()
 
-        assertTrue(restored.highResImages)
+        assertTrue(restored.downloadDevUpdates)
         assertEquals(ThemeMode.DARK, restored.themeMode)
         assertTrue(restored.parentalPinConfigured)
         assertEquals("salt", restored.parentalPinSalt)

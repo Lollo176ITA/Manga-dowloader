@@ -63,7 +63,6 @@ fun SettingsScreen(
     onToggleHideAdultContent: (Boolean) -> Unit = {},
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
-    onToggleHighResImages: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
     onToggleFavoriteNotifications: (Boolean) -> Unit,
@@ -197,12 +196,10 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
             LabsContent(
                 labsEnabled = settings.labsEnabled,
                 downloadDevUpdates = settings.downloadDevUpdates,
-                highResImages = settings.highResImages,
                 privacyBrightnessEnabled = settings.privacyBrightnessEnabled,
                 allowLandscapeRotation = settings.allowLandscapeRotation,
                 onToggleLabs = onToggleLabs,
                 onToggleDownloadDevUpdates = onToggleDownloadDevUpdates,
-                onToggleHighResImages = onToggleHighResImages,
                 onTogglePrivacyBrightness = onTogglePrivacyBrightness,
                 onToggleAllowLandscapeRotation = onToggleAllowLandscapeRotation,
             )

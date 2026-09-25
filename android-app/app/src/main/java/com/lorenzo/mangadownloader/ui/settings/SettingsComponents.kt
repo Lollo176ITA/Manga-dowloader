@@ -692,7 +692,7 @@ fun ParentalControlContent(
             description = if (parentalControlEnabled) {
                 "Sempre attivo con il controllo genitori"
             } else {
-                "Filtra i titoli per adulti o ecchi secondo AniList"
+                "Nasconde i titoli per adulti ed ecchi, secondo le fonti e AniList"
             },
             checked = hideAdultContent || parentalControlEnabled,
             onCheckedChange = onToggleHideAdultContent,
@@ -731,12 +731,10 @@ fun ParentalControlContent(
 fun LabsContent(
     labsEnabled: Boolean,
     downloadDevUpdates: Boolean,
-    highResImages: Boolean,
     privacyBrightnessEnabled: Boolean,
     allowLandscapeRotation: Boolean,
     onToggleLabs: (Boolean) -> Unit,
     onToggleDownloadDevUpdates: (Boolean) -> Unit,
-    onToggleHighResImages: (Boolean) -> Unit,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
 ) {
@@ -754,13 +752,6 @@ fun LabsContent(
                 description = "Ricevi le versioni preview (dev) dell'app",
                 checked = downloadDevUpdates,
                 onCheckedChange = onToggleDownloadDevUpdates,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingRow(
-                title = "Immagini ad alta risoluzione",
-                description = "Scarica le pagine alla massima qualità (file più grandi)",
-                checked = highResImages,
-                onCheckedChange = onToggleHighResImages,
             )
             Spacer(modifier = Modifier.height(16.dp))
             SettingRow(

@@ -17,6 +17,14 @@
 
 ## 🟡 Affidabilità & test mancanti
 
+- [ ] **DemonicScans: nessun ripiego sull'host immagini di riserva** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: [DemonicScansSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/DemonicScansSource.kt). Il reader del sito, se un'immagine fallisce, riprova sostituendo `demoniclibs` con `librarydm` nell'URL (`tryAgain` nella pagina, verificato il 2026-09-25). L'app invece fa fallire la pagina.
+  - Cosa fare: al fallimento di una pagina `cdn.demoniclibs.com`, riprovare una volta su `librarydm`.
+
+- [ ] **VyManga: date dei capitoli non lette** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: [VyMangaSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/VyMangaSource.kt). Ogni `a.list-chapter` contiene `<p class="text-right font-italic small">Sep 11, 2026</p>` (verificato sul nuovo dominio `mangavyvy.com`).
+  - Cosa fare: un parser `MMM d, yyyy` in `ChapterDates.kt` (mesi inglesi hardcoded, come quelli italiani) e `publishedAtMillis` in `parseChapters`.
+
 - [ ] **Alimentare il `CrashReporter`/log sugli errori di parsing** 🔎
   - Dove: le source lanciano `IllegalStateException("Nessun capitolo…")` senza dire *quale* selettore è fallito ([MangapillSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/MangapillSource.kt)).
   - Perché: un log sul telefono dell'utente non lo vede nessuno; serve che l'informazione arrivi con la segnalazione.
@@ -90,10 +98,6 @@
 - [ ] **Ricerca "tutto o niente" sotto controllo genitori** 🔎 — Impatto Medio · Sforzo Basso
   - Oggi con il parentale attivo la tab Cerca chiede il PIN, e dopo il PIN i risultati sono comunque filtrati. Un ragazzo quindi non può cercare niente da solo.
   - Da decidere: un'opzione "Consenti la ricerca filtrata" che lascia cercare senza PIN, con il filtro per adulti sempre acceso. Scelta di prodotto, non tecnica.
-
-- [ ] **Il filtro per adulti non vede i titoli che AniList non conosce** ✅ — Impatto Medio · Sforzo Medio
-  - Dove: [ContentFilter.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ContentFilter.kt) — il segnale viene dai candidati AniList della ricerca e da poche parole esplicite nel titolo.
-  - Cosa fare: leggere i generi dalla pagina del manga sulle fonti che li espongono (MangaWorld, Asura…) e bloccare il dettaglio se tra i generi c'è Hentai/Smut/Adult/Ecchi.
 
 - [ ] **Hash del PIN troppo veloce** 🔎 — Impatto Basso · Sforzo Basso
   - Dove: [ParentalControlSecurity.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ParentalControlSecurity.kt) — SHA-256 con sale, un solo passaggio: chi legge le preferenze dell'app (root, backup di sistema) prova tutti i PIN a 6 cifre in un attimo.

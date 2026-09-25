@@ -61,6 +61,12 @@ data class MangaSearchResult(
     val title: String,
     val mangaUrl: String,
     val coverUrl: String?,
+    /**
+     * La fonte stessa segnala il titolo come per adulti (un flag o un genere tra quelli di
+     * `isAdultGenre`) già nella risposta di ricerca. `false` vale "nessun segnale", non
+     * "sicuro": il filtro lo unisce in OR al segnale AniList.
+     */
+    val isAdult: Boolean = false,
 )
 
 data class MangaDetails(

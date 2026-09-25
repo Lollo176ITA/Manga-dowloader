@@ -821,7 +821,6 @@ private fun MangaDownloaderAppContent(
                     onToggleHideAdultContent = viewModel::setHideAdultContent,
                     onToggleLabs = viewModel::setLabsEnabled,
                     onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
-                    onToggleHighResImages = viewModel::setHighResImages,
                     onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
                     onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
                     onToggleFavoriteNotifications = { enabled ->

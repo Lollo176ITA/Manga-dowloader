@@ -65,7 +65,7 @@ class BackupManagerTest {
         RecentSearchesStore(prefs()).persist(listOf("x"))
         FavoriteUpdatesStore(prefs()).write(mapOf("k" to FavoriteSeenState("3")))
         FavoriteDescriptionsStore(prefs()).write(mapOf("k" to "desc"))
-        SettingsStore(prefs()).persist(AppSettings(highResImages = true))
+        SettingsStore(prefs()).persist(AppSettings(downloadDevUpdates = true))
     }
 
     @Test
@@ -78,7 +78,7 @@ class BackupManagerTest {
         assertEquals(listOf("x"), backup.recentSearches)
         assertEquals("3", backup.favoriteUpdates["k"]?.latestChapterNumber)
         assertEquals("desc", backup.favoriteDescriptions["k"])
-        assertTrue(backup.settings.highResImages)
+        assertTrue(backup.settings.downloadDevUpdates)
     }
 
     @Test

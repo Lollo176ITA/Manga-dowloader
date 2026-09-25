@@ -14,7 +14,7 @@ import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
-import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.domain.isAdultGenre
 import com.lorenzo.mangadownloader.ui.reader.TallPageNormalizer
 import java.io.BufferedOutputStream
 import java.io.File
@@ -33,7 +33,12 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 /** Lingua dei contenuti di una fonte: è il criterio con cui l'utente sceglie dove cercare. */
 enum class MangaSourceLanguage(val displayName: String) {
@@ -91,6 +96,7 @@ object MangaSourceIds {
     const val ASURA_SCANS = "asura_scans"
     const val DEMONIC_SCANS = "demonic_scans"
     const val TCB_SCANS = "tcb_scans"
+    const val WEEB_CENTRAL = "weeb_central"
     const val DEFAULT = MANGAPILL
 }
 
@@ -103,7 +109,32 @@ object MangaSourceCatalog {
         MangaSourceDescriptor(MangaSourceIds.ASURA_SCANS, "Asura Scans", "AS", MangaSourceLanguage.ENG),
         MangaSourceDescriptor(MangaSourceIds.DEMONIC_SCANS, "DemonicScans", "DS", MangaSourceLanguage.ENG),
         MangaSourceDescriptor(MangaSourceIds.TCB_SCANS, "TCB Scans", "TC", MangaSourceLanguage.ENG),
+        MangaSourceDescriptor(MangaSourceIds.WEEB_CENTRAL, "Weeb Central", "WC", MangaSourceLanguage.ENG),
     )
+
+    /**
+     * Fonti senza un segnale "adulti" nella risposta di ricerca: niente generi né flag, e
+     * nessun filtro lato server. Col filtro per adulti attivo la ricerca non le interroga,
+     * perché non si potrebbe garantire il risultato (DemonicScans espone i generi solo nella
+     * pagina serie: servirebbe una richiesta in più per ogni risultato).
+     */
+    val sourcesWithoutAdultSignal: Set<String> = setOf(MangaSourceIds.DEMONIC_SCANS)
+
+    /**
+     * Fonti da interrogare nella ricerca aggregata: [descriptorsForScope] più, col filtro per
+     * adulti attivo, l'esclusione di [sourcesWithoutAdultSignal]. L'esclusione si applica
+     * **dopo** il ripiego "mai zero fonti" di [descriptorsForScope], che altrimenti potrebbe
+     * rimetterle in gioco.
+     */
+    fun descriptorsForSearch(
+        scope: SearchScope,
+        disabledSourceIds: Set<String>,
+        hideAdultContent: Boolean,
+    ): List<MangaSourceDescriptor> {
+        val candidates = descriptorsForScope(scope, disabledSourceIds)
+        if (!hideAdultContent) return candidates
+        return candidates.filterNot { it.id in sourcesWithoutAdultSignal }
+    }
 
     /** Fonti interrogate dalla ricerca aggregata per [scope]: tutte, o solo quelle della lingua. */
     fun descriptorsForScope(scope: SearchScope): List<MangaSourceDescriptor> {
@@ -196,6 +227,7 @@ object MangaSourceCatalog {
             AsuraScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.ASURA_SCANS
             DemonicScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.DEMONIC_SCANS
             TcbScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.TCB_SCANS
+            WeebCentralSource.handlesUrl(normalizedUrl) -> MangaSourceIds.WEEB_CENTRAL
             else -> null
         }
     }
@@ -249,6 +281,7 @@ object MangaSourceCatalog {
             MangaSourceIds.ASURA_SCANS -> AsuraScansSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.DEMONIC_SCANS -> DemonicScansSource.canonicalSeriesUrl(normalizedUrl)
             MangaSourceIds.TCB_SCANS -> TcbScansSource.canonicalSeriesUrl(normalizedUrl)
+            MangaSourceIds.WEEB_CENTRAL -> WeebCentralSource.canonicalSeriesUrl(normalizedUrl)
             else -> normalizedUrl
         } ?: normalizedUrl
     }
@@ -292,6 +325,7 @@ class MangaSourceRegistry(
         MangaSourceIds.ASURA_SCANS to AsuraScansSource(context, networkClient, libraryRepository),
         MangaSourceIds.DEMONIC_SCANS to DemonicScansSource(context, networkClient, libraryRepository),
         MangaSourceIds.TCB_SCANS to TcbScansSource(context, networkClient, libraryRepository),
+        MangaSourceIds.WEEB_CENTRAL to WeebCentralSource(context, networkClient, libraryRepository),
     )
 
     val descriptors: List<MangaSourceDescriptor>
@@ -483,15 +517,6 @@ abstract class BaseMangaSource(
         headers: Map<String, String> = emptyMap(),
     ) = networkClient.fetchString(url, headers)
 
-    /**
-     * Opzione Labs "immagini full-res", letta a runtime. Rilevante solo per le fonti che
-     * servono varianti ridimensionate delle pagine (es. VyManga); le altre già servono
-     * la risoluzione nativa, quindi la ignorano.
-     */
-    protected fun highResImagesEnabled(): Boolean =
-        SettingsStore(context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE))
-            .read().highResImages
-
     protected fun absolutize(baseUrl: String, value: String) = networkClient.absolutize(baseUrl, value)
 
     /** Spazio libero sul volume di [dir]. Overridabile nei test per simulare il disco pieno. */
@@ -635,6 +660,50 @@ internal fun firstNonBlankTrimmed(vararg values: String?): String? {
     }
     return null
 }
+
+/**
+ * Il riquadro ("card") di un risultato di ricerca: l'antenato più ampio di [anchor] che non
+ * contiene link ad **altre** serie (secondo [seriesKeyOf]) né la cornice della pagina
+ * (`nav`, `header`, `form`...). Serve a leggere i metadati della card, come i generi, senza
+ * agganciarsi alle classi CSS del layout e senza sconfinare nella card accanto.
+ */
+internal fun searchResultCard(anchor: Element, seriesKeyOf: (Element) -> String?): Element {
+    val own = seriesKeyOf(anchor)
+    var card = anchor
+    while (true) {
+        val parent = card.parent() ?: break
+        if (parent.tagName() in PAGE_ROOT_TAGS || parent.selectFirst(PAGE_CHROME_SELECTOR) != null) {
+            break
+        }
+        val hasForeignSeries = parent.select("a[href]").any { link ->
+            seriesKeyOf(link)?.let { it != own } == true
+        }
+        if (hasForeignSeries) {
+            break
+        }
+        card = parent
+    }
+    return card
+}
+
+private val PAGE_ROOT_TAGS = setOf("html", "body")
+
+/**
+ * Un oggetto JSON di una fonte ha tra i [key] (array di `{ name, slug }` o di stringhe) un
+ * genere per adulti? Tollera chiave assente, `null` o forme inattese: nel dubbio `false`.
+ */
+internal fun JsonObject.hasAdultGenre(key: String = "genres"): Boolean {
+    val genres = this[key] as? JsonArray ?: return false
+    return genres.any { genre ->
+        val values = when (genre) {
+            is JsonObject -> listOf("name", "slug").mapNotNull { (genre[it] as? JsonPrimitive)?.contentOrNull }
+            is JsonPrimitive -> listOfNotNull(genre.contentOrNull)
+            else -> emptyList()
+        }
+        values.any(::isAdultGenre)
+    }
+}
+private const val PAGE_CHROME_SELECTOR = "nav, header, footer, form"
 
 /**
  * Valore testuale associato a un'etichetta tipo "Stato"/"Status" in una pagina, cercando

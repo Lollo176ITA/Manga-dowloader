@@ -635,6 +635,7 @@ class MangaSourcesTest {
                 MangaSourceIds.ASURA_SCANS,
                 MangaSourceIds.DEMONIC_SCANS,
                 MangaSourceIds.TCB_SCANS,
+                MangaSourceIds.WEEB_CENTRAL,
             ),
             eng,
         )
@@ -1318,5 +1319,445 @@ class MangaSourcesTest {
 
         assertEquals(MangaSourceIds.TCB_SCANS, resolved)
         assertEquals("tcb_scans::https://tcbonepiecechapters.com/mangas/5/one-piece", identityKey)
+    }
+
+    // --- Weeb Central (HTML htmx, lista capitoli completa a parte, URL capitolo sintetico) ---
+
+    @Test
+    fun weebCentralCanonicalSeriesUrl_usesOnlyTheSeriesIdAndReadsSyntheticChapterUrls() {
+        val withSlug = WeebCentralSource.canonicalSeriesUrl(
+            "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock",
+        )
+        val synthetic = WeebCentralSource.canonicalSeriesUrl(
+            "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/chapters/01J76XZ2SJ0NRW2KYE07NRP41E",
+        )
+
+        // Lo slug è cosmetico (il sito risponde anche senza): l'identità è il solo ULID.
+        assertEquals("https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900", withSlug)
+        assertEquals(withSlug, synthetic)
+        // Il vero URL del reader non incorpora la serie: non normalizzabile senza rete.
+        assertNull(WeebCentralSource.canonicalSeriesUrl("https://weebcentral.com/chapters/01J76XZ2SJ0NRW2KYE07NRP41E"))
+    }
+
+    @Test
+    fun weebCentralChapterIdFromUrl_acceptsSyntheticAndRealReaderUrls() {
+        assertEquals(
+            "01J76XZ2SJ0NRW2KYE07NRP41E",
+            WeebCentralSource.chapterIdFromUrl(
+                "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/chapters/01J76XZ2SJ0NRW2KYE07NRP41E",
+            ),
+        )
+        assertEquals(
+            "01J76XZ2SJ0NRW2KYE07NRP41E",
+            WeebCentralSource.chapterIdFromUrl("https://weebcentral.com/chapters/01J76XZ2SJ0NRW2KYE07NRP41E"),
+        )
+        assertNull(WeebCentralSource.chapterIdFromUrl("https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900"))
+    }
+
+    @Test
+    fun weebCentralSearchUrl_filtersAdultContentOnlyWhenRequested() {
+        assertTrue("adult=Any" in WeebCentralSource.searchUrl("blue lock", hideAdult = false))
+        assertTrue("adult=False" in WeebCentralSource.searchUrl("blue lock", hideAdult = true))
+    }
+
+    @Test
+    fun weebCentralSearchResults_mergesRepeatedAnchorsPerSeries() {
+        val results = WeebCentralSource.parseSearchResults(
+            """
+            <article class="bg-base-300 flex gap-4 p-4">
+              <section class="w-full lg:w-[25%]">
+                <a href="https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock">
+                  <article class="hidden lg:block"><picture>
+                    <source srcset="https://temp.compsci88.com/cover/normal/01J76XYD7E91K8QP6CY0Y53900.webp">
+                    <img src="https://temp.compsci88.com/cover/fallback/01J76XYD7E91K8QP6CY0Y53900.jpg" alt="Blue Lock cover">
+                  </picture></article>
+                  <article class="lg:hidden relative">
+                    <div class="absolute">Official</div>
+                    <div class="text-ellipsis truncate text-white">Blue Lock</div>
+                  </article>
+                </a>
+              </section>
+              <section class="hidden lg:block">
+                <a href="https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock" class="line-clamp-1 link">Blue Lock</a>
+                <a href="https://weebcentral.com/search?author=Kaneshiro" class="link">Kaneshiro</a>
+              </section>
+            </article>
+            <article class="bg-base-300 flex gap-4 p-4">
+              <section>
+                <a href="https://weebcentral.com/series/01J76XYEBHMR3FXKZ9X7RNTS7P/Blue-Lock-Episode-Nagi">
+                  <img src="https://temp.compsci88.com/cover/fallback/01J76XYEBHMR3FXKZ9X7RNTS7P.jpg" alt="Blue Lock: Episode Nagi cover">
+                </a>
+              </section>
+            </article>
+            """.trimIndent(),
+            "https://weebcentral.com/search/data",
+        )
+
+        assertEquals(2, results.size)
+        assertEquals(MangaSourceIds.WEEB_CENTRAL, results.first().sourceId)
+        assertEquals("Blue Lock", results[0].title)
+        assertEquals("https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900", results[0].mangaUrl)
+        assertEquals(
+            "https://temp.compsci88.com/cover/fallback/01J76XYD7E91K8QP6CY0Y53900.jpg",
+            results[0].coverUrl,
+        )
+        // Senza div titolo si ripiega sull'alt della copertina, senza il suffisso " cover".
+        assertEquals("Blue Lock: Episode Nagi", results[1].title)
+    }
+
+    @Test
+    fun weebCentralMangaDetails_readsFullChapterListSortedAscendingWithDates() {
+        val details = WeebCentralSource.parseMangaDetails(
+            seriesHtml = """
+                <html><head>
+                  <meta property="og:title" content="Blue Lock | Weeb Central">
+                  <meta property="og:image" content="https://temp.compsci88.com/cover/fallback/01J76XYD7E91K8QP6CY0Y53900.jpg">
+                </head><body>
+                  <h1 class="hidden md:block text-2xl font-bold">Blue Lock</h1>
+                  <ul>
+                    <li><strong>Status: </strong><a href="https://weebcentral.com/search?included_status=Ongoing">Ongoing</a></li>
+                    <li><strong>Description</strong><p class="whitespace-pre-wrap break-words">After a disastrous defeat...</p></li>
+                  </ul>
+                </body></html>
+            """.trimIndent(),
+            chapterListHtml = """
+                <div class="flex items-center">
+                  <a href="/chapters/01M380NP1Y90FXGN4WHQA02S4H" class="hover:bg-base-300 flex-1 flex items-center p-2">
+                    <span class="me-2"><img src="/static/images/chapter-badge.svg" alt=""></span>
+                    <span class="grow flex items-center gap-2">
+                      <span class="">Chapter 362</span>
+                      <span class="flex gap-1 items-center link-info"><span class="hidden md:inline">Last Read</span></span>
+                    </span>
+                    <time class="text-datetime opacity-50" datetime="2026-09-23T20:52:46.782Z">2026-09-23T20:52:46.782880Z</time>
+                  </a>
+                </div>
+                <div class="flex items-center">
+                  <a href="/chapters/01J76XZ2SJ0NRW2KYE07NRP41G" class="hover:bg-base-300 flex-1 flex items-center p-2">
+                    <span class="grow flex items-center gap-2"><span class="">Chapter 10.5</span></span>
+                    <time datetime="2020-01-02T00:00:00.000Z">2020-01-02</time>
+                  </a>
+                </div>
+                <div class="flex items-center">
+                  <a href="/chapters/01J76XZ2SJ0NRW2KYE07NRP41E" class="hover:bg-base-300 flex-1 flex items-center p-2">
+                    <span class="grow flex items-center gap-2"><span class="">Chapter 1</span></span>
+                    <time datetime="2018-08-01T00:00:00.000Z">2018-08-01</time>
+                  </a>
+                </div>
+            """.trimIndent(),
+            mangaUrl = "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock",
+        )
+
+        assertEquals(MangaSourceIds.WEEB_CENTRAL, details.sourceId)
+        assertEquals("Blue Lock", details.title)
+        assertEquals("https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900", details.mangaUrl)
+        assertEquals(
+            "https://temp.compsci88.com/cover/fallback/01J76XYD7E91K8QP6CY0Y53900.jpg",
+            details.coverUrl,
+        )
+        assertEquals("After a disastrous defeat...", details.description)
+        assertEquals(MangaPublicationStatus.ONGOING, details.status)
+        // Ordine numerico crescente, non l'ordine "più recente prima" del sito.
+        assertEquals(listOf("1", "10.5", "362"), details.chapters.map { it.numberText })
+        assertEquals(
+            "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/chapters/01J76XZ2SJ0NRW2KYE07NRP41E",
+            details.chapters.first().url,
+        )
+        assertEquals(1790196766782L, details.chapters.last().publishedAtMillis)
+        assertTrue(details.chapters.all { it.labelPrefix == "Capitolo" && it.variantTag == null })
+    }
+
+    @Test
+    fun weebCentralChapterList_givesVariantTagToNonChapterEntriesSharingANumber() {
+        val chapters = WeebCentralSource.parseChapterList(
+            """
+            <a href="/chapters/01J76XZ2SJ0NRW2KYE07NRP41A"><span class="grow"><span class="">Volume 1</span></span></a>
+            <a href="/chapters/01J76XZ2SJ0NRW2KYE07NRP41B"><span class="grow"><span class="">Chapter 1</span></span></a>
+            """.trimIndent(),
+            "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900",
+        )
+
+        assertEquals(2, chapters.size)
+        assertEquals("Capitolo", chapters[0].labelPrefix)
+        assertNull(chapters[0].variantTag)
+        assertEquals("Volume", chapters[1].labelPrefix)
+        assertEquals("Volume", chapters[1].variantTag)
+        // Nomi file distinti: nessuno dei due sovrascrive l'altro.
+        assertFalse(
+            DownloadStorage.buildChapterFileName(chapters[0]) == DownloadStorage.buildChapterFileName(chapters[1]),
+        )
+    }
+
+    @Test
+    fun weebCentralPageImageUrls_extractsChapterImagesInOrder() {
+        val pages = WeebCentralSource.parsePageImageUrls(
+            """
+            <section id="chapter-images" class="w-full flex-1 flex flex-col pb-4">
+              <img src="https://hot.planeptune.us/manga/Blue-Lock/0001-001.png" class="max-w-full h-auto mx-auto" alt="Page 1"
+                   onerror="this.onerror=null; this.src='/static/images/broken_image.jpg'" />
+              <img src="https://hot.planeptune.us/manga/Blue-Lock/0001-002.png" class="max-w-full h-auto mx-auto" alt="Page 2" />
+            </section>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "https://hot.planeptune.us/manga/Blue-Lock/0001-001.png",
+                "https://hot.planeptune.us/manga/Blue-Lock/0001-002.png",
+            ),
+            pages,
+        )
+    }
+
+    @Test
+    fun sourceCatalog_resolvesWeebCentralSyntheticChapterUrlAndIdentityKey() {
+        val syntheticChapterUrl =
+            "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/chapters/01J76XZ2SJ0NRW2KYE07NRP41E"
+        val resolved = MangaSourceCatalog.resolveSourceId(sourceId = null, url = syntheticChapterUrl)
+        val identityKey = MangaSourceCatalog.identityKey(
+            sourceId = MangaSourceIds.WEEB_CENTRAL,
+            mangaUrl = "https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock",
+        )
+
+        assertEquals(MangaSourceIds.WEEB_CENTRAL, resolved)
+        assertEquals("weeb_central::https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900", identityKey)
+    }
+
+    // --- Filtro adulti: segnale per fonte (verificato sui siti il 2026-09-25) ---
+
+    @Test
+    fun mangapillSearchResults_flagsEcchiFromGenreChipsInTheCard() {
+        val results = MangapillSource.parseSearchResults(
+            """
+            <div class="my-3 grid justify-end gap-3 grid-cols-2">
+              <div>
+                <a href="/manga/4494/to-love-ru" class="relative block">
+                  <figure class="w-full h-52 overflow-hidden bg-card rounded-md"><img data-src="https://cdn.example/i/4494.jpg" alt="To Love-Ru To Love-Ru"/></figure>
+                </a>
+                <div class="flex flex-col justify-end">
+                  <a href="/manga/4494/to-love-ru" class="mb-2"><div class="mt-3 font-black leading-tight line-clamp-2">To Love-Ru</div></a>
+                  <div class="flex flex-wrap gap-1 mt-1"><div class="text-xs bg-purple-500">manga</div><div class="text-xs bg-green-500">finished</div></div>
+                  <div class="flex flex-wrap gap-1 mt-1"><div class="text-xs bg-card">Comedy</div><div class="text-xs bg-card">Ecchi</div></div>
+                </div>
+              </div>
+              <div>
+                <a href="/manga/2/one-piece" class="relative block"><figure><img data-src="https://cdn.example/i/2.jpg" alt="One Piece One Piece"/></figure></a>
+                <div class="flex flex-col justify-end">
+                  <a href="/manga/2/one-piece" class="mb-2"><div class="mt-3 font-black leading-tight line-clamp-2">One Piece</div></a>
+                  <div class="flex flex-wrap gap-1 mt-1"><div class="text-xs bg-card">Action</div><div class="text-xs bg-card">Adventure</div></div>
+                </div>
+              </div>
+            </div>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=x",
+        )
+
+        assertEquals(listOf("To Love-Ru" to true, "One Piece" to false), results.map { it.title to it.isAdult })
+    }
+
+    @Test
+    fun mangapillSearchResults_singleResultDoesNotReadGenresFromThePageForm() {
+        // Con un solo risultato la card non ha "vicini": non deve risalire fino al form dei
+        // filtri, che elenca tutti i generi (Ecchi compreso).
+        val results = MangapillSource.parseSearchResults(
+            """
+            <body>
+              <form action="/search"><label><input type="checkbox" name="genre" value="Ecchi"><div>Ecchi</div></label></form>
+              <div class="grid">
+                <div>
+                  <a href="/manga/2/one-piece"><div class="line-clamp-2">One Piece</div></a>
+                  <div class="flex flex-wrap"><div>Action</div></div>
+                </div>
+              </div>
+            </body>
+            """.trimIndent(),
+            "https://mangapill.com/search?q=one+piece",
+        )
+
+        assertEquals(1, results.size)
+        assertFalse(results.single().isAdult)
+    }
+
+    @Test
+    fun mangaWorldSearchResults_flagsAdultGenresFromEntryLinks() {
+        val results = MangaWorldSource.parseSearchResults(
+            """
+            <div class=comics-grid><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/659/to-love-ru title="To Love Ru"><img src=https://cdn.mangaworld.mx/mangas/5f77.png alt="To Love Ru"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/659/to-love-ru title="To Love Ru">To Love Ru</a></p><hr><div class=genre><span>Tipo: </span> <a href=https://www.mangaworld.mx/archive?type=manga>Manga</a></div><div class=genres><span class=font-weight-bold>Generi: </span><a href=https://www.mangaworld.mx/archive?genre=commedia>Commedia</a>, <a href=https://www.mangaworld.mx/archive?genre=ecchi>Ecchi</a></div></div></div><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/1/berserk title="Berserk"><img src=https://cdn.mangaworld.mx/mangas/b.png alt="Berserk"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/1/berserk title="Berserk">Berserk</a></p><div class=genres><span class=font-weight-bold>Generi: </span><a href=https://www.mangaworld.mx/archive?genre=azione>Azione</a>, <a href=https://www.mangaworld.mx/archive?genre=maturo>Maturo</a></div></div></div></div>
+            """.trimIndent(),
+        )
+
+        // "Maturo" (violenza) non conta come per adulti: solo espliciti ed ecchi.
+        assertEquals(listOf("To Love Ru" to true, "Berserk" to false), results.map { it.title to it.isAdult })
+    }
+
+    @Test
+    fun hastaSearchResponse_flagsAdultFlagAndAdultGenres() {
+        val results = HastaTeamSource.parseSearchResponse(
+            """
+            {"comics":[
+              {"title":"Nana to Kaoru","url":"/comics/nana-to-kaoru","adult":1,"genres":[{"name":"Romance","slug":"romance"}]},
+              {"title":"Nisekoi","url":"/comics/nisekoi","adult":0,"genres":[{"name":"Commedia","slug":"commedia"},{"name":"Ecchi","slug":"ecchi"}]},
+              {"title":"Yotsuba&!","url":"/comics/yotsuba","adult":0,"genres":[{"name":"Slice of Life","slug":"slice-of-life"}]},
+              {"title":"Senza campi","url":"/comics/senza-campi"}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf("Nana to Kaoru" to true, "Nisekoi" to true, "Yotsuba&!" to false, "Senza campi" to false),
+            results.map { it.title to it.isAdult },
+        )
+    }
+
+    @Test
+    fun asuraSearchResponse_flagsAdultGenresWhenPresent() {
+        val results = AsuraScansSource.parseSearchResponse(
+            """
+            {"data":[
+              {"slug":"solo-leveling","title":"Solo Leveling","genres":[{"id":1,"name":"Action","slug":"action"}]},
+              {"slug":"ipotetica","title":"Ipotetica","genres":[{"id":99,"name":"Smut","slug":"smut"}]},
+              {"slug":"senza-generi","title":"Senza generi","genres":null}
+            ]}
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf("Solo Leveling" to false, "Ipotetica" to true, "Senza generi" to false),
+            results.map { it.title to it.isAdult },
+        )
+    }
+
+    @Test
+    fun weebCentralSearchUrl_excludesAdultAndEcchiTagsOnlyWhenRequested() {
+        val hidden = WeebCentralSource.searchUrl("to love", hideAdult = true)
+        val shown = WeebCentralSource.searchUrl("to love", hideAdult = false)
+
+        listOf("Adult", "Ecchi", "Hentai", "Smut", "Lolicon", "Shotacon").forEach { tag ->
+            assertTrue(tag, "excluded_tag=$tag" in hidden)
+        }
+        assertFalse("excluded_tag" in shown)
+    }
+
+    @Test
+    fun weebCentralSearchResults_flagsAdultTagsInFullDisplayCards() {
+        val results = WeebCentralSource.parseSearchResults(
+            """
+            <article class="bg-base-300 flex gap-4 p-4">
+              <section><a href="https://weebcentral.com/series/01J76XYFEDY9QYKK2P2GH5WXA0/To-LOVE-Ru"><img src="https://temp.compsci88.com/cover/fallback/a.jpg" alt="To LOVE-Ru cover"></a></section>
+              <section class="hidden lg:block">
+                <a href="https://weebcentral.com/series/01J76XYFEDY9QYKK2P2GH5WXA0/To-LOVE-Ru" class="line-clamp-1 link">To LOVE-Ru</a>
+                <div><strong>Author(s): </strong><span><a href="https://weebcentral.com/search?author=Hasemi">Hasemi</a>,</span></div>
+                <div class="opacity-70"><strong>Tag(s): </strong><span>Comedy,</span> <span>Ecchi,</span> <span>Harem</span></div>
+              </section>
+            </article>
+            <article class="bg-base-300 flex gap-4 p-4">
+              <section><a href="https://weebcentral.com/series/01J76XYD7E91K8QP6CY0Y53900/Blue-Lock"><img src="https://temp.compsci88.com/cover/fallback/b.jpg" alt="Blue Lock cover"></a></section>
+              <section class="hidden lg:block">
+                <div class="opacity-70"><strong>Tag(s): </strong><span>Drama,</span> <span>Sports</span></div>
+              </section>
+            </article>
+            """.trimIndent(),
+            "https://weebcentral.com/search/data",
+        )
+
+        assertEquals(listOf("To LOVE-Ru" to true, "Blue Lock" to false), results.map { it.title to it.isAdult })
+    }
+
+    @Test
+    fun descriptorsForSearch_skipsSourcesWithoutAdultSignalOnlyWithTheFilter() {
+        val withFilter = MangaSourceCatalog
+            .descriptorsForSearch(SearchScope.ALL, emptySet(), hideAdultContent = true)
+            .map { it.id }
+        val without = MangaSourceCatalog
+            .descriptorsForSearch(SearchScope.ALL, emptySet(), hideAdultContent = false)
+            .map { it.id }
+
+        assertFalse(MangaSourceIds.DEMONIC_SCANS in withFilter)
+        assertTrue(MangaSourceIds.DEMONIC_SCANS in without)
+        // Anche se l'utente ha spento tutto il resto, il ripiego "mai zero fonti" non la
+        // rimette in gioco col filtro attivo.
+        val allButDemonic = MangaSourceCatalog.descriptors.map { it.id }.toSet() - MangaSourceIds.DEMONIC_SCANS
+        assertFalse(
+            MangaSourceIds.DEMONIC_SCANS in MangaSourceCatalog
+                .descriptorsForSearch(SearchScope.ALL, allButDemonic, hideAdultContent = true)
+                .map { it.id },
+        )
+    }
+
+    // --- VyManga: trasloco su mangavyvy.com (verificato con Playwright il 2026-09-25) ---
+
+    @Test
+    fun vyMangaNewDomain_keepsTheSameIdentityAsTheOldOne() {
+        val old = VyMangaSource.canonicalSeriesUrl("https://vymanga.com/manga/one-piece")
+        val new = VyMangaSource.canonicalSeriesUrl("https://mangavyvy.com/manga/one-piece")
+        val mirror = VyMangaSource.canonicalSeriesUrl("https://mangavyvy.net/manga/one-piece/chapter-1193")
+
+        // Preferiti e libreria salvati col vecchio dominio restano la stessa serie.
+        assertEquals("https://vymanga.com/manga/one-piece", old)
+        assertEquals(old, new)
+        assertEquals(old, mirror)
+        assertEquals(
+            "vymanga::https://vymanga.com/manga/one-piece",
+            MangaSourceCatalog.identityKey(MangaSourceIds.VYMANGA, "https://mangavyvy.com/manga/one-piece"),
+        )
+    }
+
+    @Test
+    fun vyMangaLiveUrl_rewritesAnyKnownHostToTheLiveDomain() {
+        assertEquals(
+            "https://mangavyvy.com/manga/one-piece",
+            VyMangaSource.liveUrl("https://vymanga.com/manga/one-piece"),
+        )
+        assertEquals(
+            "https://mangavyvy.com/manga/one-piece",
+            VyMangaSource.liveUrl("https://www.vymanga.net/manga/one-piece"),
+        )
+        // URL di altri host (es. il redirector dei token) restano invariati.
+        assertEquals("https://aovheroes.com/rds/x", VyMangaSource.liveUrl("https://aovheroes.com/rds/x"))
+    }
+
+    @Test
+    fun vyMangaSearchUrl_excludesAdultGenresOnlyWhenGiven() {
+        val plain = VyMangaSource.searchUrl("to love ru", excludedGenres = emptyList())
+        val filtered = VyMangaSource.searchUrl("to love ru", VyMangaSource.DEFAULT_ADULT_GENRE_VALUES)
+
+        assertTrue(plain.startsWith("https://mangavyvy.com/search?q=to%20love%20ru"))
+        assertFalse("exclude_genre" in plain)
+        assertEquals(
+            VyMangaSource.DEFAULT_ADULT_GENRE_VALUES.size,
+            Regex("""exclude_genre%5B%5D=""").findAll(filtered).count(),
+        )
+        assertTrue("exclude_genre%5B%5D=Ecchi-27-ecchi" in filtered)
+    }
+
+    @Test
+    fun vyMangaAdultGenreValues_readsExplicitAndEcchiButNotMatureFromThePicker() {
+        val values = VyMangaSource.adultGenreValues(
+            """
+            <div class="check-genre row mb-3">
+              <div class="checkbox-genre mr-1 mb-1" data-value="Action-1-action"></div>
+              <div class="checkbox-genre mr-1 mb-1" data-value="Ecchi-99-ecchi"></div>
+              <div class="checkbox-genre mr-1 mb-1" data-value="Mature-60-mature"></div>
+              <div class="checkbox-genre mr-1 mb-1" data-value="R-18-212-r18"></div>
+              <div class="checkbox-genre mr-1 mb-1" data-value="Sexual violence-117-sexual_violence"></div>
+              <div class="checkbox-genre mr-1 mb-1" data-value="Smut-65-smut"></div>
+            </div>
+            """.trimIndent(),
+        )
+
+        // L'id di Ecchi è cambiato (99): si usa quello della pagina, non quello di default.
+        assertEquals(
+            listOf("Ecchi-99-ecchi", "R-18-212-r18", "Sexual violence-117-sexual_violence", "Smut-65-smut"),
+            values,
+        )
+    }
+
+    @Test
+    fun vyMangaDefaultAdultGenreValues_areAllRecognisedAsAdult() {
+        // Se qualcuno aggiunge un valore di default che il filtro non riconosce, la verifica
+        // "i valori della pagina coincidono con i default" fallirebbe a ogni ricerca.
+        val page = VyMangaSource.DEFAULT_ADULT_GENRE_VALUES.joinToString("") {
+            """<div class="checkbox-genre" data-value="$it"></div>"""
+        }
+        assertEquals(VyMangaSource.DEFAULT_ADULT_GENRE_VALUES, VyMangaSource.adultGenreValues(page))
     }
 }

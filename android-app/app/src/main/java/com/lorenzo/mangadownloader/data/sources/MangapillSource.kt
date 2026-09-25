@@ -8,6 +8,7 @@ import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
+import com.lorenzo.mangadownloader.domain.isAdultGenre
 import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.Jsoup
@@ -134,6 +135,12 @@ class MangapillSource(
                 )
 
                 val entry = accumulated.getOrPut(mangaUrl) { SearchCardData() }
+                // I generi sono chip testuali nella card del risultato ("Ecchi", "Romance"...).
+                if (!entry.isAdult) {
+                    entry.isAdult = searchResultCard(anchor) { canonicalSeriesUrl(it.absUrl("href")) }
+                        .select("div")
+                        .any { isAdultGenre(it.ownText()) }
+                }
                 if (entry.cover == null) {
                     entry.cover = cover
                 }
@@ -158,6 +165,7 @@ class MangapillSource(
                         title = title,
                         mangaUrl = mangaUrl,
                         coverUrl = cover,
+                        isAdult = entry.isAdult,
                     )
                 }
             }
@@ -168,6 +176,7 @@ class MangapillSource(
             var title: String? = null,
             var titleFromHeading: Boolean = false,
             var cover: String? = null,
+            var isAdult: Boolean = false,
         )
 
         /**

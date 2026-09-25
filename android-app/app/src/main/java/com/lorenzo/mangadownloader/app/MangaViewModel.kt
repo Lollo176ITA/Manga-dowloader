@@ -333,7 +333,6 @@ data class AppSettings(
     val hideAdultContent: Boolean = false,
     val labsEnabled: Boolean = false,
     val downloadDevUpdates: Boolean = false,
-    val highResImages: Boolean = false,
     val privacyBrightnessEnabled: Boolean = false,
     val readerBrightness: Float = 1f,
     val readingMode: ReadingMode = ReadingMode.VERTICAL,
@@ -1212,7 +1211,6 @@ class MangaViewModel internal constructor(
             else it.copy(
                 labsEnabled = false,
                 downloadDevUpdates = false,
-                highResImages = false,
                 privacyBrightnessEnabled = false,
                 readerBrightness = 1f,
                 allowLandscapeRotation = false,
@@ -1225,10 +1223,6 @@ class MangaViewModel internal constructor(
         if (enabled) {
             checkForAppUpdate(force = true)
         }
-    }
-
-    fun setHighResImages(enabled: Boolean) {
-        updateSettings { it.copy(highResImages = enabled) }
     }
 
     fun setFavoriteNotificationsEnabled(enabled: Boolean) {
@@ -2862,8 +2856,11 @@ class MangaViewModel internal constructor(
             val now = System.currentTimeMillis()
             val health = _state.value.sourceHealth
             val queried = sourcesToQuery(
-                descriptors = MangaSourceCatalog
-                    .descriptorsForScope(settings.searchScope, settings.disabledSourceIds),
+                descriptors = MangaSourceCatalog.descriptorsForSearch(
+                    scope = settings.searchScope,
+                    disabledSourceIds = settings.disabledSourceIds,
+                    hideAdultContent = settings.hidesAdultContent(),
+                ),
                 health = health,
                 now = now,
             )

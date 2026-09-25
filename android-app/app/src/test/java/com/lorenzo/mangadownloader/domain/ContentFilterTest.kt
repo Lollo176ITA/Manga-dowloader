@@ -60,4 +60,28 @@ class ContentFilterTest {
         assertEquals(listOf(safe, unknown), filtered.results)
         assertEquals(listOf("One Piece", "Serie Sconosciuta"), filtered.groups.map { it.title })
     }
+
+    @Test
+    fun adultGenre_coversExplicitAndEcchiButNotMature() {
+        listOf("Hentai", "ecchi", "Smut", "Adult,", " adulti ", "adulto", "Erotico", "Lolicon", "shotacon")
+            .forEach { assertTrue(it, isAdultGenre(it)) }
+        listOf("Mature", "maturo", "Romance", "Harem", "Seinen", "Horror", "violence")
+            .forEach { assertFalse(it, isAdultGenre(it)) }
+    }
+
+    @Test
+    fun searchFilter_dropsTheWholeGroupWhenAnySourceFlagsTheSeries() {
+        // AniList non conosce la serie: il segnale arriva solo da una delle due fonti, ma è la
+        // stessa serie, quindi sparisce anche il mirror che non la segnala.
+        val flagged = result("Serie Ecchi", source = "manga_world").copy(isAdult = true)
+        val mirror = result("Serie Ecchi", source = "hasta_team")
+        val safe = result("One Piece")
+        val flat = listOf(flagged, mirror, safe)
+        val groups = SeriesGrouping.groupResults(flat, emptyList())
+
+        val filtered = filterAdultSearchResults(flat, groups, emptyList())
+
+        assertEquals(listOf(safe), filtered.results)
+        assertEquals(listOf("One Piece"), filtered.groups.map { it.title })
+    }
 }

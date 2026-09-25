@@ -160,6 +160,8 @@ class AsuraScansSource(
                     title = title,
                     mangaUrl = mangaUrl,
                     coverUrl = obj["cover"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank),
+                    // Oggi Asura non ha generi per adulti (`/api/genres`): è una rete per il futuro.
+                    isAdult = obj.hasAdultGenre(),
                 )
             }
             return seen.values.toList()

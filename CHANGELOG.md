@@ -2,7 +2,26 @@
 
 <!-- markdownlint-disable MD024 -->
 
-> Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Sonnet). Raggruppate per giorno (dal più recente) e per tipo.
+> Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Opus). Raggruppate per giorno (dal più recente) e per tipo.
+
+## 2026-09-25
+
+### Aggiunto
+
+- Nuova fonte Weeb Central (in inglese): ricerca, elenco completo dei capitoli con la data di uscita e download delle pagine alla risoluzione originale.
+
+### Migliorato
+
+- Le pagine di VyManga si scaricano sempre alla risoluzione originale, invece che nella versione ridotta servita dal sito.
+- Il filtro "Nascondi manga per adulti" è molto più affidabile: oltre ad AniList usa anche i generi indicati dalle fonti, quindi non lascia più passare i titoli che AniList non conosce. Basta che una fonte segnali una serie come per adulti perché sparisca dai risultati; il genere "Maturo" (per esempio Berserk) non conta come per adulti. Con il filtro attivo DemonicScans non viene usata nella ricerca, perché non permette di riconoscere questi titoli.
+
+### Corretto
+
+- VyManga funziona di nuovo: il sito ha cambiato indirizzo e ricerca e download non andavano più. Preferiti e manga già scaricati restano collegati come prima.
+
+### Rimosso
+
+- L'opzione sperimentale "Immagini ad alta risoluzione" non serve più: tutte le fonti scaricano ora le pagine alla massima qualità disponibile.
 
 ## 2026-09-23
 

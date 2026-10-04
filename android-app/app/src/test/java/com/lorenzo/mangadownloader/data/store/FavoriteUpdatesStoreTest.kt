@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -30,7 +31,7 @@ class FavoriteUpdatesStoreTest {
 
     @Test
     fun roundTrip_writeThenRead() {
-        val store = FavoriteUpdatesStore(prefs())
+        val store = FavoriteUpdatesStore(AndroidPreferencesSettings(prefs()))
         val state = mapOf(
             "mangapill::https://mangapill.com/manga/1" to
                 FavoriteSeenState("12", MangaPublicationStatus.ONGOING.name),
@@ -39,15 +40,15 @@ class FavoriteUpdatesStoreTest {
         )
         store.write(state)
 
-        val reloaded = FavoriteUpdatesStore(prefs()).read()
+        val reloaded = FavoriteUpdatesStore(AndroidPreferencesSettings(prefs())).read()
         assertEquals(state, reloaded)
     }
 
     @Test
     fun read_emptyWhenAbsentOrCorrupt() {
-        assertTrue(FavoriteUpdatesStore(prefs()).read().isEmpty())
+        assertTrue(FavoriteUpdatesStore(AndroidPreferencesSettings(prefs())).read().isEmpty())
 
         prefs().edit().putString("favorite_updates_seen_json", "{ not json").apply()
-        assertTrue(FavoriteUpdatesStore(prefs()).read().isEmpty())
+        assertTrue(FavoriteUpdatesStore(AndroidPreferencesSettings(prefs())).read().isEmpty())
     }
 }

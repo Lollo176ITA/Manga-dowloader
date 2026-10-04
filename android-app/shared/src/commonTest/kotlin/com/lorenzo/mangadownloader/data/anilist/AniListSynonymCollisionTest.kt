@@ -4,9 +4,9 @@ import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.domain.series.SeriesGrouping
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Collisioni fra il titolo proprio di una serie e il sinonimo di un'altra.
@@ -57,14 +57,14 @@ class AniListSynonymCollisionTest {
     private val candidatiComeLiDaAniList = listOf(hentaiConSinonimoOmonimo, webtoonOmonimo)
 
     @Test
-    fun `il preferito si aggancia alla serie che si chiama davvero cosi`() {
+    fun il_preferito_si_aggancia_alla_serie_che_si_chiama_davvero_cosi() {
         val match = matchAniListCandidate("Pick Me Up", candidatiComeLiDaAniList)
 
         assertEquals(159441, match?.id)
     }
 
     @Test
-    fun `il raggruppamento della ricerca usa la copertina del webtoon, non dell hentai`() {
+    fun il_raggruppamento_della_ricerca_usa_la_copertina_del_webtoon__non_dell_hentai() {
         val results = listOf(
             MangaSearchResult(
                 sourceId = MangaSourceIds.MANGAPILL,
@@ -81,7 +81,7 @@ class AniListSynonymCollisionTest {
     }
 
     @Test
-    fun `un sinonimo vale ancora quando nessuno rivendica il titolo come proprio`() {
+    fun un_sinonimo_vale_ancora_quando_nessuno_rivendica_il_titolo_come_proprio() {
         // La precedenza non deve rompere il caso per cui i sinonimi esistono: il titolo
         // italiano di una serie sta lì, e senza di esso la card ITA resterebbe separata.
         val aot = AniListManga(
@@ -102,7 +102,7 @@ class AniListSynonymCollisionTest {
     }
 
     @Test
-    fun `fra due candidati vince chi ha il titolo proprio anche se arriva dopo`() {
+    fun fra_due_candidati_vince_chi_ha_il_titolo_proprio_anche_se_arriva_dopo() {
         val soloSinonimo = AniListManga(
             id = 1,
             titleRomaji = "Serie Diversa",
@@ -129,16 +129,10 @@ class AniListSynonymCollisionTest {
     }
 
     @Test
-    fun `i titoli propri e i sinonimi restano distinguibili`() {
-        assertEquals(
-            listOf("Pick Me Up", "Pick Me Up!", "픽 미 업!"),
-            webtoonOmonimo.primaryTitles(),
-        )
+    fun i_titoli_propri_e_i_sinonimi_restano_distinguibili() {
+        assertEquals(listOf("Pick Me Up", "Pick Me Up!", "픽 미 업!"), webtoonOmonimo.primaryTitles())
         assertEquals(emptyList<String>(), webtoonOmonimo.synonymTitles())
         assertEquals(listOf("Gekka Bijin", "月下美人"), hentaiConSinonimoOmonimo.primaryTitles())
-        assertTrue(
-            "il sinonimo che causava la collisione",
-            "Pick Me Up" in hentaiConSinonimoOmonimo.synonymTitles(),
-        )
+        assertTrue("Pick Me Up" in hentaiConSinonimoOmonimo.synonymTitles(), "il sinonimo che causava la collisione")
     }
 }

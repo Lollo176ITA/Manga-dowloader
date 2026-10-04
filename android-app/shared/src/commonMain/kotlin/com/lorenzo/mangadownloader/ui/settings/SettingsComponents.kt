@@ -2,7 +2,6 @@ package com.lorenzo.mangadownloader.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,14 +10,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.NewReleases
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -31,33 +28,27 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.SourceReachability
 import com.lorenzo.mangadownloader.data.sources.sourceUnreachableLabels
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import com.lorenzo.mangadownloader.ui.components.CardDensity
 import com.lorenzo.mangadownloader.ui.components.NumberSettingField
 import com.lorenzo.mangadownloader.ui.components.appCardColors
 import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
-import com.lorenzo.mangadownloader.ui.widget.ReadingWidgetPinning
 
 /**
  * Card di una sezione delle impostazioni: intestazione (icona + titolo) e contenuto. Le sezioni
@@ -188,7 +179,7 @@ private fun SettingRow(
  * card la differenza si leggeva come due tipi di elemento diversi.
  */
 @Composable
-private fun SettingsActionRow(
+fun SettingsActionRow(
     title: String,
     onClick: (() -> Unit)? = null,
     description: String? = null,
@@ -536,41 +527,6 @@ fun ReportProblemContent(
 }
 
 /** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
-/**
- * Widget "Continua a leggere": chi non sa che esiste non lo va a cercare tra i widget del
- * telefono, quindi si offre da qui. Lo stato ("già nella Home") si rilegge a ogni ritorno
- * sull'app, perché l'aggiunta avviene nel dialog del launcher.
- */
-@Composable
-fun ReadingWidgetSettingsContent() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var refreshTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val placed = remember(refreshTick) { ReadingWidgetPinning.isPlaced(context) }
-    val canPin = remember { ReadingWidgetPinning.canRequestPin(context) }
-    val description = when {
-        placed -> "È già nella schermata Home. Riprendi l'ultima lettura con un tocco."
-        canPin -> "Una striscia 4×1 nella schermata Home con l'ultima lettura: un tocco la riapre."
-        else -> "Tieni premuto su uno spazio vuoto della schermata Home, scegli Widget e cerca MangApp."
-    }
-    SettingsActionRow(
-        title = if (canPin && !placed) "Aggiungi il widget alla Home" else "Widget \"Continua a leggere\"",
-        description = description,
-        onClick = if (canPin && !placed) {
-            { ReadingWidgetPinning.requestPin(context) }
-        } else {
-            null
-        },
-    )
-}
-
 @Composable
 fun RestartTutorialContent(onRestart: () -> Unit) {
     SettingsActionRow(
@@ -734,7 +690,8 @@ fun LabsContent(
     privacyBrightnessEnabled: Boolean,
     allowLandscapeRotation: Boolean,
     onToggleLabs: (Boolean) -> Unit,
-    onToggleDownloadDevUpdates: (Boolean) -> Unit,
+    /** `null` dove l'app non si aggiorna da sola (niente canale preview). */
+    onToggleDownloadDevUpdates: ((Boolean) -> Unit)?,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
 ) {
@@ -746,13 +703,15 @@ fun LabsContent(
             onCheckedChange = onToggleLabs,
         )
         if (labsEnabled) {
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingRow(
-                title = "Scarica aggiornamenti di sviluppo",
-                description = "Ricevi le versioni preview (dev) dell'app",
-                checked = downloadDevUpdates,
-                onCheckedChange = onToggleDownloadDevUpdates,
-            )
+            if (onToggleDownloadDevUpdates != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                SettingRow(
+                    title = "Scarica aggiornamenti di sviluppo",
+                    description = "Ricevi le versioni preview (dev) dell'app",
+                    checked = downloadDevUpdates,
+                    onCheckedChange = onToggleDownloadDevUpdates,
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
             SettingRow(
                 title = "Luminosità lettore",
@@ -786,7 +745,7 @@ fun SourceTogglesContent(
 ) {
     // L'ora si legge una volta per composizione: serve solo a dire "da quanto", non è un orologio.
     val warnings = remember(sourceHealth) {
-        sourceUnreachableLabels(sourceHealth, System.currentTimeMillis())
+        sourceUnreachableLabels(sourceHealth, currentTimeMillis())
     }
     Column {
         MangaSourceCatalog.descriptors.forEachIndexed { index, descriptor ->

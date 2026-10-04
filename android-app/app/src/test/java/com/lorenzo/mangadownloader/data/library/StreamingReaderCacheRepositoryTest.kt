@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.library
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import java.io.File
 import java.nio.file.Files
@@ -15,8 +16,8 @@ class StreamingReaderCacheRepositoryTest {
     fun getCachedChapter_returnsCompleteCacheAndUpdatesLastAccess() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
-            fetchPageToFile = { _, _, target -> target.writeBytes("page-1".toByteArray()) },
+            cacheRoot = root.toOkioPath(),
+            fetchPageToFile = { _, _, target -> target.toFile().writeBytes("page-1".toByteArray()) },
             nowMillis = { now },
         )
         val key = chapterKey("1")
@@ -35,20 +36,20 @@ class StreamingReaderCacheRepositoryTest {
 
         assertEquals("Capitolo 1", cached?.title)
         assertEquals(1, cached?.pages?.size)
-        assertEquals(25L, StreamingReaderCacheMetadata.read(File(root, key.directoryName()))?.lastAccessAtMs)
+        assertEquals(25L, StreamingReaderCacheMetadata.read(File(root, key.directoryName()).toOkioPath())?.lastAccessAtMs)
     }
 
     @Test
     fun getCachedChapter_deletesIncompleteCache() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             fetchPageToFile = { _, _, _ -> },
         )
         val key = chapterKey("incomplete")
         val directory = File(root, key.directoryName()).apply { mkdirs() }
         StreamingReaderCacheMetadata.write(
-            directory = directory,
+            directory = directory.toOkioPath(),
             metadata = StreamingReaderCacheMetadata(
                 title = "Incomplete",
                 pageUrls = listOf("https://example.test/missing.jpg"),
@@ -68,14 +69,14 @@ class StreamingReaderCacheRepositoryTest {
     fun getCachedChapter_deletesCacheWithEmptyPageFile() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             fetchPageToFile = { _, _, _ -> },
         )
         val key = chapterKey("empty-page")
         val directory = File(root, key.directoryName()).apply { mkdirs() }
         File(directory, "001.jpg").writeBytes(ByteArray(0))
         StreamingReaderCacheMetadata.write(
-            directory = directory,
+            directory = directory.toOkioPath(),
             metadata = StreamingReaderCacheMetadata(
                 title = "Pagina vuota",
                 pageUrls = listOf("https://example.test/1.jpg"),
@@ -95,8 +96,8 @@ class StreamingReaderCacheRepositoryTest {
     fun cacheCompleteChapter_keepsOnlySixMostRecentlyAccessedChapters() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
-            fetchPageToFile = { url, _, target -> target.writeBytes(url.toByteArray()) },
+            cacheRoot = root.toOkioPath(),
+            fetchPageToFile = { url, _, target -> target.toFile().writeBytes(url.toByteArray()) },
             nowMillis = { now },
         )
 
@@ -128,10 +129,10 @@ class StreamingReaderCacheRepositoryTest {
     fun cacheCompleteChapter_writesEveryPageInOrder() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             // Il contenuto di ogni pagina è il suo URL: verifica che l'ordine sia preservato
             // anche con download in parallelo.
-            fetchPageToFile = { url, _, target -> target.writeBytes(url.toByteArray()) },
+            fetchPageToFile = { url, _, target -> target.toFile().writeBytes(url.toByteArray()) },
         )
         val key = chapterKey("multi")
         val pageUrls = (1..5).map { "https://example.test/p$it.png" }
@@ -148,7 +149,7 @@ class StreamingReaderCacheRepositoryTest {
         assertEquals(5, cached.pages.size)
         cached.pages.forEachIndexed { index, file ->
             assertEquals("${(index + 1).toString().padStart(3, '0')}.png", file.name)
-            assertEquals(pageUrls[index], file.readText())
+            assertEquals(pageUrls[index], file.toFile().readText())
         }
     }
 
@@ -156,17 +157,17 @@ class StreamingReaderCacheRepositoryTest {
     fun cacheCompleteChapter_persistsSplitPagesInOrderWithTheirRemoteOrigin() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
-            fetchPageToFile = { url, _, target -> target.writeBytes(url.toByteArray()) },
+            cacheRoot = root.toOkioPath(),
+            fetchPageToFile = { url, _, target -> target.toFile().writeBytes(url.toByteArray()) },
             normalizePage = { source, outputDirectory, outputBaseName ->
                 if (outputBaseName != "002") {
                     listOf(source)
                 } else {
                     listOf(
-                        File(outputDirectory, "${outputBaseName}__part_0001.png")
-                            .apply { writeText("segment-1") },
-                        File(outputDirectory, "${outputBaseName}__part_0002.png")
-                            .apply { writeText("segment-2") },
+                        File(outputDirectory.toFile(), "${outputBaseName}__part_0001.png")
+                            .apply { writeText("segment-1") }.toOkioPath(),
+                        File(outputDirectory.toFile(), "${outputBaseName}__part_0002.png")
+                            .apply { writeText("segment-2") }.toOkioPath(),
                     )
                 }
             },
@@ -194,7 +195,7 @@ class StreamingReaderCacheRepositoryTest {
         assertEquals(MangaSourceIds.MANGAPILL, cached.sourceId)
         assertEquals(1, cached.readerPageIndexForOriginalPage(1))
 
-        val metadata = StreamingReaderCacheMetadata.read(File(root, key.directoryName()))
+        val metadata = StreamingReaderCacheMetadata.read(File(root, key.directoryName()).toOkioPath())
         assertEquals(pageUrls, metadata?.pageUrls)
         assertEquals(cached.pages.map { it.name }, metadata?.pages)
         assertEquals(listOf(1, 2, 2, 1), metadata?.cachedPages?.map { it.segmentCount })
@@ -205,8 +206,8 @@ class StreamingReaderCacheRepositoryTest {
     fun cacheCompleteChapter_doesNotNormalizeVyMangaPages() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
-            fetchPageToFile = { _, _, target -> target.writeText("original") },
+            cacheRoot = root.toOkioPath(),
+            fetchPageToFile = { _, _, target -> target.toFile().writeText("original") },
             normalizePage = { _, _, _ -> error("VyManga non deve essere normalizzato") },
         )
         val key = StreamingReaderCacheKey(
@@ -224,8 +225,8 @@ class StreamingReaderCacheRepositoryTest {
             )
         }
 
-        assertEquals(listOf("001.jpg"), cached.pages.map(File::getName))
-        assertEquals("original", cached.pages.single().readText())
+        assertEquals(listOf("001.jpg"), cached.pages.map { it.name })
+        assertEquals("original", cached.pages.single().toFile().readText())
         assertEquals(MangaSourceIds.VYMANGA, cached.sourceId)
     }
 
@@ -233,14 +234,14 @@ class StreamingReaderCacheRepositoryTest {
     fun getCachedChapter_deletesCurrentCacheWhenOneSegmentIsMissing() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             fetchPageToFile = { _, _, _ -> },
         )
         val key = chapterKey("missing-segment")
         val directory = File(root, key.directoryName()).apply { mkdirs() }
         File(directory, "001__part_0001.png").writeText("segment-1")
         StreamingReaderCacheMetadata.write(
-            directory = directory,
+            directory = directory.toOkioPath(),
             metadata = StreamingReaderCacheMetadata(
                 title = "Incomplete split",
                 pageUrls = listOf("https://example.test/1.jpg"),
@@ -272,14 +273,14 @@ class StreamingReaderCacheRepositoryTest {
     fun getCachedChapter_readsLegacyOneToOneMetadata() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             fetchPageToFile = { _, _, _ -> },
         )
         val key = chapterKey("legacy")
         val directory = File(root, key.directoryName()).apply { mkdirs() }
         File(directory, "001.jpg").writeText("legacy-page")
         StreamingReaderCacheMetadata.write(
-            directory = directory,
+            directory = directory.toOkioPath(),
             metadata = StreamingReaderCacheMetadata(
                 title = "Legacy",
                 pageUrls = listOf("https://example.test/legacy.jpg"),
@@ -299,10 +300,10 @@ class StreamingReaderCacheRepositoryTest {
     fun cacheCompleteChapter_failsAndRemovesDirectoryWhenAPageFails() {
         val root = createTempDirectory()
         val repository = StreamingReaderCacheRepository(
-            cacheRoot = root,
+            cacheRoot = root.toOkioPath(),
             fetchPageToFile = { url, _, target ->
                 if (url.endsWith("2.jpg")) throw java.io.IOException("boom")
-                target.writeBytes(url.toByteArray())
+                target.toFile().writeBytes(url.toByteArray())
             },
         )
         val key = chapterKey("partial")

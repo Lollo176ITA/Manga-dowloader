@@ -1,7 +1,8 @@
 package com.lorenzo.mangadownloader.data.anilist
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.lorenzo.mangadownloader.data.store.getString
+import com.lorenzo.mangadownloader.data.store.edit
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
@@ -55,7 +56,7 @@ const val MAX_ANILIST_FAVORITE_PUSHES_PER_RUN = 20
 
 /**
  * Il piano di riconciliazione. Pura: tutta la logica di "nuovo vs rimosso apposta" sta qui,
- * verificabile senza rete né SharedPreferences.
+ * verificabile senza rete né Settings.
  *
  * @param appMediaIds id AniList dei preferiti dell'app (solo quelli già agganciati ad AniList)
  * @param aniListMediaIds id dei favourites sull'account
@@ -161,12 +162,12 @@ fun newAniListFavorites(
 }
 
 /**
- * Memoria della riconciliazione su [SharedPreferences], nello stile degli altri store.
+ * Memoria della riconciliazione su [Settings], nello stile degli altri store.
  *
  * Non è una cache: senza questi due insiemi il sync non saprebbe distinguere un preferito
  * nuovo da uno che l'utente ha tolto, e li farebbe risorgere a ogni giro.
  */
-class AniListFavoritesSyncStore(private val prefs: SharedPreferences) {
+class AniListFavoritesSyncStore(private val prefs: Settings) {
 
     /** Id già riconciliati almeno una volta tra le due sponde. */
     fun readReconciledIds(): Set<Int> =

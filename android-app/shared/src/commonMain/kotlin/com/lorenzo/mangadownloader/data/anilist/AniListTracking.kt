@@ -1,11 +1,12 @@
 package com.lorenzo.mangadownloader.data.anilist
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.lorenzo.mangadownloader.data.store.edit
+import com.lorenzo.mangadownloader.data.store.getString
 import com.lorenzo.mangadownloader.data.store.readJson
 import com.lorenzo.mangadownloader.data.store.writeJson
+import com.lorenzo.mangadownloader.domain.formatFixed
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
-import java.util.Locale
+import com.russhwolf.settings.Settings
 import kotlinx.serialization.Serializable
 
 /**
@@ -27,7 +28,7 @@ enum class AniListListStatus(val label: String) {
 
 /** Mappa il testo grezzo dell'API su [AniListListStatus]; `null` se assente o ignoto. */
 fun aniListStatusFromText(raw: String?): AniListListStatus? {
-    val text = raw?.trim()?.uppercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return null
+    val text = raw?.trim()?.uppercase()?.takeIf(String::isNotBlank) ?: return null
     return AniListListStatus.entries.firstOrNull { it.name == text }
 }
 
@@ -45,7 +46,7 @@ enum class AniListScoreFormat(val maxValue: Float, val decimal: Boolean) {
     /** Voto formattato per la UI (es. "8", "8.5", "85"). */
     fun displayValue(score: Double): String {
         return if (decimal) {
-            String.format(Locale.US, "%.1f", score)
+            formatFixed(score, 1)
         } else {
             score.toInt().toString()
         }
@@ -54,32 +55,11 @@ enum class AniListScoreFormat(val maxValue: Float, val decimal: Boolean) {
 
 /** Mappa il testo grezzo dell'API su [AniListScoreFormat]; default prudente [POINT_10]. */
 fun aniListScoreFormatFromText(raw: String?): AniListScoreFormat {
-    val text = raw?.trim()?.uppercase(Locale.ROOT)?.takeIf(String::isNotBlank)
+    val text = raw?.trim()?.uppercase()?.takeIf(String::isNotBlank)
         ?: return AniListScoreFormat.POINT_10
     return AniListScoreFormat.entries.firstOrNull { it.name == text }
         ?: AniListScoreFormat.POINT_10
 }
-
-/** L'utente AniList autenticato. Presente nello stato ⇔ account collegato. */
-data class AniListViewer(
-    val id: Int,
-    val name: String,
-    val scoreFormat: AniListScoreFormat,
-)
-
-/** Entry della lista utente come la riporta l'API (voto nel formato dell'account, 0 = nessuno). */
-data class AniListListEntry(
-    val status: AniListListStatus?,
-    val progress: Int,
-    val score: Double?,
-)
-
-/** Media AniList + (eventuale) entry dell'utente: serve a seedare il tracking al collegamento. */
-data class AniListMediaEntry(
-    val mediaId: Int,
-    val totalChapters: Int?,
-    val entry: AniListListEntry?,
-)
 
 /**
  * Legame persistito tra una serie dell'app e un media AniList, con l'ultimo stato noto
@@ -136,10 +116,10 @@ object AniListAuth {
 
 /**
  * Persistenza dell'account AniList (token + profilo) e dei legami serie→media su
- * [SharedPreferences], nello stile degli altri store del progetto. Il token resta solo qui:
+ * [Settings], nello stile degli altri store del progetto. Il token resta solo qui:
  * non finisce nei backup esportati.
  */
-class AniListStore(private val prefs: SharedPreferences) {
+class AniListStore(private val prefs: Settings) {
 
     fun readToken(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
 

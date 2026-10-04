@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.russhwolf.settings.Settings
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -9,7 +8,7 @@ import kotlinx.serialization.json.Json
 @PublishedApi
 internal val sharedPreferencesJson = Json { ignoreUnknownKeys = true }
 
-internal inline fun <reified T> SharedPreferences.readJson(
+inline fun <reified T> Settings.readJson(
     key: String,
     defaultValue: T,
 ): T {
@@ -22,6 +21,6 @@ internal inline fun <reified T> SharedPreferences.readJson(
     }
 }
 
-internal inline fun <reified T> SharedPreferences.writeJson(key: String, value: T) {
+inline fun <reified T> Settings.writeJson(key: String, value: T) {
     edit { putString(key, sharedPreferencesJson.encodeToString(value)) }
 }

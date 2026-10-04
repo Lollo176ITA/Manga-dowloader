@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
@@ -15,8 +16,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
+import com.fleeksoft.ksoup.Ksoup
 
 /**
  * Fonte per **Asura Scans** (`asurascans.com`).
@@ -39,10 +39,10 @@ import org.jsoup.Jsoup
  * e [parsePageImageUrls] solleva un errore chiaro.
  */
 class AsuraScansSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.ASURA_SCANS,
         displayName = "Asura Scans",
@@ -55,20 +55,16 @@ class AsuraScansSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
         }
-        val url = "$API_URL/api/search".toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("q", trimmed)
-            .build()
-            .toString()
+        val url = buildHttpUrl("$API_URL/api/search", query = listOf("q" to trimmed))
         return parseSearchResponse(fetchString(url, jsonHeaders()))
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga Asura Scans non valido")
         val slug = seriesSlug(canonical)
@@ -78,7 +74,7 @@ class AsuraScansSource(
         return parseMangaDetails(seriesJson, chaptersJson, canonical)
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val ref = parseChapterRef(chapterUrl)
             ?: throw IllegalArgumentException(invalidChapterUrlMessage)
         val json = fetchString("$API_URL/api/series/${ref.slug}/chapters/${ref.number}", jsonHeaders())
@@ -177,7 +173,7 @@ class AsuraScansSource(
             val title = series["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifBlank { "manga" }
             val cover = series["cover"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
             val description = series["description"]?.jsonPrimitive?.contentOrNull
-                ?.let { Jsoup.parse(it).text().trim() }
+                ?.let { Ksoup.parse(it).text().trim() }
                 ?.takeIf(String::isNotBlank)
             val canonical = canonicalSeriesUrl(mangaUrl) ?: mangaUrl
             val chapters = parseChapters(chaptersJson, canonical)

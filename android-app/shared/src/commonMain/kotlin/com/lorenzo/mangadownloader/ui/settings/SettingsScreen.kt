@@ -22,6 +22,7 @@ import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
 import com.lorenzo.mangadownloader.data.sources.SourceReachability
+import com.lorenzo.mangadownloader.ui.LocalPlatformUi
 import com.lorenzo.mangadownloader.ui.components.CardDensity
 import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
@@ -62,13 +63,14 @@ fun SettingsScreen(
     onToggleParentalBiometric: (Boolean) -> Unit,
     onToggleHideAdultContent: (Boolean) -> Unit = {},
     onToggleLabs: (Boolean) -> Unit,
-    onToggleDownloadDevUpdates: (Boolean) -> Unit,
+    onToggleDownloadDevUpdates: ((Boolean) -> Unit)?,
     onTogglePrivacyBrightness: (Boolean) -> Unit,
     onToggleAllowLandscapeRotation: (Boolean) -> Unit,
     onToggleFavoriteNotifications: (Boolean) -> Unit,
     onOpenStorageManager: () -> Unit,
     onOpenBackup: () -> Unit,
-    onOpenReportProblem: () -> Unit,
+    /** `null` dove le segnalazioni dall'app non sono disponibili. */
+    onOpenReportProblem: (() -> Unit)?,
     appVersion: String,
     onOpenChangelog: () -> Unit,
 ) {
@@ -148,8 +150,10 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
         SettingsSection(title = "App", icon = Icons.Default.Settings) {
             RestartTutorialContent(onRestart = onRestartTutorial)
             SettingsDivider()
-            ReadingWidgetSettingsContent()
-            SettingsDivider()
+            LocalPlatformUi.current.readingWidgetSettings?.let { readingWidgetSettings ->
+                readingWidgetSettings()
+                SettingsDivider()
+            }
             AniListAccountContent(
                 viewerName = aniListViewerName,
                 isConnecting = isAniListConnecting,
@@ -210,8 +214,10 @@ SettingsSection(title = "Download e lettura", icon = Icons.Default.Download) {
                 appVersion = appVersion,
                 onOpenChangelog = onOpenChangelog,
             )
-            SettingsDivider()
-            ReportProblemContent(onOpenReportProblem = onOpenReportProblem)
+            if (onOpenReportProblem != null) {
+                SettingsDivider()
+                ReportProblemContent(onOpenReportProblem = onOpenReportProblem)
+            }
         }
     }
 }

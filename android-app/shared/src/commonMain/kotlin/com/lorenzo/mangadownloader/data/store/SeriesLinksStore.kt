@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.lorenzo.mangadownloader.platform.putIfMissing
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.SearchScope
@@ -57,11 +58,11 @@ fun SeriesLink.initialBinding(scope: SearchScope): SeriesSourceBinding {
 }
 
 /**
- * Persistenza dei [SeriesLink] su [SharedPreferences] (pattern degli altri store). Le
+ * Persistenza dei [SeriesLink] su [Settings] (pattern degli altri store). Le
  * scritture avvengono solo su azioni esplicite (tap su card raggruppata, cambio fonte,
  * aggancio/scollegamento manuale), mai durante la digitazione in ricerca.
  */
-class SeriesLinksStore(private val prefs: SharedPreferences) {
+class SeriesLinksStore(private val prefs: Settings) {
 
     fun readAll(): Map<String, SeriesLink> {
         return prefs.readJson<Map<String, LinkJson>>(KEY_SERIES_LINKS, emptyMap())
@@ -161,7 +162,7 @@ class SeriesLinksStore(private val prefs: SharedPreferences) {
         }
         group.results.forEach { result ->
             val key = MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl)
-            mergedSources.putIfAbsent(key, SeriesSourceBinding(result.sourceId, result.mangaUrl, now))
+            mergedSources.putIfMissing(key, SeriesSourceBinding(result.sourceId, result.mangaUrl, now))
         }
 
         val merged = SeriesLink(
@@ -190,7 +191,7 @@ class SeriesLinksStore(private val prefs: SharedPreferences) {
         val existing = all[targetKey]
         val mergedSources = LinkedHashMap<String, SeriesSourceBinding>()
         (existing?.sources.orEmpty() + link.sources).forEach {
-            mergedSources.putIfAbsent(MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl), it)
+            mergedSources.putIfMissing(MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl), it)
         }
         val promoted = SeriesLink(
             seriesKey = targetKey,

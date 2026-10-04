@@ -1,6 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import kotlinx.serialization.Serializable
 
@@ -82,10 +82,10 @@ fun favoriteSourceNotice(health: FavoriteSourceHealth?): FavoriteSourceNotice? {
 }
 
 /**
- * Persistenza della mappa `seriesKey -> `[FavoriteSourceHealth] su [SharedPreferences], con lo
+ * Persistenza della mappa `seriesKey -> `[FavoriteSourceHealth] su [Settings], con lo
  * stesso pattern tollerante degli altri store dei preferiti (JSON illeggibile → mappa vuota).
  */
-class FavoriteSourceHealthStore(private val prefs: SharedPreferences) {
+class FavoriteSourceHealthStore(private val prefs: Settings) {
 
     fun read(): Map<String, FavoriteSourceHealth> =
         prefs.readJson(KEY_FAVORITE_SOURCE_HEALTH_JSON, emptyMap())

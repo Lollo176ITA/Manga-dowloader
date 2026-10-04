@@ -1,13 +1,14 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
+
 
 /**
- * Persistenza delle ricerche recenti su [SharedPreferences] e regola pura di inserimento
+ * Persistenza delle ricerche recenti su [Settings] e regola pura di inserimento
  * (dedup case-insensitive, le più recenti in testa, cap a [MAX_RECENT_SEARCHES]).
  * Estratta da `MangaViewModel`.
  */
-class RecentSearchesStore(private val prefs: SharedPreferences) {
+class RecentSearchesStore(private val prefs: Settings) {
 
     fun read(): List<String> {
         return prefs.readJson<List<String>>(KEY_RECENT_SEARCHES, emptyList())

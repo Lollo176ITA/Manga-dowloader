@@ -2,9 +2,9 @@ package com.lorenzo.mangadownloader.domain.reading
 
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.ui.library.hasReaderProgress
 import com.lorenzo.mangadownloader.ui.library.isReaderCompleted
-import java.math.BigDecimal
 
 /**
  * Una riga "Continua a leggere": il capitolo da riprendere con la serie a cui appartiene
@@ -35,7 +35,7 @@ fun computeContinueReading(
         .sortedWith(
             compareByDescending<ContinueReadingItem> { it.chapter.lastReadAtMillis ?: Long.MIN_VALUE }
                 .thenBy { it.series.title.lowercase() }
-                .thenBy { it.chapter.numberValue ?: BigDecimal.ZERO }
+                .thenBy { it.chapter.numberValue ?: ChapterNumber.ZERO }
                 .thenBy { it.chapter.numberText },
         )
         .take(limit.coerceAtLeast(0))

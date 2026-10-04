@@ -1,12 +1,9 @@
 package com.lorenzo.mangadownloader.data.model
 
-import java.io.File
-import java.math.BigDecimal
-import java.util.Locale
 
 data class ChapterEntry(
     val numberText: String,
-    val numberValue: BigDecimal,
+    val numberValue: ChapterNumber,
     val url: String,
     val slug: String,
     val volumeText: String? = null,
@@ -43,18 +40,6 @@ data class ChapterEntry(
             ?: chapterLabel
     }
 }
-
-data class DownloadPlan(
-    val sourceId: String,
-    val seriesTitle: String,
-    val mangaUrl: String,
-    val coverUrl: String?,
-    val outputDir: File,
-    val chapters: List<ChapterEntry>,
-    val totalChapterCount: Int,
-    val startChapterLabel: String,
-    val endChapterLabel: String,
-)
 
 data class MangaSearchResult(
     val sourceId: String,
@@ -98,7 +83,7 @@ enum class MangaPublicationStatus {
  * "In pausa"/hiatus è trattato come [ONGOING] (può riprendere). DROPPED va controllato per primo.
  */
 fun mangaStatusFromText(raw: String?): MangaPublicationStatus {
-    val text = raw?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return MangaPublicationStatus.UNKNOWN
+    val text = raw?.trim()?.lowercase()?.takeIf(String::isNotBlank) ?: return MangaPublicationStatus.UNKNOWN
     return when {
         listOf("drop", "abbandon", "cancel", "discontinu").any { it in text } -> MangaPublicationStatus.DROPPED
         listOf("complet", "conclus", "finished", "finito", "termin", "ended", "fini")

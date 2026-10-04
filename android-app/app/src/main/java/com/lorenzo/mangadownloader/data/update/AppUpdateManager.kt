@@ -14,10 +14,10 @@ import androidx.core.net.toUri
 import com.lorenzo.mangadownloader.BuildConfig
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
 import java.io.File
-import java.io.IOException
 import java.security.MessageDigest
 import java.util.Properties
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -27,27 +27,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-
-enum class AppUpdateChannel {
-    STABLE,
-    PREVIEW,
-}
-
-data class AppUpdateInfo(
-    val versionCode: Int,
-    val versionName: String,
-    val repoOwner: String,
-    val repoName: String,
-    val apkAssetName: String,
-    val releaseNotes: String? = null,
-    val apkDownloadUrl: String? = null,
-    val channel: AppUpdateChannel = AppUpdateChannel.STABLE,
-    val releaseTag: String = buildReleaseTag(versionName, channel),
-) {
-    val apkUrl: String
-        get() = apkDownloadUrl
-            ?: "https://github.com/$repoOwner/$repoName/releases/download/$releaseTag/$apkAssetName"
-}
+import okio.IOException
 
 open class AppUpdateRepository(
     private val context: Context,
@@ -357,13 +337,6 @@ private fun extractPreviewVersionNameFromTag(tagName: String): String? {
 
 private fun isSupportedPreviewVersionName(value: String): Boolean {
     return value.matches(Regex("""\d+(?:\.\d+){0,2}-preview\.(?:[1-9]|[1-8]\d|9[0-8])"""))
-}
-
-private fun buildReleaseTag(versionName: String, channel: AppUpdateChannel): String {
-    return when (channel) {
-        AppUpdateChannel.STABLE -> "android-v$versionName"
-        AppUpdateChannel.PREVIEW -> "android-preview-v$versionName"
-    }
 }
 
 private fun stableVersionCodeFromVersionName(versionName: String): Int {

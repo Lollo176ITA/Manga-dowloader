@@ -1,8 +1,9 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
+import android.content.SharedPreferences
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
@@ -57,7 +58,7 @@ class MangaViewModelHomeFeedCacheTest {
 
     @Test
     fun loadDiscovery_servesAFreshCacheWithoutHittingTheNetwork() {
-        HomeFeedCacheStore(prefs()).writeDiscover(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeDiscover(
             HomeDiscoverCache(
                 trending = listOf(manga(1, "Berserk")),
                 topRated = listOf(manga(2, "Vinland Saga")),
@@ -79,7 +80,7 @@ class MangaViewModelHomeFeedCacheTest {
 
     @Test
     fun loadDiscovery_ignoresACacheFromBeforeYesterdaysRollover() {
-        HomeFeedCacheStore(prefs()).writeDiscover(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeDiscover(
             HomeDiscoverCache(
                 trending = listOf(manga(1, "Berserk")),
                 fetchedAtMillis = System.currentTimeMillis() - 3L * 24 * 60 * 60 * 1000,
@@ -96,14 +97,14 @@ class MangaViewModelHomeFeedCacheTest {
     @Test
     fun loadRecommendations_servesAFreshCacheBuiltFromTheSameSeeds() {
         val seeds = listOf("Berserk")
-        HomeFeedCacheStore(prefs()).writeRecommendations(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeRecommendations(
             HomeRecommendationsCache(
                 items = listOf(manga(9, "Kingdom")),
                 fetchedAtMillis = System.currentTimeMillis(),
                 seedSignature = recommendationSeedSignature(seeds),
             ),
         )
-        FavoritesStore(prefs()).persist(
+        FavoritesStore(AndroidPreferencesSettings(prefs())).persist(
             listOf(
                 FavoriteManga(
                     sourceId = MangaSourceIds.MANGAPILL,
@@ -125,14 +126,14 @@ class MangaViewModelHomeFeedCacheTest {
 
     @Test
     fun loadRecommendations_ignoresACacheBuiltFromDifferentSeeds() {
-        HomeFeedCacheStore(prefs()).writeRecommendations(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeRecommendations(
             HomeRecommendationsCache(
                 items = listOf(manga(9, "Kingdom")),
                 fetchedAtMillis = System.currentTimeMillis(),
                 seedSignature = recommendationSeedSignature(listOf("Naruto")),
             ),
         )
-        FavoritesStore(prefs()).persist(
+        FavoritesStore(AndroidPreferencesSettings(prefs())).persist(
             listOf(
                 FavoriteManga(
                     sourceId = MangaSourceIds.MANGAPILL,
@@ -153,7 +154,7 @@ class MangaViewModelHomeFeedCacheTest {
 
     @Test
     fun refreshHomeFeeds_bypassesAFreshCache() {
-        HomeFeedCacheStore(prefs()).writeDiscover(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeDiscover(
             HomeDiscoverCache(
                 trending = listOf(manga(1, "Berserk")),
                 fetchedAtMillis = System.currentTimeMillis(),
@@ -174,7 +175,7 @@ class MangaViewModelHomeFeedCacheTest {
 
     @Test
     fun refreshHomeFeeds_doesNothingUnderParentalControl() {
-        HomeFeedCacheStore(prefs()).writeDiscover(
+        HomeFeedCacheStore(AndroidPreferencesSettings(prefs())).writeDiscover(
             HomeDiscoverCache(
                 trending = listOf(manga(1, "Berserk")),
                 fetchedAtMillis = System.currentTimeMillis(),

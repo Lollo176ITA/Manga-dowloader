@@ -1,9 +1,30 @@
 package com.lorenzo.mangadownloader.domain
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class ParentalControlSecurityTest {
+
+    @Test
+    fun pinHash_matchesHashesStoredByPreviousVersions() {
+        assertEquals("h84li5sGhLK9ETmPhbacyiLZZIo4gxCtE6UGzYQ4w6g=", hashParentalPin("1234", "c2FsdA=="))
+        assertEquals(
+            "uNZ5BHkfBhBVADesw3pe661lsVoT6MT/eZ8Rry+Birc=",
+            hashParentalPin("000000", "AAAAAAAAAAAAAAAAAAAAAA=="),
+        )
+        assertEquals("Ztu/zD0mhhDaDE4swXOzxWspCoRtUpDT774yC8m2rrw=", hashParentalPin("987654", "ünï"))
+    }
+
+    @Test
+    fun pinSalt_isRandom16BytesInBase64() {
+        val first = generateParentalPinSalt()
+        val second = generateParentalPinSalt()
+        assertEquals(24, first.length)
+        assertTrue(first.endsWith("=="))
+        assertNotEquals(first, second)
+    }
 
     @Test
     fun lockout_startsAfterFreeAttempts_doublesAndCaps() {

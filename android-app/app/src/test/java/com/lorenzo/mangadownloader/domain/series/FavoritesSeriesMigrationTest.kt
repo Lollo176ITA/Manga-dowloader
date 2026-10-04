@@ -1,8 +1,9 @@
 package com.lorenzo.mangadownloader.domain.series
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
+import android.content.SharedPreferences
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
@@ -53,16 +54,16 @@ class FavoritesSeriesMigrationTest {
         val application: Application = ApplicationProvider.getApplicationContext()
         prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        favoritesStore = FavoritesStore(prefs)
-        updatesStore = FavoriteUpdatesStore(prefs)
-        descriptionsStore = FavoriteDescriptionsStore(prefs)
-        feedStore = FavoriteUpdatesFeedStore(prefs)
-        linksStore = SeriesLinksStore(prefs)
-        healthStore = FavoriteSourceHealthStore(prefs)
+        favoritesStore = FavoritesStore(AndroidPreferencesSettings(prefs))
+        updatesStore = FavoriteUpdatesStore(AndroidPreferencesSettings(prefs))
+        descriptionsStore = FavoriteDescriptionsStore(AndroidPreferencesSettings(prefs))
+        feedStore = FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs))
+        linksStore = SeriesLinksStore(AndroidPreferencesSettings(prefs))
+        healthStore = FavoriteSourceHealthStore(AndroidPreferencesSettings(prefs))
     }
 
     private fun resolver(
-        attemptsStore: AniListResolutionAttemptsStore = AniListResolutionAttemptsStore(prefs),
+        attemptsStore: AniListResolutionAttemptsStore = AniListResolutionAttemptsStore(AndroidPreferencesSettings(prefs)),
         searchAniList: suspend (String) -> List<AniListManga>,
     ) = FavoriteIdentityResolver(
         favoritesStore = favoritesStore,
@@ -75,7 +76,7 @@ class FavoritesSeriesMigrationTest {
     )
 
     private fun migration() = FavoritesSeriesMigration(
-        prefs = prefs,
+        prefs = AndroidPreferencesSettings(prefs),
         favoritesStore = favoritesStore,
         favoriteUpdatesStore = updatesStore,
         favoriteDescriptionsStore = descriptionsStore,
@@ -261,7 +262,7 @@ class FavoritesSeriesMigrationTest {
             listOf(legacyFavorite("mangapill", "Serie Ignota", "https://mangapill.com/manga/99")),
         )
         val favorites = migration().migrateIfNeeded()
-        val attemptsStore = AniListResolutionAttemptsStore(prefs)
+        val attemptsStore = AniListResolutionAttemptsStore(AndroidPreferencesSettings(prefs))
         var searches = 0
 
         repeat(2) {
@@ -277,7 +278,7 @@ class FavoritesSeriesMigrationTest {
             listOf(legacyFavorite("mangapill", "Serie Ignota", "https://mangapill.com/manga/99")),
         )
         val favorites = migration().migrateIfNeeded()
-        val attemptsStore = AniListResolutionAttemptsStore(prefs)
+        val attemptsStore = AniListResolutionAttemptsStore(AndroidPreferencesSettings(prefs))
 
         resolver(attemptsStore) { throw java.io.IOException("rete assente") }.resolve(favorites)
 

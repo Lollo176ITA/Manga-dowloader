@@ -1,10 +1,5 @@
 package com.lorenzo.mangadownloader.ui.reader
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.BitmapRegionDecoder
-import android.graphics.Rect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -12,19 +7,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
 import coil3.annotation.ExperimentalCoilApi
-import coil3.imageLoader
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
 import com.lorenzo.mangadownloader.data.model.ReaderPage
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
-import java.io.File
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
+import okio.IOException
+import okio.Path
 
 /**
  * Recupero delle pagine webtoon "a striscia" che Coil non riesce a mostrare.
@@ -53,7 +49,7 @@ import kotlinx.coroutines.withContext
  *   alta" l'immagine è già lì, senza un secondo giro di rete.
  */
 internal suspend fun decodeTallReaderPageChunks(
-    context: Context,
+    context: PlatformContext,
     page: ReaderPage,
 ): List<ImageBitmap>? {
     return when (page) {
@@ -83,7 +79,7 @@ internal suspend fun decodeTallReaderPageChunks(
 }
 
 private suspend fun decodeRemoteFallbackChunks(
-    context: Context,
+    context: PlatformContext,
     remote: ReaderPage.Remote,
     segmentIndex: Int?,
 ): List<ImageBitmap>? {
@@ -106,12 +102,12 @@ private suspend fun decodeRemoteFallbackChunks(
 
 @OptIn(ExperimentalCoilApi::class)
 private suspend fun refreshRemotePageDiskCache(
-    context: Context,
+    context: PlatformContext,
     remote: ReaderPage.Remote,
 ) {
     try {
-        context.imageLoader.diskCache?.remove(remote.url)
-        context.imageLoader.execute(
+        SingletonImageLoader.get(context).diskCache?.remove(remote.url)
+        SingletonImageLoader.get(context).execute(
             ImageRequest.Builder(context)
                 .data(remote.url)
                 .httpHeaders(NetworkHeaders.Builder().set("Referer", remote.referer).build())
@@ -126,12 +122,12 @@ private suspend fun refreshRemotePageDiskCache(
 
 @OptIn(ExperimentalCoilApi::class)
 private suspend fun decodeTallPageChunksFromCoilCache(
-    context: Context,
+    context: PlatformContext,
     url: String,
     useLegacyVyMangaQuality: Boolean,
     segmentIndex: Int? = null,
 ): List<ImageBitmap>? = withContext(Dispatchers.IO) {
-    val diskCache = context.imageLoader.diskCache ?: return@withContext null
+    val diskCache = SingletonImageLoader.get(context).diskCache ?: return@withContext null
     val snapshot = try {
         diskCache.openSnapshot(url)
     } catch (_: Exception) {
@@ -139,78 +135,25 @@ private suspend fun decodeTallPageChunksFromCoilCache(
     } ?: return@withContext null
     snapshot.use {
         decodeTallPageChunks(
-            file = it.data.toFile(),
+            file = it.data,
             useLegacyVyMangaQuality = useLegacyVyMangaQuality,
             segmentIndex = segmentIndex,
         )
     }
 }
 
-private suspend fun decodeTallPageChunks(
-    file: File,
+/**
+ * Decodifica a blocchi orizzontali la striscia in [file] (tutti, o solo [segmentIndex]).
+ * `null` se non è una striscia alta o se la decodifica fallisce.
+ */
+internal expect suspend fun decodeTallPageChunks(
+    file: Path,
     useLegacyVyMangaQuality: Boolean,
     segmentIndex: Int? = null,
-): List<ImageBitmap>? =
-    withContext(Dispatchers.IO) {
-        val decoded = mutableListOf<Bitmap>()
-        try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, bounds)
-            val width = bounds.outWidth
-            val height = bounds.outHeight
-            // Sotto la soglia non è una striscia: il fallimento ha un'altra causa.
-            if (width <= 0 || height < TallPageNormalizationMinHeightPx) {
-                return@withContext null
-            }
+): List<ImageBitmap>?
 
-            val ranges = tallPageNormalizationRanges(height)
-            val selectedRanges = if (segmentIndex == null) {
-                ranges
-            } else {
-                listOf(ranges.getOrNull(segmentIndex) ?: return@withContext null)
-            }
-            val selectedHeight = selectedRanges.sumOf { it.count() }
-            val memoryBudget = runtimeTallPageMemoryBudgetBytes()
-            val useReducedMemoryFallback = !useLegacyVyMangaQuality &&
-                !tallReaderPageFitsMemoryBudget(width, selectedHeight, memoryBudget)
-            val sampleSize = when {
-                useLegacyVyMangaQuality -> legacyVyMangaTallPageSampleSize(width)
-                useReducedMemoryFallback -> memoryConstrainedTallPageSampleSize(
-                    width = width,
-                    height = selectedHeight,
-                    maxBytes = memoryBudget,
-                )
-                else -> 1
-            }
-
-            @Suppress("DEPRECATION")
-            val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false)
-            try {
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = if (useLegacyVyMangaQuality || useReducedMemoryFallback) {
-                        Bitmap.Config.RGB_565
-                    } else {
-                        Bitmap.Config.ARGB_8888
-                    }
-                }
-                selectedRanges.forEach { rows ->
-                    val region = Rect(0, rows.first, width, rows.last + 1)
-                    decoded += decoder.decodeRegion(region, options)
-                        ?: throw IOException("Impossibile decodificare un blocco della pagina")
-                }
-            } finally {
-                decoder.recycle()
-            }
-            decoded.map(Bitmap::asImageBitmap)
-        } catch (_: Exception) {
-            decoded.forEach(Bitmap::recycle)
-            null
-        } catch (_: OutOfMemoryError) {
-            decoded.forEach(Bitmap::recycle)
-            null
-        }
-    }
+/** Libera subito la memoria nativa di un blocco non più mostrato (dove la piattaforma lo consente). */
+internal expect fun ImageBitmap.releaseNativeMemory()
 
 internal fun legacyVyMangaTallPageSampleSize(imageWidth: Int): Int {
     var sampleSize = 1
@@ -246,14 +189,11 @@ internal fun memoryConstrainedTallPageSampleSize(
     return sampleSize
 }
 
-private fun runtimeTallPageMemoryBudgetBytes(): Long =
-    minOf(Runtime.getRuntime().maxMemory() / 5L, MaxRuntimeTallPageMemoryBytes)
-
-private const val LegacyVyMangaTallPageMaxWidthPx = 2048
-private const val MemoryFallbackMaxWidthPx = 2048L
-private const val ArgbBytesPerPixel = 4L
-private const val Rgb565BytesPerPixel = 2L
-private const val MaxRuntimeTallPageMemoryBytes = 64L * 1024L * 1024L
+internal const val LegacyVyMangaTallPageMaxWidthPx = 2048
+internal const val MemoryFallbackMaxWidthPx = 2048L
+internal const val ArgbBytesPerPixel = 4L
+internal const val Rgb565BytesPerPixel = 2L
+internal const val MaxRuntimeTallPageMemoryBytes = 64L * 1024L * 1024L
 
 /**
  * Striscia webtoon renderizzata come colonna di blocchi: ognuno riempie la larghezza

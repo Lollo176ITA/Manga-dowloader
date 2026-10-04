@@ -1,13 +1,12 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.russhwolf.settings.Settings
 
 /**
  * Errori di PIN consecutivi e fine del blocco. Su disco e non in memoria: chiudere e riaprire
  * l'app non deve azzerare il conto.
  */
-class ParentalLockoutStore(private val prefs: SharedPreferences) {
+class ParentalLockoutStore(private val prefs: Settings) {
 
     fun failedAttempts(): Int = prefs.getInt(KEY_FAILED_ATTEMPTS, 0)
 

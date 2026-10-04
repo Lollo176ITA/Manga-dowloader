@@ -1,10 +1,10 @@
 package com.lorenzo.mangadownloader.data.anilist
 
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AniListClientTest {
 
@@ -92,10 +92,7 @@ class AniListClientTest {
         val parsed = AniListClient.parseMediaResponse(json).single()
         assertEquals("進撃の巨人", parsed.titleNative)
         assertEquals(listOf("L'attacco dei giganti", "AoT"), parsed.synonyms)
-        assertEquals(
-            listOf("Attack on Titan", "Shingeki no Kyojin", "進撃の巨人", "L'attacco dei giganti", "AoT"),
-            parsed.allTitles(),
-        )
+        assertEquals(listOf("Attack on Titan", "Shingeki no Kyojin", "進撃の巨人", "L'attacco dei giganti", "AoT"), parsed.allTitles())
     }
 
     @Test
@@ -139,10 +136,7 @@ class AniListClientTest {
     fun cleanDescription_handlesNullAndEntities() {
         assertNull(AniListClient.cleanDescription(null))
         assertNull(AniListClient.cleanDescription("   "))
-        assertEquals(
-            "Tom & Jerry \"say\" hi",
-            AniListClient.cleanDescription("Tom &amp; Jerry &quot;say&quot; hi"),
-        )
+        assertEquals("Tom & Jerry \"say\" hi", AniListClient.cleanDescription("Tom &amp; Jerry &quot;say&quot; hi"))
     }
 
     @Test
@@ -210,7 +204,7 @@ class AniListClientTest {
         assertEquals(162, mediaEntry?.totalChapters)
         assertEquals(AniListListStatus.CURRENT, mediaEntry?.entry?.status)
         assertEquals(12, mediaEntry?.entry?.progress)
-        assertEquals(8.5, mediaEntry?.entry?.score ?: 0.0, 0.001)
+        assertEquals(8.5, mediaEntry?.entry?.score ?: 0.0, absoluteTolerance = 0.001)
 
         val withoutEntry = """
             { "data": { "Media": { "id": 30002, "chapters": null, "mediaListEntry": null } } }
@@ -272,8 +266,8 @@ class AniListClientTest {
         assertEquals(1, favourites.size)
         assertEquals(30002, favourites.single().id)
         assertEquals(listOf("Berserk: Ougon Jidai-hen"), favourites.single().synonyms)
-        assertTrue("la paginazione va seguita finché hasNextPage è true", hasNextPage)
-        assertTrue("isAdult serve al filtro per i minori", favourites.single().isAdult)
+        assertTrue(hasNextPage, "la paginazione va seguita finché hasNextPage è true")
+        assertTrue(favourites.single().isAdult, "isAdult serve al filtro per i minori")
     }
 
     @Test

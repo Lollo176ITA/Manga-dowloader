@@ -55,7 +55,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: ./gradlew testDebugUnitTest :shared:testAndroidHostTest --stacktrace
 
       - name: Resolve preview version
         run: |

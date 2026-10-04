@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -30,7 +31,7 @@ class FavoriteUpdatesFeedStoreTest {
 
     @Test
     fun roundTrip_writeThenRead() {
-        val store = FavoriteUpdatesFeedStore(prefs())
+        val store = FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs()))
         val events = listOf(
             FavoriteUpdateEvent(
                 identityKey = "mangapill::https://mangapill.com/manga/1",
@@ -57,15 +58,15 @@ class FavoriteUpdatesFeedStoreTest {
         )
         store.write(events)
 
-        assertEquals(events, FavoriteUpdatesFeedStore(prefs()).read())
+        assertEquals(events, FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs())).read())
     }
 
     @Test
     fun read_emptyWhenAbsentOrCorrupt() {
-        assertTrue(FavoriteUpdatesFeedStore(prefs()).read().isEmpty())
+        assertTrue(FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs())).read().isEmpty())
 
         prefs().edit().putString("favorite_updates_feed_json", "{ not json").apply()
-        assertTrue(FavoriteUpdatesFeedStore(prefs()).read().isEmpty())
+        assertTrue(FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs())).read().isEmpty())
     }
 
     @Test
@@ -73,8 +74,8 @@ class FavoriteUpdatesFeedStoreTest {
         // Scenario della race worker/app: un'altra istanza (l'app) marca tutto come visto
         // mentre il "chiamante" ha in mano una copia vecchia. L'update deve partire dal
         // disco, quindi il flag seen sopravvive all'append del worker.
-        val workerStore = FavoriteUpdatesFeedStore(prefs())
-        val appStore = FavoriteUpdatesFeedStore(prefs())
+        val workerStore = FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs()))
+        val appStore = FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs()))
         val original = FavoriteUpdateEvent(
             identityKey = "k1",
             title = "Berserk",
@@ -96,7 +97,7 @@ class FavoriteUpdatesFeedStoreTest {
         val result = workerStore.update { events -> appendUpdateEvent(events, newEvent) }
 
         assertEquals(listOf(newEvent, original.copy(seen = true)), result)
-        assertEquals(result, FavoriteUpdatesFeedStore(prefs()).read())
+        assertEquals(result, FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs())).read())
     }
 
     @Test
@@ -106,7 +107,7 @@ class FavoriteUpdatesFeedStoreTest {
             "favorite_updates_feed_json",
             """[{"identityKey":"k","title":"T","chapterNumber":"5","futureField":"x"}]""",
         ).apply()
-        val read = FavoriteUpdatesFeedStore(prefs()).read()
+        val read = FavoriteUpdatesFeedStore(AndroidPreferencesSettings(prefs())).read()
         assertEquals(1, read.size)
         assertEquals("k", read.first().identityKey)
         assertEquals("5", read.first().chapterNumber)

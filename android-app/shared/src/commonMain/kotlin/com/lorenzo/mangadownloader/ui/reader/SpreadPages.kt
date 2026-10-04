@@ -1,9 +1,13 @@
 package com.lorenzo.mangadownloader.ui.reader
 
-import android.graphics.BitmapFactory
 import com.lorenzo.mangadownloader.data.model.ReaderPage
 import com.lorenzo.mangadownloader.data.model.persistedTallPageGroupKey
-import java.io.File
+import com.lorenzo.mangadownloader.platform.ImageOps
+import com.lorenzo.mangadownloader.platform.isFile
+import com.lorenzo.mangadownloader.platform.length
+import com.lorenzo.mangadownloader.platform.systemFileSystem
+import okio.FileSystem
+import okio.Path
 
 /**
  * Pagine **doppie**: le facciate affiancate che nei volumi occupano due pagine e che le fonti
@@ -16,18 +20,6 @@ import java.io.File
  * di progresso tra elenco espanso ed elenco originale. Pura e testabile: il ritaglio vero
  * avviene solo al momento di disegnare (vedi `SpreadHalfTransformation` nel reader).
  */
-
-/** Come trattare una pagina doppia nel reader. */
-enum class SpreadPageMode(val menuLabel: String, val shortLabel: String) {
-    /** Comportamento storico: la pagina resta intera e viene rimpicciolita per starci. */
-    FIT("Adatta allo schermo", "Adatta"),
-
-    /** La pagina diventa due mezze pagine, nell'ordine di lettura giusto. */
-    SPLIT("Dividi in due", "Dividi"),
-
-    /** La pagina resta intera ma ruotata di 90°: si legge girando il telefono. */
-    ROTATE("Ruota di lato", "Ruota"),
-}
 
 /** Quale metà di una pagina doppia rappresenta una pagina del reader. */
 enum class PageHalf { LEFT, RIGHT }
@@ -150,14 +142,14 @@ fun expandSpreadPages(
  * dell'intestazione, non dei pixel. `null` se il file non c'è o non è un'immagine leggibile.
  * Da chiamare su un dispatcher I/O.
  */
-fun readPageBounds(file: File): PageBounds? {
-    if (!file.isFile || file.length() == 0L) return null
-    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+fun readPageBounds(
+    path: Path,
+    imageOps: ImageOps,
+    fileSystem: FileSystem = systemFileSystem,
+): PageBounds? {
+    if (!fileSystem.isFile(path) || fileSystem.length(path) == 0L) return null
     return try {
-        BitmapFactory.decodeFile(file.absolutePath, options)
-        val width = options.outWidth
-        val height = options.outHeight
-        if (width > 0 && height > 0) PageBounds(width, height) else null
+        imageOps.readSize(path)?.let { PageBounds(it.width, it.height) }
     } catch (_: Exception) {
         null
     }

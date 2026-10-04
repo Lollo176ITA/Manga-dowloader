@@ -37,22 +37,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.lorenzo.mangadownloader.R
 import com.lorenzo.mangadownloader.app.AppTab
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.app.Screen
@@ -63,14 +61,17 @@ import com.lorenzo.mangadownloader.data.model.containsAny
 import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.store.unseenCount
+import com.lorenzo.mangadownloader.domain.currentLocalHour
 import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
 import com.lorenzo.mangadownloader.domain.home.homeGreeting
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
+import com.lorenzo.mangadownloader.resources.Res
+import com.lorenzo.mangadownloader.resources.ic_launcher_new
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
 import com.lorenzo.mangadownloader.ui.theme.FavoriteYellow
 import com.lorenzo.mangadownloader.ui.tutorial.LocalTutorialAnchor
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialAnchor
-import java.util.Calendar
+import org.jetbrains.compose.resources.painterResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,7 +124,7 @@ fun AppTopBar(
             AppTab.HOME -> if (homeEditMode) {
                 "Modifica Home"
             } else {
-                homeGreeting(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+                homeGreeting(currentLocalHour())
             }
             AppTab.SEARCH -> "Cerca"
             AppTab.FAVORITES -> "Preferiti"
@@ -167,7 +168,7 @@ fun AppTopBar(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Image(
-                        painter = painterResource(id = R.mipmap.ic_launcher_new),
+                        painter = painterResource(Res.drawable.ic_launcher_new),
                         contentDescription = "Logo Manga Downloader",
                         modifier = Modifier.size(38.dp),
                     )
@@ -402,11 +403,11 @@ private fun ReaderBrightnessAction(
                 )
                 // Il contenuto del menu viene scartato alla chiusura: a ogni apertura lo stato
                 // riparte dalla luminosità corrente.
-                val sliderState = remember { SliderState(value = brightness.coerceIn(0f, 1f)) }
+                var sliderValue by remember { mutableFloatStateOf(brightness.coerceIn(0f, 1f)) }
                 Slider(
-                    state = sliderState,
+                    value = sliderValue,
                     onValueChange = { value ->
-                        sliderState.value = value
+                        sliderValue = value
                         onBrightnessChange(value)
                     },
                     onValueChangeFinished = onBrightnessChangeFinished,

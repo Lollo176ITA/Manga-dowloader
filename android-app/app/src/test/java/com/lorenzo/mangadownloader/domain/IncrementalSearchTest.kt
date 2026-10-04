@@ -1,9 +1,9 @@
 package com.lorenzo.mangadownloader.domain
 
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
+import com.lorenzo.mangadownloader.data.network.SourceTimeoutException
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import java.io.IOException
-import java.net.SocketTimeoutException
 import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -91,7 +91,7 @@ class IncrementalSearchTest {
         assertEquals(listOf(result("viva")), outcomes["viva"]?.getOrNull())
         assertTrue(
             "la fonte fuori budget deve risultare fallita, non vuota",
-            outcomes["morta"]?.exceptionOrNull() is SocketTimeoutException,
+            outcomes["morta"]?.exceptionOrNull() is SourceTimeoutException,
         )
         assertTrue(
             "il giro deve finire al budget, non quando la fonte si degna di rispondere " +

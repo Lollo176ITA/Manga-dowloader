@@ -1,6 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.model.identityKey
@@ -9,11 +9,11 @@ import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
 import kotlinx.serialization.Serializable
 
 /**
- * Persistenza dei preferiti su [SharedPreferences] (serializzazione tipizzata `@Serializable`,
+ * Persistenza dei preferiti su [Settings] (serializzazione tipizzata `@Serializable`,
  * formato su disco retrocompatibile col vecchio JSON costruito a mano). Estratta da
  * `MangaViewModel`.
  */
-class FavoritesStore(private val prefs: SharedPreferences) {
+class FavoritesStore(private val prefs: Settings) {
 
     fun read(): List<FavoriteManga> {
         return prefs.readJson<List<FavoriteEntryJson>>(KEY_FAVORITES_JSON, emptyList())

@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.data.backup.SettingsBackup
@@ -18,12 +17,12 @@ import com.lorenzo.mangadownloader.domain.series.FavoriteSort
 import com.lorenzo.mangadownloader.ui.library.LibrarySort
 
 /**
- * Persistenza di [AppSettings] su [SharedPreferences]. Estratta da `MangaViewModel` per
+ * Persistenza di [AppSettings] su [Settings]. Estratta da `MangaViewModel` per
  * isolare l'I/O delle impostazioni (lettura con default/coerzioni, scrittura) dal resto
  * della logica. Le chiavi non-impostazioni (posizione reader per-serie, ultimo check
  * aggiornamenti) restano nel ViewModel perché appartengono ad altri ambiti.
  */
-class SettingsStore(private val prefs: SharedPreferences) {
+class SettingsStore(private val prefs: Settings) {
 
     fun read(): AppSettings {
         val localSettings = AppSettings(
@@ -88,8 +87,8 @@ class SettingsStore(private val prefs: SharedPreferences) {
         prefs.edit {
             putString(KEY_SETTINGS_JSON, encodeSettingsBackup(settings.toBackup()))
             putBoolean(KEY_PARENTAL_PIN_CONFIGURED, settings.parentalPinConfigured)
-            putString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
-            putString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
+            putNullableString(KEY_PARENTAL_PIN_SALT, settings.parentalPinSalt)
+            putNullableString(KEY_PARENTAL_PIN_HASH, settings.parentalPinHash)
             putBoolean(KEY_TUTORIAL_COMPLETED, settings.tutorialCompleted)
             putBoolean(KEY_ANILIST_SYNC_ENABLED, settings.aniListSyncEnabled)
             putBoolean(

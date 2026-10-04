@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.backup
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -46,14 +47,14 @@ class BackupManagerTest {
         application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
 
     private fun manager() = BackupManager(
-        favoritesStore = FavoritesStore(prefs()),
-        favoriteShelvesStore = FavoriteShelvesStore(prefs()),
-        favoriteUpdatesStore = FavoriteUpdatesStore(prefs()),
-        favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs()),
-        recentSearchesStore = RecentSearchesStore(prefs()),
-        settingsStore = SettingsStore(prefs()),
-        readingMemoryStore = ReadingMemoryStore(prefs()),
-        readingDiaryStore = ReadingDiaryStore(prefs()),
+        favoritesStore = FavoritesStore(AndroidPreferencesSettings(prefs())),
+        favoriteShelvesStore = FavoriteShelvesStore(AndroidPreferencesSettings(prefs())),
+        favoriteUpdatesStore = FavoriteUpdatesStore(AndroidPreferencesSettings(prefs())),
+        favoriteDescriptionsStore = FavoriteDescriptionsStore(AndroidPreferencesSettings(prefs())),
+        recentSearchesStore = RecentSearchesStore(AndroidPreferencesSettings(prefs())),
+        settingsStore = SettingsStore(AndroidPreferencesSettings(prefs())),
+        readingMemoryStore = ReadingMemoryStore(AndroidPreferencesSettings(prefs())),
+        readingDiaryStore = ReadingDiaryStore(AndroidPreferencesSettings(prefs())),
         appVersionName = "1.9.0",
     )
 
@@ -61,11 +62,11 @@ class BackupManagerTest {
         FavoriteManga("mangapill", title, "https://mangapill.com/manga/$n", null)
 
     private fun seedFavoriteA() {
-        FavoritesStore(prefs()).persist(listOf(favorite("A", 1)))
-        RecentSearchesStore(prefs()).persist(listOf("x"))
-        FavoriteUpdatesStore(prefs()).write(mapOf("k" to FavoriteSeenState("3")))
-        FavoriteDescriptionsStore(prefs()).write(mapOf("k" to "desc"))
-        SettingsStore(prefs()).persist(AppSettings(downloadDevUpdates = true))
+        FavoritesStore(AndroidPreferencesSettings(prefs())).persist(listOf(favorite("A", 1)))
+        RecentSearchesStore(AndroidPreferencesSettings(prefs())).persist(listOf("x"))
+        FavoriteUpdatesStore(AndroidPreferencesSettings(prefs())).write(mapOf("k" to FavoriteSeenState("3")))
+        FavoriteDescriptionsStore(AndroidPreferencesSettings(prefs())).write(mapOf("k" to "desc"))
+        SettingsStore(AndroidPreferencesSettings(prefs())).persist(AppSettings(downloadDevUpdates = true))
     }
 
     @Test
@@ -102,9 +103,9 @@ class BackupManagerTest {
         val result = manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
 
         assertEquals(BackupRestoreMode.REPLACE, result?.mode)
-        assertEquals(listOf("B"), FavoritesStore(prefs()).read().map { it.title })
-        assertEquals(listOf("nuovo"), RecentSearchesStore(prefs()).read())
-        assertEquals(ThemeMode.DARK, SettingsStore(prefs()).read().themeMode)
+        assertEquals(listOf("B"), FavoritesStore(AndroidPreferencesSettings(prefs())).read().map { it.title })
+        assertEquals(listOf("nuovo"), RecentSearchesStore(AndroidPreferencesSettings(prefs())).read())
+        assertEquals(ThemeMode.DARK, SettingsStore(AndroidPreferencesSettings(prefs())).read().themeMode)
     }
 
     @Test
@@ -119,7 +120,7 @@ class BackupManagerTest {
         val result = manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.MERGE)
 
         assertEquals(1, result?.favoritesAdded)
-        assertEquals(listOf("A", "B"), FavoritesStore(prefs()).read().map { it.title })
+        assertEquals(listOf("A", "B"), FavoritesStore(AndroidPreferencesSettings(prefs())).read().map { it.title })
     }
 
     @Test
@@ -127,7 +128,7 @@ class BackupManagerTest {
         seedFavoriteA()
         val result = manager().restore("garbage".byteInputStream(), BackupRestoreMode.MERGE)
         assertNull(result)
-        assertEquals(listOf("A"), FavoritesStore(prefs()).read().map { it.title })
+        assertEquals(listOf("A"), FavoritesStore(AndroidPreferencesSettings(prefs())).read().map { it.title })
     }
 
     @Test
@@ -141,19 +142,19 @@ class BackupManagerTest {
             isRead = true,
             lastReadAtMillis = 1_000L,
         )
-        ReadingMemoryStore(prefs()).persist(mapOf("Berserk/chapter_1.cbz" to record))
+        ReadingMemoryStore(AndroidPreferencesSettings(prefs())).persist(mapOf("Berserk/chapter_1.cbz" to record))
 
         val backup = manager().buildBackup(nowMs = 1L)
         assertEquals(20, backup.readingMemory["Berserk/chapter_1.cbz"]?.pagesRead)
 
         prefs().edit().clear().commit()
         manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
-        assertEquals(mapOf("Berserk/chapter_1.cbz" to record), ReadingMemoryStore(prefs()).read())
+        assertEquals(mapOf("Berserk/chapter_1.cbz" to record), ReadingMemoryStore(AndroidPreferencesSettings(prefs())).read())
     }
 
     @Test
     fun backup_roundTripsReadingDiary_withMonotoneMerge() {
-        ReadingDiaryStore(prefs()).persist(
+        ReadingDiaryStore(AndroidPreferencesSettings(prefs())).persist(
             mapOf("2026-07-15" to ReadingDayStats(chaptersRead = 2, pagesRead = 30)),
         )
         val backup = manager().buildBackup(nowMs = 1L)
@@ -167,14 +168,14 @@ class BackupManagerTest {
             ),
         )
         manager().restore(encodeBackup(older).byteInputStream(), BackupRestoreMode.REPLACE)
-        val restored = ReadingDiaryStore(prefs()).read()
+        val restored = ReadingDiaryStore(AndroidPreferencesSettings(prefs())).read()
         assertEquals(ReadingDayStats(2, 99), restored["2026-07-15"])
         assertEquals(ReadingDayStats(5, 50), restored["2026-07-10"])
     }
 
     @Test
     fun restore_mergeReadingMemoryIsMonotone() {
-        ReadingMemoryStore(prefs()).persist(
+        ReadingMemoryStore(AndroidPreferencesSettings(prefs())).persist(
             mapOf(
                 "S/c1.cbz" to ReadChapterMemory("S", "S", "Capitolo 1", 10, 20, false, 5_000L),
             ),
@@ -187,7 +188,7 @@ class BackupManagerTest {
         )
         manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.MERGE)
 
-        val restored = ReadingMemoryStore(prefs()).read()
+        val restored = ReadingMemoryStore(AndroidPreferencesSettings(prefs())).read()
         // Merge monotono: pagine/letto al massimo, timestamp più recente vince.
         assertEquals(20, restored["S/c1.cbz"]?.pagesRead)
         assertEquals(true, restored["S/c1.cbz"]?.isRead)
@@ -197,7 +198,7 @@ class BackupManagerTest {
 
     @Test
     fun backup_roundTripsHomeBlockConfig() {
-        SettingsStore(prefs()).persist(
+        SettingsStore(AndroidPreferencesSettings(prefs())).persist(
             AppSettings(
                 homeBlockOrder = listOf(
                     HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
@@ -217,7 +218,7 @@ class BackupManagerTest {
 
         prefs().edit().clear().commit()
         manager().restore(encodeBackup(backup).byteInputStream(), BackupRestoreMode.REPLACE)
-        val restored = SettingsStore(prefs()).read()
+        val restored = SettingsStore(AndroidPreferencesSettings(prefs())).read()
         assertEquals(
             listOf(
                 HomeBlock.DISCOVER, HomeBlock.RESUME, HomeBlock.FAVORITE_UPDATES,
@@ -231,21 +232,21 @@ class BackupManagerTest {
     @Test
     fun shelves_roundTrip_andMergeByName() {
         val favA = favorite("A", 1)
-        FavoritesStore(prefs()).persist(listOf(favA))
+        FavoritesStore(AndroidPreferencesSettings(prefs())).persist(listOf(favA))
         val shelves = FavoriteShelves()
             .withNewShelf("Da rileggere", "s1")!!
             .withShelvesFor(favA, setOf("s1"))
-        FavoriteShelvesStore(prefs()).write(shelves)
+        FavoriteShelvesStore(AndroidPreferencesSettings(prefs())).write(shelves)
         val out = ByteArrayOutputStream()
         manager().export(out, nowMs = 1L)
 
         // Sul telefono "nuovo" esiste già uno scaffale con lo stesso nome ma un altro id.
         prefs().edit().clear().commit()
-        FavoriteShelvesStore(prefs()).write(FavoriteShelves().withNewShelf("da RILEGGERE", "local")!!)
+        FavoriteShelvesStore(AndroidPreferencesSettings(prefs())).write(FavoriteShelves().withNewShelf("da RILEGGERE", "local")!!)
         val result = manager().restore(out.toByteArray().inputStream(), BackupRestoreMode.MERGE)!!
 
         assertEquals(listOf("local"), result.favoriteShelves.shelves.map { it.id })
         assertEquals(setOf("local"), result.favoriteShelves.shelfIdsOf(favA))
-        assertEquals(result.favoriteShelves, FavoriteShelvesStore(prefs()).read())
+        assertEquals(result.favoriteShelves, FavoriteShelvesStore(AndroidPreferencesSettings(prefs())).read())
     }
 }

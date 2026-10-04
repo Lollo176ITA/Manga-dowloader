@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
+
 
 /**
  * Persistenza su disco delle trame (descrizioni) dei manga **preferiti**, per `identityKey`.
@@ -11,7 +12,7 @@ import android.content.SharedPreferences
  * scarica comunque i dettagli dei preferiti). Volutamente **separato** da [FavoriteUpdatesStore]
  * per non interferire con la baseline delle notifiche. Tollerante: JSON illeggibile → vuoto.
  */
-class FavoriteDescriptionsStore(private val prefs: SharedPreferences) {
+class FavoriteDescriptionsStore(private val prefs: Settings) {
 
     fun read(): Map<String, String> =
         prefs.readJson(KEY_FAVORITE_DESCRIPTIONS_JSON, emptyMap())

@@ -17,15 +17,17 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.domain.ChangelogDay
 import com.lorenzo.mangadownloader.domain.formatChangelogDate
 import com.lorenzo.mangadownloader.domain.parseChangelog
+import com.lorenzo.mangadownloader.resources.Res
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.appCardColors
 import com.lorenzo.mangadownloader.ui.components.icon
@@ -36,16 +38,14 @@ import com.lorenzo.mangadownloader.ui.components.icon
  */
 @Composable
 fun ChangelogScreen(padding: PaddingValues) {
-    val context = LocalContext.current
-    // Il file è minuscolo: lettura sincrona dall'asset in composizione, senza I/O thread.
-    val days = remember(context) {
-        val markdown = runCatching {
-            context.assets.open(CHANGELOG_ASSET_NAME).bufferedReader().use { it.readText() }
-        }.getOrDefault("")
-        parseChangelog(markdown, includeInternal = false)
+    // null finché il file (pochi KB tra le risorse dell'app) non è stato letto.
+    val days by produceState<List<ChangelogDay>?>(initialValue = null) {
+        val markdown = runCatching { Res.readBytes(CHANGELOG_RESOURCE_PATH).decodeToString() }.getOrDefault("")
+        value = parseChangelog(markdown, includeInternal = false)
     }
+    val loadedDays = days ?: return
 
-    if (days.isEmpty()) {
+    if (loadedDays.isEmpty()) {
         EmptyState(
             icon = Icons.Default.NewReleases,
             title = "Nessuna novità da mostrare",
@@ -62,7 +62,7 @@ fun ChangelogScreen(padding: PaddingValues) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(days, key = { it.isoDate }) { day ->
+        items(loadedDays, key = { it.isoDate }) { day ->
             ChangelogDayCard(day)
         }
     }
@@ -113,4 +113,4 @@ private fun ChangelogDayCard(day: ChangelogDay) {
     }
 }
 
-private const val CHANGELOG_ASSET_NAME = "CHANGELOG.md"
+private const val CHANGELOG_RESOURCE_PATH = "files/CHANGELOG.md"

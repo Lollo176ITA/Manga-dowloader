@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.domain.reading
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
@@ -77,7 +78,7 @@ class ReaderProgressFunctionsTest {
         numberValue = null,
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File(relativePath),
+        file = File(relativePath).toOkioPath(),
         relativePath = relativePath,
         chapterId = "id-$relativePath",
         isRead = false,
@@ -90,7 +91,7 @@ class ReaderProgressFunctionsTest {
         title = name,
         mangaUrl = "https://mangapill.com/manga/$name",
         coverFile = null,
-        directory = File(name),
+        directory = File(name).toOkioPath(),
         chapters = chapters,
         totalChapterCount = chapters.size,
         readChapterIds = emptySet(),

@@ -1,18 +1,20 @@
 package com.lorenzo.mangadownloader.domain.reading
 
-import java.time.LocalDate
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.minus
 
 /** Core puro del diario di lettura: incrementi, retention e derivazioni (streak, record). */
 class ReadingDiaryTest {
 
-    private val today = LocalDate.of(2026, 7, 16)
+    private val today = LocalDate(2026, 7, 16)
 
-    private fun day(offset: Long): String = today.minusDays(offset).toString()
+    private fun day(offset: Long): String = today.minus(offset, DateTimeUnit.DAY).toString()
 
     // --- withReadingActivity / pruneReadingDiary ---
 
@@ -47,17 +49,14 @@ class ReadingDiaryTest {
             day(6) to ReadingDayStats(1, 10),
             day(7) to ReadingDayStats(4, 40), // fuori dagli ultimi 7 giorni
         )
-        assertEquals(
-            ReadingDayStats(chaptersRead = 3, pagesRead = 40),
-            diaryTotalsBetween(diary, today.minusDays(6), today),
-        )
+        assertEquals(ReadingDayStats(chaptersRead = 3, pagesRead = 40), diaryTotalsBetween(diary, today.minus(6, DateTimeUnit.DAY), today))
     }
 
     @Test
     fun lastDays_isChronological_withZeroGaps() {
         val diary = mapOf(day(1) to ReadingDayStats(2, 20))
         val last3 = lastDiaryDays(diary, days = 3, today = today)
-        assertEquals(listOf(today.minusDays(2), today.minusDays(1), today), last3.map { it.first })
+        assertEquals(listOf(today.minus(2, DateTimeUnit.DAY), today.minus(1, DateTimeUnit.DAY), today), last3.map { it.first })
         assertEquals(listOf(0, 2, 0), last3.map { it.second.chaptersRead })
     }
 
@@ -72,10 +71,7 @@ class ReadingDiaryTest {
         )
         // Oggi ancora senza letture: lo streak (ieri+altroieri) non si azzera a metà giornata.
         assertEquals(2, currentReadingStreak(diary, today))
-        assertEquals(
-            3,
-            currentReadingStreak(diary + (day(0) to ReadingDayStats(1, 1)), today),
-        )
+        assertEquals(3, currentReadingStreak(diary + (day(0) to ReadingDayStats(1, 1)), today))
     }
 
     @Test
@@ -104,7 +100,7 @@ class ReadingDiaryTest {
             day(2) to ReadingDayStats(3, 50),
             day(3) to ReadingDayStats(1, 200),
         )
-        assertEquals(today.minusDays(2), bestReadingDay(diary)?.first)
+        assertEquals(today.minus(2, DateTimeUnit.DAY), bestReadingDay(diary)?.first)
         assertNull(bestReadingDay(emptyMap()))
     }
 

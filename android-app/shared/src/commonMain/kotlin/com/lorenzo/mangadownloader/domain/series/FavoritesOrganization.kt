@@ -3,15 +3,16 @@ package com.lorenzo.mangadownloader.domain.series
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.model.identityKey
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.ui.library.hasReaderProgress
 import com.lorenzo.mangadownloader.ui.library.isFullyRead
 import com.lorenzo.mangadownloader.ui.library.readChapterCount
-import java.math.BigDecimal
 
 /**
  * Logica **pura** (niente Android/rete) per organizzare i preferiti: ordinamento e filtro
@@ -108,8 +109,8 @@ fun sortFavorites(
     FavoriteSort.LAST_UPDATE ->
         favorites.sortedWith(
             compareByDescending<FavoriteManga> {
-                seenByKey[favoriteKey(it)]?.latestChapterNumber?.toBigDecimalOrNull()
-                    ?: BigDecimal(Long.MIN_VALUE)
+                seenByKey[favoriteKey(it)]?.latestChapterNumber?.toChapterNumberOrNull()
+                    ?: ChapterNumber.of(Long.MIN_VALUE)
             }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title },
         )
 }

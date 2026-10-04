@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.reader
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.model.ReaderPage
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import java.io.File
@@ -71,7 +72,7 @@ class SpreadPagesTest {
         // Una fascia di striscia alta e' larga e bassa come una doppia, ma dividerla
         // spezzerebbe a meta' il flusso verticale.
         val pages = listOf<ReaderPage>(
-            ReaderPage.Local(File("/tmp/pagina__part_0001.webp")),
+            ReaderPage.Local(File("/tmp/pagina__part_0001.webp").toOkioPath()),
         )
 
         val expansion = expandSpreadPages(pages, rightFirst = true) { PageBounds(3000, 2048) }
@@ -114,7 +115,7 @@ class SpreadPagesTest {
 
     @Test
     fun `l elenco non espanso mappa gli indici uno a uno`() {
-        val pages = listOf<ReaderPage>(ReaderPage.Local(File("/tmp/1.jpg")), ReaderPage.Local(File("/tmp/2.jpg")))
+        val pages = listOf<ReaderPage>(ReaderPage.Local(File("/tmp/1.jpg").toOkioPath()), ReaderPage.Local(File("/tmp/2.jpg").toOkioPath()))
 
         val expansion = unexpandedReaderPages(pages)
 
@@ -136,7 +137,7 @@ class SpreadPagesTest {
         bounds: Map<String, PageBounds>,
     ): ReaderPageExpansion {
         val pages = listOf("1.jpg", "2.jpg", "3.jpg").map { name ->
-            ReaderPage.Local(File("/tmp/$name"))
+            ReaderPage.Local(File("/tmp/$name").toOkioPath())
         }
         return expandSpreadPages(pages, rightFirst = rightFirst) { local ->
             bounds[local.file.name] ?: PageBounds(1000, 1400)

@@ -1,6 +1,5 @@
 package com.lorenzo.mangadownloader.ui.reader
 
-import android.graphics.Matrix
 import coil3.Bitmap
 import coil3.size.Size
 import coil3.transform.Transformation
@@ -26,11 +25,11 @@ class SpreadHalfTransformation(private val half: PageHalf) : Transformation() {
     override val cacheKey: String = "spread-half-${half.name}"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
-        if (!isSpreadPage(input.width, input.height)) return input
-        val halfWidth = input.width / 2
+        if (!isSpreadPage(input.pixelWidth, input.pixelHeight)) return input
+        val halfWidth = input.pixelWidth / 2
         if (halfWidth <= 0) return input
-        val left = if (half == PageHalf.LEFT) 0 else input.width - halfWidth
-        return Bitmap.createBitmap(input, left, 0, halfWidth, input.height)
+        val left = if (half == PageHalf.LEFT) 0 else input.pixelWidth - halfWidth
+        return cropBitmap(input, left, halfWidth)
     }
 }
 
@@ -45,8 +44,17 @@ class SpreadRotateTransformation(private val rotation: SpreadRotation) : Transfo
     override val cacheKey: String = "spread-rotate-${rotation.name}"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
-        if (!isSpreadPage(input.width, input.height)) return input
-        val matrix = Matrix().apply { postRotate(rotation.degrees) }
-        return Bitmap.createBitmap(input, 0, 0, input.width, input.height, matrix, true)
+        if (!isSpreadPage(input.pixelWidth, input.pixelHeight)) return input
+        return rotateBitmap(input, rotation.degrees)
     }
 }
+
+/** La fascia verticale di [input] larga [width] a partire da [left], a tutta altezza. */
+internal expect fun cropBitmap(input: Bitmap, left: Int, width: Int): Bitmap
+
+/** [input] ruotato di [degrees] (±90), con larghezza e altezza scambiate. */
+internal expect fun rotateBitmap(input: Bitmap, degrees: Float): Bitmap
+
+internal expect val Bitmap.pixelWidth: Int
+
+internal expect val Bitmap.pixelHeight: Int

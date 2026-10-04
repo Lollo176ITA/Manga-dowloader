@@ -6,9 +6,9 @@ import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.anilist.AniListRecommendation
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** Core puro dei "Consigliati per te": scelta dei semi, aggregazione e parsing AniList. */
 class RecommendationsTest {
@@ -47,10 +47,7 @@ class RecommendationsTest {
             "b/1.cbz" to memoryRecord("Vagabond", 8_000L),
             "c/1.cbz" to memoryRecord("Mai letta", 0L), // senza timestamp: fuori
         )
-        assertEquals(
-            listOf("Vinland Saga", "Berserk", "Vagabond"),
-            selectRecommendationSeeds(favorites, memory),
-        )
+        assertEquals(listOf("Vinland Saga", "Berserk", "Vagabond"), selectRecommendationSeeds(favorites, memory))
     }
 
     @Test
@@ -74,10 +71,7 @@ class RecommendationsTest {
             AniListRecommendation(seedMediaId = 1, rating = 100, manga = manga(20, "Singolo forte")),
             AniListRecommendation(seedMediaId = 2, rating = 3, manga = manga(30, "Singolo debole")),
         )
-        assertEquals(
-            listOf(10, 20, 30),
-            aggregateRecommendations(recs).map { it.id },
-        )
+        assertEquals(listOf(10, 20, 30), aggregateRecommendations(recs).map { it.id })
     }
 
     @Test
@@ -156,8 +150,6 @@ class RecommendationsTest {
 
     @Test
     fun parseRecommendations_emptyOnErrorResponse() {
-        assertTrue(
-            AniListClient.parseRecommendationsResponse("""{"errors":[{"message":"boom"}]}""").isEmpty(),
-        )
+        assertTrue(AniListClient.parseRecommendationsResponse("""{"errors":[{"message":"boom"}]}""").isEmpty())
     }
 }

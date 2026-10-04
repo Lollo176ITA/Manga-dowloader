@@ -1,10 +1,13 @@
 package com.lorenzo.mangadownloader.domain.reading
 
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
-import java.util.Locale
+import com.lorenzo.mangadownloader.domain.ITALIAN_MONTH_NAMES
+import kotlin.time.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.daysUntil
+import kotlinx.datetime.number
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * Data di pubblicazione dei capitoli: parsing dei formati che le fonti espongono davvero e
@@ -17,10 +20,6 @@ import java.util.Locale
  * Non tutte le fonti pubblicano la data: Mangapill e TCB Scans non la espongono affatto, e per
  * loro [ChapterEntry.publishedAtMillis] resta `null` — la UI in quel caso non mostra nulla.
  */
-private val ITALIAN_MONTHS = listOf(
-    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
-)
 
 private val ITALIAN_SHORT_MONTHS = listOf(
     "gen", "feb", "mar", "apr", "mag", "giu",
@@ -44,16 +43,16 @@ private val isoDatePrefixRegex = Regex("""^(\d{4})-(\d{2})-(\d{2})""")
  * Testo vuoto o non riconosciuto → `null`: una data illeggibile non deve mai far saltare il
  * parsing dell'intero capitolo.
  */
-fun chapterDateFromIso(raw: String?, zone: ZoneId = ZoneId.systemDefault()): Long? {
+fun chapterDateFromIso(raw: String?, zone: TimeZone = TimeZone.currentSystemDefault()): Long? {
     val text = raw?.trim()?.takeIf(String::isNotBlank) ?: return null
-    runCatching { Instant.parse(text) }.getOrNull()?.let { return it.toEpochMilli() }
+    runCatching { Instant.parse(text) }.getOrNull()?.let { return it.toEpochMilliseconds() }
     val match = isoDatePrefixRegex.find(text) ?: return null
     return runCatching {
-        LocalDate.of(
+        LocalDate(
             match.groupValues[1].toInt(),
             match.groupValues[2].toInt(),
             match.groupValues[3].toInt(),
-        ).atStartOfDay(zone).toInstant().toEpochMilli()
+        ).atStartOfDayIn(zone).toEpochMilliseconds()
     }.getOrNull()
 }
 
@@ -61,16 +60,15 @@ fun chapterDateFromIso(raw: String?, zone: ZoneId = ZoneId.systemDefault()): Lon
  * Data italiana per esteso (`03 Maggio 2022`, come la scrive MangaWorld in `i.chap-date`) →
  * epoch millis della mezzanotte in [zone]. Mese sconosciuto o formato diverso → `null`.
  */
-fun chapterDateFromItalianDate(raw: String?, zone: ZoneId = ZoneId.systemDefault()): Long? {
+fun chapterDateFromItalianDate(raw: String?, zone: TimeZone = TimeZone.currentSystemDefault()): Long? {
     val text = raw?.trim()?.replace(Regex("""\s+"""), " ")?.takeIf(String::isNotBlank) ?: return null
     val match = italianDateRegex.find(text) ?: return null
-    val month = ITALIAN_MONTHS.indexOf(match.groupValues[2].lowercase(Locale.ITALIAN))
+    val month = ITALIAN_MONTH_NAMES.indexOf(match.groupValues[2].lowercase())
     if (month < 0) return null
     return runCatching {
-        LocalDate.of(match.groupValues[3].toInt(), month + 1, match.groupValues[1].toInt())
-            .atStartOfDay(zone)
-            .toInstant()
-            .toEpochMilli()
+        LocalDate(match.groupValues[3].toInt(), month + 1, match.groupValues[1].toInt())
+            .atStartOfDayIn(zone)
+            .toEpochMilliseconds()
     }.getOrNull()
 }
 
@@ -85,15 +83,15 @@ fun chapterDateFromItalianDate(raw: String?, zone: ZoneId = ZoneId.systemDefault
 fun formatChapterDate(
     publishedAtMillis: Long,
     nowMillis: Long,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: TimeZone = TimeZone.currentSystemDefault(),
 ): String {
-    val published = Instant.ofEpochMilli(publishedAtMillis).atZone(zone).toLocalDate()
-    val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
-    val days = ChronoUnit.DAYS.between(published, today)
+    val published = Instant.fromEpochMilliseconds(publishedAtMillis).toLocalDateTime(zone).date
+    val today = Instant.fromEpochMilliseconds(nowMillis).toLocalDateTime(zone).date
+    val days = published.daysUntil(today).toLong()
     return when {
         days <= 0L -> "Oggi"
         days == 1L -> "Ieri"
         days < 7L -> "$days giorni fa"
-        else -> "${published.dayOfMonth} ${ITALIAN_SHORT_MONTHS[published.monthValue - 1]} ${published.year}"
+        else -> "${published.day} ${ITALIAN_SHORT_MONTHS[published.month.number - 1]} ${published.year}"
     }
 }

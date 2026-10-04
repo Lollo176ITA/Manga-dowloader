@@ -1,49 +1,14 @@
 package com.lorenzo.mangadownloader.app
 
-import android.content.Context
-import androidx.biometric.BiometricManager
 import com.lorenzo.mangadownloader.data.store.ParentalLockoutStore
 import com.lorenzo.mangadownloader.domain.generateParentalPinSalt
 import com.lorenzo.mangadownloader.domain.hashParentalPin
 import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
 import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.sanitizeParentalPin
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-
-enum class ParentalAction {
-    OPEN_SEARCH,
-    CHANGE_PIN,
-    DISABLE_PARENTAL_CONTROL,
-    ENABLE_BIOMETRIC,
-    DISABLE_BIOMETRIC,
-}
-
-enum class ParentalPinSetupMode {
-    CREATE,
-    CHANGE,
-}
-
-data class ParentalPinSetupState(
-    val mode: ParentalPinSetupMode,
-    val pin: String = "",
-    val confirmPin: String = "",
-    val errorMessage: String? = null,
-    val completionAction: ParentalAction? = null,
-)
-
-data class ParentalPinEntryState(
-    val action: ParentalAction,
-    val pin: String = "",
-    val errorMessage: String? = null,
-)
-
-data class ParentalBiometricPromptRequest(
-    val requestId: Long,
-    val action: ParentalAction,
-    val title: String,
-    val subtitle: String,
-)
 
 /**
  * Controllo parentale estratto da [MangaViewModel]: creazione/cambio PIN, sblocco con PIN o
@@ -251,7 +216,7 @@ class ParentalControlController(
             return
         }
 
-        val now = System.currentTimeMillis()
+        val now = currentTimeMillis()
         val lockedUntil = lockoutStore.lockedUntilMillis()
         if (lockedUntil > now) {
             updateState {
@@ -452,10 +417,5 @@ class ParentalControlController(
 
     companion object {
         private const val PARENTAL_PIN_LENGTH = 6
-
-        fun isBiometricAvailable(context: Context): Boolean {
-            return BiometricManager.from(context)
-                .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
-        }
     }
 }

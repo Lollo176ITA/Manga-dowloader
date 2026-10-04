@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.widget
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -124,7 +125,7 @@ class ReadingWidgetTest {
         val coverFile = File(context.cacheDir, "cover.png")
         val bitmap = Bitmap.createBitmap(90, 128, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFFB71C1C.toInt()) }
         coverFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        ReadingMemoryStore(prefs()).persist(
+        ReadingMemoryStore(AndroidPreferencesSettings(prefs())).persist(
             mapOf("streaming:abc" to streamingRead.copy(coverUrl = Uri.fromFile(coverFile).toString())),
         )
     }

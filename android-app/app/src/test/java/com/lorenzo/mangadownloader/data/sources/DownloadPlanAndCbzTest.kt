@@ -1,5 +1,14 @@
 package com.lorenzo.mangadownloader.data.sources
 
+import com.lorenzo.mangadownloader.data.library.LibraryRepository
+import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.platform.settings
+import io.ktor.http.headersOf
+import io.ktor.http.HttpHeaders
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.HttpClient
+import okio.Path.Companion.toOkioPath
 import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
@@ -8,6 +17,7 @@ import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.DownloadResult
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
@@ -15,16 +25,9 @@ import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.ui.reader.TallPageNormalizationMinHeightPx
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.math.BigDecimal
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import kotlinx.coroutines.runBlocking
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Protocol
-import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,7 +70,7 @@ class DownloadPlanAndCbzTest {
         val source = testSource(canonical = null)
 
         val error = assertThrows(IllegalArgumentException::class.java) {
-            source.buildDownloadPlan("non-un-url", null)
+            runBlocking { source.buildDownloadPlan("non-un-url", null) }
         }
         assertEquals("Invalid test URL", error.message)
     }
@@ -77,7 +80,7 @@ class DownloadPlanAndCbzTest {
         val source = testSource(chapters = listOf(chapter("1"), chapter("2")))
 
         val error = assertThrows(IllegalStateException::class.java) {
-            source.buildDownloadPlan(chapterUrl("99"), null)
+            runBlocking { source.buildDownloadPlan(chapterUrl("99"), null) }
         }
         assertTrue(error.message!!.contains("iniziale"))
     }
@@ -87,7 +90,7 @@ class DownloadPlanAndCbzTest {
         val source = testSource(chapters = listOf(chapter("1"), chapter("2")))
 
         val error = assertThrows(IllegalStateException::class.java) {
-            source.buildDownloadPlan(chapterUrl("1"), chapterUrl("99"))
+            runBlocking { source.buildDownloadPlan(chapterUrl("1"), chapterUrl("99")) }
         }
         assertTrue(error.message!!.contains("finale non trovato"))
     }
@@ -97,13 +100,13 @@ class DownloadPlanAndCbzTest {
         val source = testSource(chapters = listOf(chapter("1"), chapter("2"), chapter("3")))
 
         val error = assertThrows(IllegalStateException::class.java) {
-            source.buildDownloadPlan(chapterUrl("3"), chapterUrl("1"))
+            runBlocking { source.buildDownloadPlan(chapterUrl("3"), chapterUrl("1")) }
         }
         assertTrue(error.message!!.contains("successivo o uguale"))
     }
 
     @Test
-    fun buildDownloadPlan_selectsInclusiveRangeAndKeepsTotalCount() {
+    fun buildDownloadPlan_selectsInclusiveRangeAndKeepsTotalCount() = runBlocking<Unit> {
         val source = testSource(chapters = listOf(chapter("1"), chapter("2"), chapter("3")))
 
         val plan = source.buildDownloadPlan(chapterUrl("1"), chapterUrl("2"))
@@ -111,11 +114,11 @@ class DownloadPlanAndCbzTest {
         assertEquals(listOf("1", "2"), plan.chapters.map { it.numberText })
         assertEquals(3, plan.totalChapterCount)
         assertEquals(SERIES_TITLE, plan.seriesTitle)
-        assertTrue(plan.outputDir.exists())
+        assertTrue(plan.outputDir.toFile().exists())
     }
 
     @Test
-    fun buildDownloadPlan_defaultsToLastChapterWhenNoEndGiven() {
+    fun buildDownloadPlan_defaultsToLastChapterWhenNoEndGiven() = runBlocking<Unit> {
         val source = testSource(chapters = listOf(chapter("1"), chapter("2"), chapter("3")))
 
         val plan = source.buildDownloadPlan(chapterUrl("2"), null)
@@ -142,7 +145,7 @@ class DownloadPlanAndCbzTest {
         val chapter = chapter("1")
 
         val result = runBlocking {
-            source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 2) { _, _ -> }
+            source.downloadChapterAsCbz(chapter, outputDir.toOkioPath(), pageConcurrency = 2) { _, _ -> }
         }
 
         assertEquals(DownloadResult.DOWNLOADED, result)
@@ -152,10 +155,9 @@ class DownloadPlanAndCbzTest {
             val entries = zip.entries().toList()
             assertEquals(listOf("001.png", "002.png"), entries.map(ZipEntry::getName))
             entries.zip(listOf(firstPng, secondPng)).forEach { (entry, expectedBytes) ->
-                // Le immagini sono già compresse: DEFLATED a livello zero evita una seconda
-                // compressione e non richiede il prepass CRC necessario per le entry STORED.
-                assertEquals(ZipEntry.DEFLATED, entry.method)
-                assertTrue(entry.compressedSize >= entry.size)
+                // Le immagini sono già compresse: le entry sono STORED, byte per byte.
+                assertEquals(ZipEntry.STORED, entry.method)
+                assertEquals(entry.size, entry.compressedSize)
                 zip.getInputStream(entry).use { input ->
                     assertArrayEquals(expectedBytes, input.readBytes())
                 }
@@ -179,7 +181,7 @@ class DownloadPlanAndCbzTest {
         val progress = mutableListOf<Pair<Int, Int>>()
 
         val result = runBlocking {
-            source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { completed, total ->
+            source.downloadChapterAsCbz(chapter, outputDir.toOkioPath(), pageConcurrency = 1) { completed, total ->
                 progress += completed to total
             }
         }
@@ -210,7 +212,7 @@ class DownloadPlanAndCbzTest {
         runBlocking {
             source.downloadChapterAsCbz(
                 chapter = chapter("1"),
-                outputDir = freshOutputDir(),
+                outputDir = freshOutputDir().toOkioPath(),
                 pageConcurrency = 1,
                 onProcessingProgress = { completed, total ->
                     events += "processing:$completed/$total"
@@ -249,7 +251,7 @@ class DownloadPlanAndCbzTest {
         runBlocking {
             source.downloadChapterAsCbz(
                 chapter = chapter,
-                outputDir = outputDir,
+                outputDir = outputDir.toOkioPath(),
                 pageConcurrency = 1,
                 onProcessingProgress = { completed, total ->
                     processingProgress += completed to total
@@ -284,7 +286,7 @@ class DownloadPlanAndCbzTest {
         File(outputDir, DownloadStorage.buildChapterFileName(chapter)).writeText("già qui")
 
         val result = runBlocking {
-            source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { _, _ -> }
+            source.downloadChapterAsCbz(chapter, outputDir.toOkioPath(), pageConcurrency = 1) { _, _ -> }
         }
 
         assertEquals(DownloadResult.SKIPPED_EXISTING, result)
@@ -302,7 +304,7 @@ class DownloadPlanAndCbzTest {
 
         assertThrows(AssertionError::class.java) {
             runBlocking {
-                source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { _, _ -> }
+                source.downloadChapterAsCbz(chapter, outputDir.toOkioPath(), pageConcurrency = 1) { _, _ -> }
             }
         }
 
@@ -333,7 +335,7 @@ class DownloadPlanAndCbzTest {
 
         val error = assertThrows(InsufficientStorageException::class.java) {
             runBlocking {
-                source.downloadChapterAsCbz(chapter, outputDir, pageConcurrency = 1) { _, _ -> }
+                source.downloadChapterAsCbz(chapter, outputDir.toOkioPath(), pageConcurrency = 1) { _, _ -> }
             }
         }
 
@@ -353,7 +355,7 @@ class DownloadPlanAndCbzTest {
 
     private fun chapter(number: String) = ChapterEntry(
         numberText = number,
-        numberValue = BigDecimal(number),
+        numberValue = ChapterNumber.parse(number),
         url = chapterUrl(number),
         slug = "chapter-$number",
     )
@@ -389,22 +391,14 @@ class DownloadPlanAndCbzTest {
     )
 
     private fun fakeImageClient(bytesByPath: Map<String, ByteArray>) = MangaNetworkClient(
-        OkHttpClient.Builder()
-            .addInterceptor(
-                Interceptor { chain ->
-                    val bytes = bytesByPath[chain.request().url.encodedPath]
-                        ?: bytesByPath["*"]
-                        ?: error("Nessuna risposta finta per ${chain.request().url.encodedPath}")
-                    Response.Builder()
-                        .request(chain.request())
-                        .protocol(Protocol.HTTP_1_1)
-                        .code(200)
-                        .message("OK")
-                        .body(bytes.toResponseBody("image/png".toMediaType()))
-                        .build()
-                },
-            )
-            .build(),
+        HttpClient(
+            MockEngine { request ->
+                val bytes = bytesByPath[request.url.encodedPath]
+                    ?: bytesByPath["*"]
+                    ?: error("Nessuna risposta finta per ${request.url.encodedPath}")
+                respond(bytes, headers = headersOf(HttpHeaders.ContentType, "image/png"))
+            },
+        ),
     )
 
     private fun pngBytes(
@@ -426,11 +420,7 @@ class DownloadPlanAndCbzTest {
     }
 
     private fun failingClient() = MangaNetworkClient(
-        OkHttpClient.Builder()
-            .addInterceptor(
-                Interceptor { throw AssertionError("La rete non deve essere contattata in questo test") },
-            )
-            .build(),
+        HttpClient(MockEngine { throw AssertionError("La rete non deve essere contattata in questo test") }),
     )
 
     private class TestMangaSource(
@@ -441,16 +431,16 @@ class DownloadPlanAndCbzTest {
         private val pageUrls: List<String>,
         private val freeSpace: Long,
         sourceId: String,
-    ) : BaseMangaSource(context, networkClient) {
+    ) : BaseMangaSource(context.settings(SettingsStore.PREFS_NAME), networkClient, LibraryRepository(context)) {
         override val descriptor =
             MangaSourceDescriptor(sourceId, "Test", "T", MangaSourceLanguage.ENG)
         override val invalidChapterUrlMessage = "Invalid test URL"
         override fun canHandleUrl(url: String) = canonical != null
-        override fun searchManga(query: String): List<MangaSearchResult> = emptyList()
-        override fun fetchMangaDetails(mangaUrl: String) = details
+        override suspend fun searchManga(query: String): List<MangaSearchResult> = emptyList()
+        override suspend fun fetchMangaDetails(mangaUrl: String) = details
         override fun canonicalMangaUrl(url: String): String? = canonical
-        override fun fetchPageImageUrls(chapterUrl: String): List<String> = pageUrls
-        override fun availableSpaceBytes(dir: File): Long = freeSpace
+        override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> = pageUrls
+        override fun availableSpaceBytes(dir: okio.Path): Long = freeSpace
     }
 
     private companion object {

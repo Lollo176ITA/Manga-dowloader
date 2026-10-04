@@ -1,10 +1,13 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
+import com.lorenzo.mangadownloader.platform.putIfMissing
 import com.lorenzo.mangadownloader.app.hidesAdultContent
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
@@ -12,14 +15,12 @@ import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.isAdultGenre
 import com.lorenzo.mangadownloader.domain.reading.chapterDateFromIso
-import java.math.BigDecimal
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
 
 /**
  * Fonte per **Weeb Central** (`weebcentral.com`), sito HTML server-rendered (htmx) da
- * parsare con jsoup. Nessun Cloudflare challenge: basta una normale richiesta HTTP.
+ * parsare con Ksoup. Nessun Cloudflare challenge: basta una normale richiesta HTTP.
  *
  * - ricerca: `GET /search/data?text=<query>&sort=Best+Match&...` → frammento HTML con un
  *   `<article>` per serie (32 per pagina; si usa solo la prima, come le altre fonti).
@@ -42,10 +43,10 @@ import org.jsoup.nodes.Document
  * [fetchPageImageUrls] ricava il capitolo reale.
  */
 class WeebCentralSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.WEEB_CENTRAL,
         displayName = "Weeb Central",
@@ -58,7 +59,7 @@ class WeebCentralSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
@@ -67,7 +68,7 @@ class WeebCentralSource(
         return parseSearchResults(fetchString(url), url)
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga Weeb Central non valido")
         return parseMangaDetails(
@@ -77,7 +78,7 @@ class WeebCentralSource(
         )
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val chapterId = chapterIdFromUrl(chapterUrl)
             ?: throw IllegalArgumentException(invalidChapterUrlMessage)
         return parsePageImageUrls(fetchString(chapterImagesUrl(chapterId)))
@@ -87,7 +88,7 @@ class WeebCentralSource(
 
     /** Filtro adulti dell'app (scelta utente o controllo parentale), applicato già lato server. */
     private fun shouldHideAdultResults(): Boolean =
-        SettingsStore(context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE))
+        SettingsStore(appSettings)
             .read()
             .hidesAdultContent()
 
@@ -131,32 +132,25 @@ class WeebCentralSource(
             "$seriesUrl/chapters/$chapterId"
 
         fun chapterImagesUrl(chapterId: String): String =
-            "$BASE_URL/chapters/$chapterId/images".toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("is_prev", "False")
-                .addQueryParameter("current_page", "1")
-                .addQueryParameter("reading_style", "long_strip")
-                .build()
-                .toString()
+            buildHttpUrl(
+                "$BASE_URL/chapters/$chapterId/images",
+                query = listOf("is_prev" to "False", "current_page" to "1", "reading_style" to "long_strip"),
+            )
 
         fun searchUrl(query: String, hideAdult: Boolean): String =
-            "$BASE_URL/search/data".toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("author", "")
-                .addQueryParameter("text", query)
-                .addQueryParameter("sort", "Best Match")
-                .addQueryParameter("order", "Descending")
-                .addQueryParameter("official", "Any")
-                .addQueryParameter("anime", "Any")
-                .addQueryParameter("adult", if (hideAdult) "False" else "Any")
-                .addQueryParameter("display_mode", "Full Display")
-                .apply {
-                    if (hideAdult) {
-                        ADULT_EXCLUDED_TAGS.forEach { addQueryParameter("excluded_tag", it) }
-                    }
-                }
-                .build()
-                .toString()
+            buildHttpUrl(
+                "$BASE_URL/search/data",
+                query = listOf(
+                    "author" to "",
+                    "text" to query,
+                    "sort" to "Best Match",
+                    "order" to "Descending",
+                    "official" to "Any",
+                    "anime" to "Any",
+                    "adult" to if (hideAdult) "False" else "Any",
+                    "display_mode" to "Full Display",
+                ) + if (hideAdult) ADULT_EXCLUDED_TAGS.map { "excluded_tag" to it } else emptyList(),
+            )
 
         // --- Parsing puro, testabile senza rete ---
 
@@ -166,7 +160,7 @@ class WeebCentralSource(
          * titolo testuale e la prima copertina, invece di dipendere dalle classi Tailwind.
          */
         fun parseSearchResults(html: String, baseUrl: String): List<MangaSearchResult> {
-            val document = Jsoup.parse(html, baseUrl)
+            val document = Ksoup.parse(html, baseUrl)
             val titles = linkedMapOf<String, String?>()
             val covers = mutableMapOf<String, String>()
             val adult = mutableSetOf<String>()
@@ -188,7 +182,7 @@ class WeebCentralSource(
                     titles[mangaUrl] = title
                 }
                 image?.let { firstNonBlankTrimmed(it.absUrl("src"), it.attr("src")) }
-                    ?.let { covers.putIfAbsent(mangaUrl, it) }
+                    ?.let { covers.putIfMissing(mangaUrl, it) }
             }
             return titles.mapNotNull { (mangaUrl, title) ->
                 MangaSearchResult(
@@ -208,7 +202,7 @@ class WeebCentralSource(
         ): MangaDetails {
             val canonical = canonicalSeriesUrl(mangaUrl)
                 ?: throw IllegalArgumentException("URL manga Weeb Central non valido")
-            val document: Document = Jsoup.parse(seriesHtml, canonical)
+            val document: Document = Ksoup.parse(seriesHtml, canonical)
             val title = firstNonBlankTrimmed(
                 document.selectFirst("h1")?.text(),
                 document.selectFirst("""meta[property="og:title"]""")?.attr("content")
@@ -229,7 +223,7 @@ class WeebCentralSource(
         }
 
         fun parseChapterList(html: String, seriesUrl: String): List<ChapterEntry> {
-            val document = Jsoup.parse(html, BASE_URL)
+            val document = Ksoup.parse(html, BASE_URL)
             val parsed = mutableListOf<ParsedChapter>()
             val seenIds = mutableSetOf<String>()
             for (anchor in document.select("""a[href*="/chapters/"]""")) {
@@ -259,7 +253,7 @@ class WeebCentralSource(
             // condividono il numero (es. "Chapter 1" e "Volume 1"), la prima tenuta resta il
             // capitolo "principale" e le altre ricevono un variantTag, altrimenti finirebbero
             // sullo stesso chapter_001.cbz.
-            val usedNumbers = mutableSetOf<BigDecimal>()
+            val usedNumbers = mutableSetOf<ChapterNumber>()
             return parsed
                 .sortedWith(compareBy<ParsedChapter> { it.numberValue }.thenBy { !it.isRegularChapter })
                 .map { chapter ->
@@ -281,7 +275,7 @@ class WeebCentralSource(
         }
 
         fun parsePageImageUrls(html: String): List<String> {
-            val document = Jsoup.parse(html, BASE_URL)
+            val document = Ksoup.parse(html, BASE_URL)
             val images = document.select("section#chapter-images img")
                 .ifEmpty { document.select("img[alt^=Page]") }
             val urls = images
@@ -298,7 +292,7 @@ class WeebCentralSource(
             val chapterId: String,
             val sitePrefix: String,
             val numberText: String,
-            val numberValue: BigDecimal,
+            val numberValue: ChapterNumber,
             val publishedAtMillis: Long?,
         ) {
             val isRegularChapter: Boolean

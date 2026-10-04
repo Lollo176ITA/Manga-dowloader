@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
@@ -9,17 +10,15 @@ import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.domain.isAdultGenre
-import java.util.Locale
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
+import com.fleeksoft.ksoup.nodes.Element
 
 class MangapillSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.MANGAPILL,
         displayName = "Mangapill",
@@ -32,27 +31,23 @@ class MangapillSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
         }
-        val url = "https://mangapill.com/search".toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("q", trimmed)
-            .build()
-            .toString()
+        val url = buildHttpUrl("https://mangapill.com/search", query = listOf("q" to trimmed))
 
         return parseSearchResults(fetchString(url), url)
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga non valido")
         return parseMangaDetails(fetchString(canonical), canonical)
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         return parsePageImageUrls(fetchString(chapterUrl), chapterUrl)
     }
 
@@ -91,19 +86,19 @@ class MangapillSource(
 
         /** Estrae i risultati di ricerca dall'HTML della pagina `/search`. */
         fun parseSearchResults(raw: String, baseUrl: String): List<MangaSearchResult> {
-            return parseSearchResults(Jsoup.parse(raw, baseUrl))
+            return parseSearchResults(Ksoup.parse(raw, baseUrl))
         }
 
         /** Estrae titolo, copertina e capitoli dall'HTML della pagina manga. */
         fun parseMangaDetails(raw: String, mangaUrl: String): MangaDetails {
             val canonical = canonicalSeriesUrl(mangaUrl)
                 ?: throw IllegalArgumentException("URL manga non valido")
-            return parseMangaDetails(Jsoup.parse(raw, canonical), canonical)
+            return parseMangaDetails(Ksoup.parse(raw, canonical), canonical)
         }
 
         /** Estrae gli URL delle immagini di un capitolo dall'HTML del reader. */
         fun parsePageImageUrls(raw: String, chapterUrl: String): List<String> {
-            return parsePageImageUrls(Jsoup.parse(raw, chapterUrl), chapterUrl)
+            return parsePageImageUrls(Ksoup.parse(raw, chapterUrl), chapterUrl)
         }
 
         private fun parseSearchResults(document: Document): List<MangaSearchResult> {
@@ -319,11 +314,11 @@ class MangapillSource(
         }
 
         private fun looksLikeCover(src: String, image: Element): Boolean {
-            val lowered = src.lowercase(Locale.US)
+            val lowered = src.lowercase()
             if ("mangapill.com" in lowered || "cdn.mangapill" in lowered || "cover" in lowered) {
                 return true
             }
-            val alt = image.attr("alt").lowercase(Locale.US)
+            val alt = image.attr("alt").lowercase()
             return alt.isNotBlank() && alt != "logo"
         }
 

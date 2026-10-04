@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.app
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.ReaderChapter
@@ -213,7 +214,7 @@ class ScreenTest {
         title = "X",
         mangaUrl = "https://mangapill.com/manga/1",
         coverFile = null,
-        directory = directory,
+        directory = directory.toOkioPath(),
         chapters = emptyList(),
         totalChapterCount = 0,
         readChapterIds = emptySet(),

@@ -2,11 +2,11 @@ package com.lorenzo.mangadownloader.ui.detail
 
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
-import java.math.BigDecimal
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Bersaglio della freccia di navigazione nella lista capitoli: deve portare all'ultimo
@@ -16,7 +16,7 @@ class ChapterJumpTargetTest {
 
     private fun chapter(n: Int, volume: String? = null): ChapterEntry = ChapterEntry(
         numberText = n.toString(),
-        numberValue = BigDecimal(n),
+        numberValue = ChapterNumber.of(n.toLong()),
         url = "https://mangapill.com/chapters/$n/test-$n",
         slug = "test-$n",
         volumeText = volume,

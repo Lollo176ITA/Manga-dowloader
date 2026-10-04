@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.home
 
+import okio.Path.Companion.toOkioPath
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -106,15 +107,15 @@ private fun sampleSeries() = DownloadedSeries(
     title = "Berserk",
     mangaUrl = "https://mangapill.com/manga/berserk",
     coverFile = null,
-    directory = java.io.File("Berserk"),
+    directory = java.io.File("Berserk").toOkioPath(),
     chapters = listOf(
         DownloadedChapter(
             title = "Capitolo 1",
             numberText = "1",
-            numberValue = java.math.BigDecimal.ONE,
+            numberValue = com.lorenzo.mangadownloader.data.model.ChapterNumber.of(1),
             volumeText = null,
             labelPrefix = "Capitolo",
-            file = java.io.File("1.cbz"),
+            file = java.io.File("1.cbz").toOkioPath(),
             relativePath = "b/1.cbz",
             chapterId = "id-1",
             isRead = true,

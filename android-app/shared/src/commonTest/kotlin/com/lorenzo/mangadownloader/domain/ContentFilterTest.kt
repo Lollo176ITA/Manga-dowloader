@@ -4,10 +4,10 @@ import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.domain.series.SeriesGrouping
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ContentFilterTest {
 
@@ -64,9 +64,9 @@ class ContentFilterTest {
     @Test
     fun adultGenre_coversExplicitAndEcchiButNotMature() {
         listOf("Hentai", "ecchi", "Smut", "Adult,", " adulti ", "adulto", "Erotico", "Lolicon", "shotacon")
-            .forEach { assertTrue(it, isAdultGenre(it)) }
+            .forEach { assertTrue(isAdultGenre(it), it) }
         listOf("Mature", "maturo", "Romance", "Harem", "Seinen", "Horror", "violence")
-            .forEach { assertFalse(it, isAdultGenre(it)) }
+            .forEach { assertFalse(isAdultGenre(it), it) }
     }
 
     @Test

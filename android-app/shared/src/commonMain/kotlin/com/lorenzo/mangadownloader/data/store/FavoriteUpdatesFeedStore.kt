@@ -1,11 +1,16 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
 import com.lorenzo.mangadownloader.data.model.identityKey
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import com.lorenzo.mangadownloader.domain.formatItalianLongDate
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
+import com.russhwolf.settings.Settings
+import kotlin.time.Instant
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 
 /**
@@ -37,7 +42,7 @@ data class FavoriteUpdateEvent(
 /** Chiave di de-duplicazione di un evento: la serie, con l'identityKey come ripiego legacy. */
 fun FavoriteUpdateEvent.dedupKey(): String = seriesKey.ifBlank { identityKey }
 
-/** Quantità massima di eventi tenuti nel feed: tiene piccolo il blob JSON in SharedPreferences. */
+/** Quantità massima di eventi tenuti nel feed: tiene piccolo il blob JSON in Settings. */
 const val MAX_FEED_EVENTS = 200
 
 /**
@@ -70,9 +75,6 @@ data class FavoriteUpdateDay(
     val events: List<FavoriteUpdateEvent>,
 )
 
-private val DAY_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ITALIAN)
-
 /**
  * Raggruppa gli eventi per giorno (più recente per primo, e ordinati per data decrescente
  * dentro ogni giorno), etichettando "Oggi"/"Ieri"/data estesa. Pura: [zoneId] e [nowMillis]
@@ -80,33 +82,33 @@ private val DAY_FORMATTER: DateTimeFormatter =
  */
 fun groupEventsByDay(
     events: List<FavoriteUpdateEvent>,
-    zoneId: ZoneId = ZoneId.systemDefault(),
-    nowMillis: Long = System.currentTimeMillis(),
+    zoneId: TimeZone = TimeZone.currentSystemDefault(),
+    nowMillis: Long = currentTimeMillis(),
 ): List<FavoriteUpdateDay> {
     if (events.isEmpty()) return emptyList()
-    val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
-    val yesterday = today.minusDays(1)
+    val today = Instant.fromEpochMilliseconds(nowMillis).toLocalDateTime(zoneId).date
+    val yesterday = today.minus(1, DateTimeUnit.DAY)
     return events
         .sortedByDescending { it.timestampMillis }
-        .groupBy { Instant.ofEpochMilli(it.timestampMillis).atZone(zoneId).toLocalDate() }
+        .groupBy { Instant.fromEpochMilliseconds(it.timestampMillis).toLocalDateTime(zoneId).date }
         .toList()
         .sortedByDescending { (date, _) -> date }
         .map { (date, dayEvents) ->
             val label = when (date) {
                 today -> "Oggi"
                 yesterday -> "Ieri"
-                else -> date.format(DAY_FORMATTER)
+                else -> formatItalianLongDate(date)
             }
             FavoriteUpdateDay(dayLabel = label, events = dayEvents)
         }
 }
 
 /**
- * Persistenza del feed degli aggiornamenti (lista di [FavoriteUpdateEvent]) su [SharedPreferences].
+ * Persistenza del feed degli aggiornamenti (lista di [FavoriteUpdateEvent]) su [Settings].
  * Tollerante: JSON illeggibile → lista vuota. Volutamente separato da [FavoriteUpdatesStore]
  * (che tiene solo la baseline "ultimo visto" delle notifiche).
  */
-class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
+class FavoriteUpdatesFeedStore(private val prefs: Settings) {
 
     fun read(): List<FavoriteUpdateEvent> = synchronized(LOCK) { readLocked() }
 
@@ -137,6 +139,6 @@ class FavoriteUpdatesFeedStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY_FAVORITE_UPDATES_FEED_JSON = "favorite_updates_feed_json"
-        val LOCK = Any()
+        val LOCK = SynchronizedObject()
     }
 }

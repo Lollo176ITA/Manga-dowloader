@@ -1,129 +1,130 @@
 package com.lorenzo.mangadownloader.data.network
 
-import java.io.IOException
-import java.io.OutputStream
-import java.net.URI
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.request.header
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.isSuccess
+import io.ktor.utils.io.readAvailable
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okio.IOException
+import okio.Sink
+import okio.buffer
 
 class MangaNetworkClient(
-    private val httpClient: OkHttpClient,
+    private val httpClient: HttpClient,
 ) {
-    fun fetchDocument(
+    suspend fun fetchDocument(
         url: String,
         headers: Map<String, String> = emptyMap(),
     ): Document {
-        return Jsoup.parse(fetchString(url, headers), url)
+        return Ksoup.parse(fetchString(url, headers), url)
     }
 
-    fun fetchString(
+    suspend fun fetchString(
         url: String,
         headers: Map<String, String> = emptyMap(),
-    ): String {
-        val request = buildRequest(
-            url = url,
-            defaultHeaders = DEFAULT_DOCUMENT_HEADERS,
-            headers = headers,
-        )
-        return executeSuccessful(request, "su $url") { response ->
-            response.body.string()
-        }
-    }
+    ): String = executeSuccessful(
+        url = url,
+        defaultHeaders = DEFAULT_DOCUMENT_HEADERS,
+        headers = headers,
+        errorContext = "su $url",
+    ) { response -> response.bodyAsText() }
 
-    fun fetchBytes(
+    suspend fun fetchBytes(
         url: String,
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
-    ): ByteArray {
-        val request = buildRequest(url, referer, headers = headers)
-        return executeSuccessful(request, "scaricando $url") { response ->
-            response.body.bytes()
-        }
-    }
+    ): ByteArray = executeSuccessful(
+        url = url,
+        referer = referer,
+        headers = headers,
+        errorContext = "scaricando $url",
+    ) { response -> response.body<ByteArray>() }
 
     /**
      * Scarica [url] scrivendo il corpo della risposta direttamente su [sink] a blocchi, senza
      * mai materializzare l'intera immagine in memoria (a differenza di [fetchBytes]). Usato
-     * dalla cache dello streaming reader, dove tenere in RAM un capitolo intero causava picchi
-     * di heap. Sincrono: chiamato da thread IO. Non chiude [sink] (lo gestisce il chiamante).
+     * dai download e dalla cache dello streaming reader, dove tenere in RAM un capitolo intero
+     * causava picchi di heap. Non chiude [sink] (lo gestisce il chiamante).
      */
-    fun fetchToStream(
+    suspend fun fetchToSink(
         url: String,
-        sink: OutputStream,
+        sink: Sink,
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
     ) {
-        val request = buildRequest(url, referer, headers = headers)
-        executeSuccessful(request, "scaricando $url") { response ->
-            response.body.byteStream().use { it.copyTo(sink) }
+        executeSuccessful(
+            url = url,
+            referer = referer,
+            headers = headers,
+            errorContext = "scaricando $url",
+        ) { response ->
+            val channel = response.bodyAsChannel()
+            val chunk = ByteArray(COPY_BUFFER_BYTES)
+            val output = sink.buffer()
+            while (true) {
+                val read = channel.readAvailable(chunk, 0, chunk.size)
+                if (read == -1) break
+                if (read > 0) withContext(Dispatchers.IO) { output.write(chunk, 0, read) }
+            }
+            withContext(Dispatchers.IO) { output.flush() }
         }
     }
 
-    fun absolutize(baseUrl: String, value: String): String {
-        return URI(baseUrl).resolve(value).toString()
-    }
-
-    private fun buildRequest(
+    private suspend fun <T> executeSuccessful(
         url: String,
         referer: String? = null,
         defaultHeaders: Map<String, String> = emptyMap(),
         headers: Map<String, String> = emptyMap(),
-    ): Request = Request.Builder()
-        .url(url)
-        .header("User-Agent", USER_AGENT)
-        .apply {
-            referer?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?.let { header("Referer", it) }
-            defaultHeaders.forEach { (name, value) ->
-                if (name !in headers) header(name, value)
-            }
-            headers.forEach { (name, value) -> header(name, value) }
-        }
-        .build()
-
-    private inline fun <T> executeSuccessful(
-        request: Request,
         errorContext: String,
-        readBody: (Response) -> T,
-    ): T = executeWithConnectionRetry(request).use { response ->
-        if (!response.isSuccessful) {
-            throw IOException("HTTP ${response.code} $errorContext")
-        }
-        readBody(response)
-    }
-
-    /**
-     * Esegue la richiesta ritentando **solo** gli errori di trasporto (timeout,
-     * connessione, reset): le risposte HTTP non-2xx non passano di qui, quindi un
-     * 404 non viene ritentato. Sincrono: chiamato da thread IO/worker, mai dal main.
-     */
-    private fun executeWithConnectionRetry(request: Request): Response {
-        var lastError: IOException? = null
+        readBody: suspend (HttpResponse) -> T,
+    ): T {
+        var lastError: Throwable? = null
         repeat(MAX_ATTEMPTS) { attempt ->
+            // Si ritentano **solo** gli errori di trasporto (timeout, connessione, reset) prima di
+            // avere una risposta: un 404 o un corpo troncato non passano di qui. L'attesa tra i
+            // tentativi è sospendibile, quindi annullare la coroutine interrompe subito i retry.
+            var responded = false
             try {
-                return httpClient.newCall(request).execute()
-            } catch (e: IOException) {
-                lastError = e
-                if (attempt < MAX_ATTEMPTS - 1) {
-                    try {
-                        Thread.sleep(RETRY_BACKOFF_MS * (attempt + 1))
-                    } catch (interrupted: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        throw e
+                return httpClient.prepareGet(url) {
+                    header("User-Agent", USER_AGENT)
+                    referer?.trim()?.takeIf(String::isNotBlank)?.let { header("Referer", it) }
+                    defaultHeaders.forEach { (name, value) -> if (name !in headers) header(name, value) }
+                    headers.forEach { (name, value) -> header(name, value) }
+                }.execute { response ->
+                    responded = true
+                    if (!response.status.isSuccess()) {
+                        throw IOException("HTTP ${response.status.value} $errorContext")
                     }
+                    readBody(response)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                if (responded || !error.isTransportError()) throw error
+                lastError = error
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    delay(RETRY_BACKOFF_MS * (attempt + 1))
                 }
             }
         }
-        throw lastError ?: IOException("Richiesta di rete fallita: ${request.url}")
+        throw lastError ?: IOException("Richiesta di rete fallita: $url")
     }
 
     companion object {
         private const val MAX_ATTEMPTS = 3
         private const val RETRY_BACKOFF_MS = 400L
+        private const val COPY_BUFFER_BYTES = 64 * 1024
 
         private val DEFAULT_DOCUMENT_HEADERS = mapOf(
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -135,3 +136,6 @@ class MangaNetworkClient(
                 "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     }
 }
+
+/** Errore di I/O di rete (anche quelli di Ktor, che su iOS non sono `okio.IOException`). */
+fun Throwable.isTransportError(): Boolean = this is IOException || this is kotlinx.io.IOException

@@ -1,22 +1,16 @@
 package com.lorenzo.mangadownloader.data.anilist
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class AniListTrackingTest {
 
     @Test
     fun extractAccessToken_readsTokenFromRedirectFragment() {
-        assertEquals(
-            "abc123",
-            AniListAuth.extractAccessToken("access_token=abc123&token_type=Bearer&expires_in=31536000"),
-        )
+        assertEquals("abc123", AniListAuth.extractAccessToken("access_token=abc123&token_type=Bearer&expires_in=31536000"))
         // Token in posizione diversa nel fragment.
-        assertEquals(
-            "xyz",
-            AniListAuth.extractAccessToken("token_type=Bearer&access_token=xyz"),
-        )
+        assertEquals("xyz", AniListAuth.extractAccessToken("token_type=Bearer&access_token=xyz"))
     }
 
     @Test

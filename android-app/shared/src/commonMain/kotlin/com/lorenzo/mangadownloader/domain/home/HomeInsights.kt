@@ -2,14 +2,16 @@ package com.lorenzo.mangadownloader.domain.home
 
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
+import com.lorenzo.mangadownloader.domain.formatItalianInteger
+import com.lorenzo.mangadownloader.domain.formatItalianLongDate
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.seedReadingMemory
-import java.math.BigDecimal
-import java.text.NumberFormat
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlin.time.Instant
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * Calcoli puri dei blocchi Home "Statistiche", "Letti di recente" e "Da finire" (pattern
@@ -139,7 +141,7 @@ fun computeReadingHistory(
         .sortedWith(
             compareByDescending<ReadingHistoryItem> { it.memory.lastReadAtMillis }
                 .thenBy { it.memory.seriesTitle.lowercase() }
-                .thenBy { it.chapter?.numberValue ?: BigDecimal.ZERO }
+                .thenBy { it.chapter?.numberValue ?: ChapterNumber.ZERO }
                 .thenBy { it.memory.chapterLabel },
         )
         .take(limit.coerceAtLeast(0))
@@ -158,17 +160,16 @@ fun ReadChapterMemory.progressLabel(): String = when {
 fun historyDayLabel(
     lastReadAtMillis: Long,
     nowMillis: Long,
-    zoneId: ZoneId = ZoneId.systemDefault(),
+    zoneId: TimeZone = TimeZone.currentSystemDefault(),
 ): String {
-    val day = Instant.ofEpochMilli(lastReadAtMillis).atZone(zoneId).toLocalDate()
-    val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+    val day = Instant.fromEpochMilliseconds(lastReadAtMillis).toLocalDateTime(zoneId).date
+    val today = Instant.fromEpochMilliseconds(nowMillis).toLocalDateTime(zoneId).date
     return when (day) {
         today -> "Oggi"
-        today.minusDays(1) -> "Ieri"
-        else -> day.format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ITALIAN))
+        today.minus(1, DateTimeUnit.DAY) -> "Ieri"
+        else -> formatItalianLongDate(day)
     }
 }
 
 /** Numeri delle tile Statistiche con separatore migliaia italiano (4.820). */
-fun formatStatNumber(value: Int): String =
-    NumberFormat.getIntegerInstance(Locale.ITALIAN).format(value.toLong())
+fun formatStatNumber(value: Int): String = formatItalianInteger(value.toLong())

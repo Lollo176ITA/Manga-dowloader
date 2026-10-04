@@ -1,8 +1,12 @@
 package com.lorenzo.mangadownloader.domain.reading
 
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
+import kotlin.time.Instant
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.plus
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * Diario di lettura **persistente**: quanto si è letto giorno per giorno (capitoli finiti e
@@ -25,8 +29,8 @@ data class ReadingDayStats(
 const val READING_DIARY_RETENTION_DAYS = 400
 
 /** Chiave-giorno del diario per un istante, nella zona oraria dell'utente. */
-fun diaryDayKey(epochMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): String =
-    Instant.ofEpochMilli(epochMillis).atZone(zoneId).toLocalDate().toString()
+fun diaryDayKey(epochMillis: Long, zoneId: TimeZone = TimeZone.currentSystemDefault()): String =
+    Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(zoneId).date.toString()
 
 /** Data di una chiave-giorno; `null` per chiavi corrotte (che vanno scartate, non crashare). */
 fun diaryDayOf(dayKey: String): LocalDate? =
@@ -54,10 +58,10 @@ fun pruneReadingDiary(
     today: LocalDate,
     keepDays: Int = READING_DIARY_RETENTION_DAYS,
 ): Map<String, ReadingDayStats> {
-    val cutoff = today.minusDays(keepDays.toLong())
+    val cutoff = today.minus(keepDays, DateTimeUnit.DAY)
     val pruned = diary.filterKeys { key ->
         val day = diaryDayOf(key) ?: return@filterKeys false
-        !day.isBefore(cutoff)
+        day >= cutoff
     }
     return if (pruned.size == diary.size) diary else pruned
 }
@@ -72,7 +76,7 @@ fun diaryTotalsBetween(
     var pages = 0
     for ((key, stats) in diary) {
         val day = diaryDayOf(key) ?: continue
-        if (!day.isBefore(from) && !day.isAfter(to)) {
+        if (day >= from && day <= to) {
             chapters += stats.chaptersRead
             pages += stats.pagesRead
         }
@@ -86,11 +90,11 @@ fun diaryTotalsBetween(
  */
 fun currentReadingStreak(diary: Map<String, ReadingDayStats>, today: LocalDate): Int {
     fun hasActivity(day: LocalDate) = diary[day.toString()]?.hasActivity == true
-    var day = if (hasActivity(today)) today else today.minusDays(1)
+    var day = if (hasActivity(today)) today else today.minus(1, DateTimeUnit.DAY)
     var streak = 0
     while (hasActivity(day)) {
         streak++
-        day = day.minusDays(1)
+        day = day.minus(1, DateTimeUnit.DAY)
     }
     return streak
 }
@@ -106,7 +110,7 @@ fun longestReadingStreak(diary: Map<String, ReadingDayStats>): Int {
     var run = 0
     var previous: LocalDate? = null
     for (day in days) {
-        run = if (previous != null && previous.plusDays(1) == day) run + 1 else 1
+        run = if (previous != null && previous.plus(1, DateTimeUnit.DAY) == day) run + 1 else 1
         if (run > longest) longest = run
         previous = day
     }
@@ -120,7 +124,7 @@ fun lastDiaryDays(
     today: LocalDate,
 ): List<Pair<LocalDate, ReadingDayStats>> {
     return (days - 1 downTo 0).map { offset ->
-        val day = today.minusDays(offset.toLong())
+        val day = today.minus(offset, DateTimeUnit.DAY)
         day to (diary[day.toString()] ?: ReadingDayStats())
     }
 }

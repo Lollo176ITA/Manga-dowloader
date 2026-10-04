@@ -1,15 +1,17 @@
 package com.lorenzo.mangadownloader.domain.series
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.app.TutorialSample
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.data.store.SeriesSourceBinding
 import java.io.File
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -257,7 +259,7 @@ class LibraryMatchingTest {
 
     private fun chapterEntry(number: Int) = ChapterEntry(
         numberText = number.toString(),
-        numberValue = BigDecimal(number),
+        numberValue = ChapterNumber.of(number.toLong()),
         url = "https://mangapill.com/chapters/$number/berserk-chapter-$number",
         slug = "berserk-chapter-$number",
     )
@@ -272,7 +274,7 @@ class LibraryMatchingTest {
         title = title,
         mangaUrl = mangaUrl,
         coverFile = null,
-        directory = File(title),
+        directory = File(title).toOkioPath(),
         chapters = chapters,
         totalChapterCount = chapters.size,
         readChapterIds = readChapterIds,
@@ -285,10 +287,10 @@ class LibraryMatchingTest {
     ) = DownloadedChapter(
         title = "Capitolo $number",
         numberText = number,
-        numberValue = number.toBigDecimalOrNull(),
+        numberValue = number.toChapterNumberOrNull(),
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File("$number.cbz"),
+        file = File("$number.cbz").toOkioPath(),
         relativePath = "series/$number.cbz",
         chapterId = chapterId,
         isRead = isRead,

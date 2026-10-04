@@ -39,7 +39,7 @@ Test e verifica del build di release (la minificazione R8 è attiva solo in rele
 
 ```bash
 cd android-app
-./gradlew testDebugUnitTest assembleRelease
+./gradlew testDebugUnitTest :shared:testAndroidHostTest assembleRelease
 ```
 
 ### Segnalazioni in-app (facoltativo)
@@ -48,19 +48,27 @@ cd android-app
 
 ## Struttura del codice
 
-Sorgenti in `android-app/app/src/main/java/com/lorenzo/mangadownloader/`, divisi per area:
+Il progetto Gradle in `android-app/` ha tre moduli:
+
+| Modulo | Contenuto |
+| --- | --- |
+| `shared/` | modulo **Kotlin Multiplatform** (Android + iOS) con quasi tutto il codice: modelli, fonti, rete (Ktor), libreria su disco (okio), preferenze, AniList, `MangaViewModel` e l'intera UI Compose (`App()` è la radice). Sorgenti in `shared/src/commonMain/kotlin/com/lorenzo/mangadownloader/`; le implementazioni di piattaforma in `androidMain/` e `iosMain/` |
+| `app/` | l'app Android vera e propria, sottile: `MainActivity` (ospita `App()`), `MangaApplication`, i worker di WorkManager, widget, segnalazioni via email, aggiornamento dell'APK e il container dei servizi Android (`app/AndroidAppContainer.kt`) |
+| `benchmark/` | Macrobenchmark delle prestazioni UI |
+
+Dentro `shared/src/commonMain/` il codice è diviso per area:
 
 | Package | Contenuto |
 | --- | --- |
-| *(radice)* | `MainActivity`, `MangaApplication`, `DownloadWorker`, `FavoriteUpdatesWorker`, `ReadingWidgetReceiver` |
-| `app/` | `MangaViewModel`, navigazione (`Screen`), effetti di sistema, messaggi d'errore |
-| `data/` | modelli, rete, fonti (`sources/`), libreria su disco, AniList, persistenza (`store/`), backup, segnalazioni, aggiornamenti |
-| `domain/` | logica pura senza Android né Compose: identità delle serie, progressi di lettura, blocchi della Home |
-| `ui/` | tema, componenti condivisi e una cartella per schermata |
+| `app/` | `MangaViewModel`, `AppContainer` (ciò che la piattaforma fornisce), navigazione (`Screen`), messaggi d'errore |
+| `data/` | modelli, rete, fonti (`sources/`), libreria su disco, download (`download/`), AniList, persistenza (`store/`), backup |
+| `domain/` | logica pura: identità delle serie, progressi di lettura, blocchi della Home, controllo dei nuovi capitoli |
+| `ui/` | tema, componenti condivisi e una cartella per schermata; `PlatformHost` per ciò che tocca il sistema operativo |
+| `platform/` | piccole primitive per piattaforma (`expect`/`actual`): file system, immagini, numeri casuali sicuri |
 
-**Le classi nella radice non vanno spostate né rinominate.** Android e WorkManager le identificano per nome completo della classe: spostarle romperebbe le icone e i widget già in Home, i controlli periodici dei preferiti (registrati con `ExistingPeriodicWorkPolicy.KEEP`) e i download in coda sui telefoni che hanno già l'app.
+**Le classi nella radice di `app/src/main/java/com/lorenzo/mangadownloader/` non vanno spostate né rinominate.** Android e WorkManager le identificano per nome completo della classe: spostarle romperebbe le icone e i widget già in Home, i controlli periodici dei preferiti (registrati con `ExistingPeriodicWorkPolicy.KEEP`) e i download in coda sui telefoni che hanno già l'app.
 
-I test (`src/test/...`) stanno nello stesso package della classe che verificano; quelli che coprono più aree, come i test del `MangaViewModel`, stanno in `app/`.
+I test stanno nello stesso package della classe che verificano: la logica comune in `shared/src/commonTest/` (`kotlin.test`, girano anche su iOS), i confronti con le API della JVM in `shared/src/androidHostTest/`, e in `app/src/test/` i test Robolectric (ViewModel col container Android, WorkManager, widget) e Compose UI.
 
 ## Build e release con GitHub Actions
 

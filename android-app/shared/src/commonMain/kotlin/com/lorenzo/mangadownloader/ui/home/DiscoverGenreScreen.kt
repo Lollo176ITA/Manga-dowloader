@@ -52,7 +52,7 @@ fun DiscoverGenreScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = discovery.genreError,
+                text = discovery.genreError.orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

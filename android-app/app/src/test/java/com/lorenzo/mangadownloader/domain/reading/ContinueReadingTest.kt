@@ -1,10 +1,12 @@
 package com.lorenzo.mangadownloader.domain.reading
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import java.io.File
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -25,10 +27,10 @@ class ContinueReadingTest {
     ) = DownloadedChapter(
         title = "Capitolo $number",
         numberText = number,
-        numberValue = number.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        numberValue = number.toChapterNumberOrNull() ?: ChapterNumber.ZERO,
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File("$number.cbz"),
+        file = File("$number.cbz").toOkioPath(),
         relativePath = "s/$number.cbz",
         chapterId = "id-$number",
         isRead = isRead,
@@ -45,7 +47,7 @@ class ContinueReadingTest {
         title = title,
         mangaUrl = "https://mangapill.com/manga/${title.lowercase()}",
         coverFile = null,
-        directory = File(title),
+        directory = File(title).toOkioPath(),
         chapters = chapters,
         totalChapterCount = chapters.size,
         readChapterIds = emptySet(),

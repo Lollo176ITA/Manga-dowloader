@@ -1,14 +1,16 @@
 package com.lorenzo.mangadownloader.domain.series
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.canonicalKey
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import java.io.File
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -104,10 +106,10 @@ class FavoritesOrganizationTest {
     private fun dlChapter(number: String, readerPageIndex: Int? = null) = DownloadedChapter(
         title = "Cap $number",
         numberText = number,
-        numberValue = number.toBigDecimalOrNull(),
+        numberValue = number.toChapterNumberOrNull(),
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File("$number.cbz"),
+        file = File("$number.cbz").toOkioPath(),
         relativePath = "s/$number.cbz",
         chapterId = "id-$number",
         isRead = false,
@@ -121,7 +123,7 @@ class FavoritesOrganizationTest {
             title = "T$n",
             mangaUrl = "https://mangapill.com/manga/$n",
             coverFile = null,
-            directory = File("T$n"),
+            directory = File("T$n").toOkioPath(),
             chapters = chapters,
             totalChapterCount = total,
             readChapterIds = readIds,
@@ -169,7 +171,7 @@ class FavoritesOrganizationTest {
     // --- Shortcut "Leggi": selezione primi capitoli ---
 
     private fun chEntry(n: String) =
-        ChapterEntry(numberText = n, numberValue = BigDecimal(n), url = "https://x/$n", slug = n)
+        ChapterEntry(numberText = n, numberValue = ChapterNumber.parse(n), url = "https://x/$n", slug = n)
 
     @Test
     fun firstChaptersForReading_picksLowestThreeRegardlessOfSourceOrder() {

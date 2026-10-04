@@ -1,9 +1,9 @@
 package com.lorenzo.mangadownloader.app
 
-import java.io.IOException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
-import javax.net.ssl.SSLException
+import com.lorenzo.mangadownloader.data.network.NetworkFailureKind
+import com.lorenzo.mangadownloader.data.network.isTransportError
+import com.lorenzo.mangadownloader.data.network.networkFailureKind
+
 
 /**
  * Traduce le eccezioni di rete/parsing in messaggi in italiano comprensibili da chi usa
@@ -27,15 +27,16 @@ fun userFacingErrorMessage(
         ?.groupValues
         ?.getOrNull(1)
         ?.toIntOrNull()
+    val failure = exc.networkFailureKind()
     return when {
-        exc is UnknownHostException -> "$site non è raggiungibile: controlla la connessione."
-        exc is SocketTimeoutException -> "$site non risponde: riprova tra poco."
-        exc is SSLException -> "$site ha rifiutato la connessione: riprova."
+        failure == NetworkFailureKind.UNREACHABLE -> "$site non è raggiungibile: controlla la connessione."
+        failure == NetworkFailureKind.TIMEOUT -> "$site non risponde: riprova tra poco."
+        failure == NetworkFailureKind.TLS -> "$site ha rifiutato la connessione: riprova."
         httpStatus != null && httpStatus >= 500 -> "$site ha un problema: riprova tra poco."
         httpStatus == 404 -> "$site non ha più questo contenuto."
         httpStatus == 403 || httpStatus == 429 -> "$site sta bloccando le richieste: riprova tra poco."
         httpStatus != null -> "$site ha risposto con un errore (HTTP $httpStatus): riprova."
-        exc is IOException -> "Problema di rete: controlla la connessione e riprova."
+        exc.isTransportError() -> "Problema di rete: controlla la connessione e riprova."
         else -> exc.message?.takeIf { it.isNotBlank() } ?: fallback
     }
 }

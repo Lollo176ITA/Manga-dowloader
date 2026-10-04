@@ -4,11 +4,13 @@ import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.app.MAX_READER_PAGE_SPACING_DP
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.model.matchKeys
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.data.sources.SearchScope
@@ -424,8 +426,8 @@ fun mergeFavoriteUpdates(
         merged[key] = if (currentState == null) {
             incomingState
         } else {
-            val currentNumber = currentState.latestChapterNumber.toBigDecimalOrNull()
-            val incomingNumber = incomingState.latestChapterNumber.toBigDecimalOrNull()
+            val currentNumber = currentState.latestChapterNumber.toChapterNumberOrNull()
+            val incomingNumber = incomingState.latestChapterNumber.toChapterNumberOrNull()
             if (incomingNumber != null && (currentNumber == null || incomingNumber > currentNumber)) {
                 incomingState
             } else {

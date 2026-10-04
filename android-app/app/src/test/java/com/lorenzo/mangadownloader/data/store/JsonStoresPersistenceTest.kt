@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -33,7 +34,7 @@ class JsonStoresPersistenceTest {
 
     @Test
     fun recentSearches_roundTripsAndFallsBackOnCorruptJson() {
-        val store = RecentSearchesStore(prefs())
+        val store = RecentSearchesStore(AndroidPreferencesSettings(prefs()))
         store.persist(listOf(" Berserk ", "", "Vinland Saga"))
 
         assertEquals(listOf("Berserk", "Vinland Saga"), store.read())
@@ -44,7 +45,7 @@ class JsonStoresPersistenceTest {
 
     @Test
     fun readingMemory_roundTripsAndFallsBackOnCorruptJson() {
-        val store = ReadingMemoryStore(prefs())
+        val store = ReadingMemoryStore(AndroidPreferencesSettings(prefs()))
         val expected = mapOf(
             "Berserk/chapter_1.cbz" to ReadChapterMemory(
                 seriesKey = "Berserk",
@@ -71,7 +72,7 @@ class JsonStoresPersistenceTest {
      */
     @Test
     fun readingMemory_roundTripsStreamingReopenCoordinates() {
-        val store = ReadingMemoryStore(prefs())
+        val store = ReadingMemoryStore(AndroidPreferencesSettings(prefs()))
         val expected = mapOf(
             "streaming:abc123" to ReadChapterMemory(
                 seriesKey = "st:mangapill::https://mangapill.com/manga/1",
@@ -102,7 +103,7 @@ class JsonStoresPersistenceTest {
         """.trimIndent()
         prefs().edit().putString("reading_memory_json", legacy).commit()
 
-        val record = ReadingMemoryStore(prefs()).read().getValue("streaming:abc123")
+        val record = ReadingMemoryStore(AndroidPreferencesSettings(prefs())).read().getValue("streaming:abc123")
 
         assertEquals("Vecchio", record.seriesTitle)
         assertEquals(3, record.pagesRead)
@@ -111,7 +112,7 @@ class JsonStoresPersistenceTest {
 
     @Test
     fun readingDiary_roundTripsAndSkipsCorruptDayKeys() {
-        val store = ReadingDiaryStore(prefs())
+        val store = ReadingDiaryStore(AndroidPreferencesSettings(prefs()))
         val expected = mapOf("2026-07-16" to ReadingDayStats(chaptersRead = 3, pagesRead = 40))
 
         store.persist(expected)
@@ -128,7 +129,7 @@ class JsonStoresPersistenceTest {
 
     @Test
     fun aniListTrackings_roundTripKeepsDomainMapping() {
-        val store = AniListStore(prefs())
+        val store = AniListStore(AndroidPreferencesSettings(prefs()))
         val tracking = AniListTracking(
             mediaId = 2,
             title = "Berserk",
@@ -165,7 +166,7 @@ class JsonStoresPersistenceTest {
             """.trimIndent(),
         ).commit()
 
-        val trackings = AniListStore(prefs()).readTrackings()
+        val trackings = AniListStore(AndroidPreferencesSettings(prefs())).readTrackings()
 
         // La chiave non canonica viene migrata alla SeriesKey del media in lettura.
         assertEquals(setOf("anilist:7"), trackings.keys)

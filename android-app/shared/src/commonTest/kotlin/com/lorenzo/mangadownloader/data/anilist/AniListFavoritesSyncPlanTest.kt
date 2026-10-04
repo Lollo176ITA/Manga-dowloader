@@ -5,9 +5,9 @@ import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 /**
  * Le regole di riconciliazione dei preferiti, senza rete né SharedPreferences.
@@ -19,7 +19,7 @@ import org.junit.Test
 class AniListFavoritesSyncPlanTest {
 
     @Test
-    fun `un preferito solo in app viene spinto su AniList`() {
+    fun un_preferito_solo_in_app_viene_spinto_su_AniList() {
         val plan = planAniListFavoritesSync(
             appMediaIds = setOf(1),
             aniListMediaIds = emptySet(),
@@ -31,7 +31,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un favourite solo su AniList viene importato in app`() {
+    fun un_favourite_solo_su_AniList_viene_importato_in_app() {
         val plan = planAniListFavoritesSync(
             appMediaIds = emptySet(),
             aniListMediaIds = setOf(2),
@@ -43,7 +43,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un preferito tolto in app dopo la riconciliazione non viene reimportato`() {
+    fun un_preferito_tolto_in_app_dopo_la_riconciliazione_non_viene_reimportato() {
         val plan = planAniListFavoritesSync(
             appMediaIds = emptySet(),
             aniListMediaIds = setOf(3),
@@ -54,7 +54,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un favourite tolto su AniList dopo la riconciliazione non viene rispinto`() {
+    fun un_favourite_tolto_su_AniList_dopo_la_riconciliazione_non_viene_rispinto() {
         val plan = planAniListFavoritesSync(
             appMediaIds = setOf(4),
             aniListMediaIds = emptySet(),
@@ -65,7 +65,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `i titoli introvabili sulle fonti non vengono ricercati di nuovo`() {
+    fun i_titoli_introvabili_sulle_fonti_non_vengono_ricercati_di_nuovo() {
         val plan = planAniListFavoritesSync(
             appMediaIds = emptySet(),
             aniListMediaIds = setOf(5, 6),
@@ -77,7 +77,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `gli import sono limitati per giro`() {
+    fun gli_import_sono_limitati_per_giro() {
         val plan = planAniListFavoritesSync(
             appMediaIds = emptySet(),
             aniListMediaIds = (1..50).toSet(),
@@ -90,7 +90,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un id propagato con successo diventa riconciliato`() {
+    fun un_id_propagato_con_successo_diventa_riconciliato() {
         val reconciled = reconciledAniListFavoriteIds(
             alreadyReconciled = emptySet(),
             appMediaIds = setOf(1),
@@ -102,7 +102,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un id fallito resta fuori dai riconciliati e verra ritentato`() {
+    fun un_id_fallito_resta_fuori_dai_riconciliati_e_verra_ritentato() {
         val reconciled = reconciledAniListFavoriteIds(
             alreadyReconciled = emptySet(),
             appMediaIds = setOf(1),
@@ -114,7 +114,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un id presente da entrambe le parti e gia riconciliato`() {
+    fun un_id_presente_da_entrambe_le_parti_e_gia_riconciliato() {
         val reconciled = reconciledAniListFavoriteIds(
             alreadyReconciled = emptySet(),
             appMediaIds = setOf(7),
@@ -126,7 +126,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `il match usa anche i sinonimi e ignora accenti e punteggiatura`() {
+    fun il_match_usa_anche_i_sinonimi_e_ignora_accenti_e_punteggiatura() {
         val media = aniListManga(
             id = 1,
             english = "Attack on Titan",
@@ -142,7 +142,7 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `un titolo solo somigliante non viene importato`() {
+    fun un_titolo_solo_somigliante_non_viene_importato() {
         val media = aniListManga(id = 1, english = "One Piece", romaji = "One Piece")
         val results = listOf(searchResult("One Piece Party"), searchResult("One Punch Man"))
 
@@ -150,16 +150,13 @@ class AniListFavoritesSyncPlanTest {
     }
 
     @Test
-    fun `le query di ricerca sono al massimo due e senza doppioni`() {
+    fun le_query_di_ricerca_sono_al_massimo_due_e_senza_doppioni() {
         val media = aniListManga(id = 1, english = "Berserk", romaji = "Berserk")
 
         assertEquals(listOf("Berserk"), aniListImportSearchQueries(media))
-        assertEquals(
-            listOf("Attack on Titan", "Shingeki no Kyojin"),
-            aniListImportSearchQueries(
+        assertEquals(listOf("Attack on Titan", "Shingeki no Kyojin"), aniListImportSearchQueries(
                 aniListManga(id = 2, english = "Attack on Titan", romaji = "Shingeki no Kyojin"),
-            ),
-        )
+            ))
     }
 
     private fun aniListManga(
@@ -187,7 +184,7 @@ class AniListFavoritesSyncPlanTest {
     )
 
     @Test
-    fun `un import gia presente in app sotto chiave titolo non crea un doppione`() {
+    fun un_import_gia_presente_in_app_sotto_chiave_titolo_non_crea_un_doppione() {
         // La serie c'e' gia', ma AniList non era riuscito ad agganciarla: chiave `title:`.
         val esistente = FavoriteManga(
             sourceId = MangaSourceIds.MANGAPILL,
@@ -204,14 +201,11 @@ class AniListFavoritesSyncPlanTest {
             seriesKey = SeriesIdentity.keyForAniList(30002),
         )
 
-        assertEquals(
-            emptyList<FavoriteManga>(),
-            newAniListFavorites(listOf(importato), listOf(esistente)),
-        )
+        assertEquals(emptyList<FavoriteManga>(), newAniListFavorites(listOf(importato), listOf(esistente)))
     }
 
     @Test
-    fun `un import di una serie che l app non ha viene tenuto`() {
+    fun un_import_di_una_serie_che_l_app_non_ha_viene_tenuto() {
         val esistente = FavoriteManga(
             sourceId = MangaSourceIds.MANGAPILL,
             title = "Berserk",
@@ -227,19 +221,16 @@ class AniListFavoritesSyncPlanTest {
             seriesKey = SeriesIdentity.keyForAniList(30642),
         )
 
-        assertEquals(
-            listOf(importato),
-            newAniListFavorites(listOf(importato), listOf(esistente)),
-        )
+        assertEquals(listOf(importato), newAniListFavorites(listOf(importato), listOf(esistente)))
     }
 
     @Test
-    fun `senza import non c e niente da aggiungere`() {
+    fun senza_import_non_c_e_niente_da_aggiungere() {
         assertEquals(emptyList<FavoriteManga>(), newAniListFavorites(emptyList(), emptyList()))
     }
 
     @Test
-    fun `il match sulle fonti rispetta l ordine in cui arrivano i risultati`() {
+    fun il_match_sulle_fonti_rispetta_l_ordine_in_cui_arrivano_i_risultati() {
         // I risultati arrivano alternati fra le fonti (come nella ricerca dell'app), quindi il
         // primo che combacia non e' piu' per forza quello della fonte in cima al catalogo.
         val media = AniListManga(
@@ -257,9 +248,6 @@ class AniListFavoritesSyncPlanTest {
             MangaSearchResult(MangaSourceIds.MANGAPILL, "Berserk", "https://mp/1", null),
         )
 
-        assertEquals(
-            MangaSourceIds.MANGA_WORLD,
-            matchSourceResultForAniList(media, alternati)?.sourceId,
-        )
+        assertEquals(MangaSourceIds.MANGA_WORLD, matchSourceResultForAniList(media, alternati)?.sourceId)
     }
 }

@@ -1,6 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.data.backup.ReadingDiaryBackupEntry
 import com.lorenzo.mangadownloader.data.backup.toBackupEntry
 import com.lorenzo.mangadownloader.data.backup.toReadingDayStats
@@ -8,11 +8,11 @@ import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.diaryDayOf
 
 /**
- * Persistenza del diario di lettura ([ReadingDayStats] per giorno) su [SharedPreferences],
+ * Persistenza del diario di lettura ([ReadingDayStats] per giorno) su [Settings],
  * JSON tipizzato come gli altri store. La forma su disco è la stessa del backup
  * ([ReadingDiaryBackupEntry]): un solo DTO, un solo decoder.
  */
-class ReadingDiaryStore(private val prefs: SharedPreferences) {
+class ReadingDiaryStore(private val prefs: Settings) {
 
     fun read(): Map<String, ReadingDayStats> {
         return prefs.readJson<Map<String, ReadingDiaryBackupEntry>>(KEY_READING_DIARY_JSON, emptyMap())

@@ -11,11 +11,11 @@ import com.lorenzo.mangadownloader.data.sources.SearchScope
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.RecentSearchesStore
 import com.lorenzo.mangadownloader.domain.home.HomeBlock
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** Core puro del backup: round-trip, tolleranza, mapping impostazioni e logica di merge. JVM. */
 class BackupSchemaTest {
@@ -124,7 +124,7 @@ class BackupSchemaTest {
             smartCleanupKeepPreviousChapters = -1,
         )
         val restored = tampered.applyTo(AppSettings())
-        assertEquals(1f, restored.readerBrightness, 0.0001f)
+        assertEquals(1f, restored.readerBrightness, absoluteTolerance = 0.0001f)
         assertEquals(1, restored.autoDownloadTriggerChapters)
         assertEquals(1, restored.autoDownloadBatchSize)
         assertEquals(0, restored.smartCleanupKeepPreviousChapters)

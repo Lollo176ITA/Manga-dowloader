@@ -2,8 +2,8 @@ package com.lorenzo.mangadownloader.data.model
 
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class MangaModelMappingsTest {
     private val result = MangaSearchResult(
@@ -18,10 +18,7 @@ class MangaModelMappingsTest {
         val favorite = result.toFavoriteManga()
         assertEquals(result, favorite.toSearchResult())
         assertEquals(result, result.toDetailsStub().toSearchResult())
-        assertEquals(
-            MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl),
-            favorite.identityKey(),
-        )
+        assertEquals(MangaSourceCatalog.identityKey(result.sourceId, result.mangaUrl), favorite.identityKey())
     }
 
     @Test

@@ -14,7 +14,7 @@ import com.lorenzo.mangadownloader.data.sources.SearchScope
  * e fonti attive sono identici, quindi senza [requestId] il flow scartava il giro e lo spinner
  * restava acceso per sempre.
  */
-internal data class SearchTrigger(
+data class SearchTrigger(
     val query: String,
     val scope: SearchScope,
     val disabledSourceIds: Set<String>,
@@ -25,7 +25,7 @@ internal data class SearchTrigger(
  * Il [SearchTrigger] corrispondente a questo stato. Estratta apposta dal ViewModel per poterla
  * verificare senza rete né looper.
  */
-internal fun MangaUiState.searchTrigger(): SearchTrigger = SearchTrigger(
+fun MangaUiState.searchTrigger(): SearchTrigger = SearchTrigger(
     query = query.trim(),
     scope = settings.searchScope,
     disabledSourceIds = settings.disabledSourceIds,

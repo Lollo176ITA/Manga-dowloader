@@ -1,10 +1,11 @@
 package com.lorenzo.mangadownloader.domain.reading
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import java.io.File
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -112,10 +113,10 @@ class HomeResumeTest {
     private fun inProgressDownloadedChapter(lastReadAtMillis: Long = 5_000L) = DownloadedChapter(
         title = "Capitolo 1",
         numberText = "1",
-        numberValue = BigDecimal.ONE,
+        numberValue = ChapterNumber.of(1),
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File("1.cbz"),
+        file = File("1.cbz").toOkioPath(),
         relativePath = "berserk/1.cbz",
         chapterId = "id-1",
         isRead = false,
@@ -129,7 +130,7 @@ class HomeResumeTest {
         title = title,
         mangaUrl = "https://mangapill.com/manga/${title.lowercase()}",
         coverFile = null,
-        directory = File(title),
+        directory = File(title).toOkioPath(),
         chapters = chapters,
         totalChapterCount = chapters.size,
         readChapterIds = emptySet(),

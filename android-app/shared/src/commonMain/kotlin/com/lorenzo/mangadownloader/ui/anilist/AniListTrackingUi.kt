@@ -27,16 +27,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,8 +55,10 @@ import com.lorenzo.mangadownloader.data.anilist.AniListListStatus
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.anilist.AniListScoreFormat
 import com.lorenzo.mangadownloader.data.anilist.AniListTracking
+import com.lorenzo.mangadownloader.ui.components.AppExposedDropdownMenu
 import com.lorenzo.mangadownloader.ui.components.AppLoadingIndicator
 import com.lorenzo.mangadownloader.ui.components.CoverImage
+import kotlin.math.roundToInt
 
 /**
  * UI del tracking AniList nel dettaglio del manga: la riga sotto l'header (collega / stato
@@ -160,7 +160,7 @@ fun AniListMatchDialog(
                         AppLoadingIndicator()
                     }
                     match.errorMessage != null -> Text(
-                        text = match.errorMessage,
+                        text = match.errorMessage.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -258,9 +258,6 @@ fun AniListTrackerDialog(
     var score by remember(tracking, scoreFormat) {
         mutableFloatStateOf((tracking.score ?: 0.0).toFloat().coerceIn(0f, scoreFormat.maxValue))
     }
-    val scoreSliderState = remember(tracking, scoreFormat) {
-        SliderState(value = score, trackRange = 0f..scoreFormat.maxValue)
-    }
 
     val progress = progressText.toIntOrNull()?.coerceAtLeast(0)
     val scoreStep = when (scoreFormat) {
@@ -292,7 +289,7 @@ fun AniListTrackerDialog(
                             .fillMaxWidth()
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                     )
-                    ExposedDropdownMenu(
+                    AppExposedDropdownMenu(
                         expanded = statusMenuExpanded,
                         onDismissRequest = { statusMenuExpanded = false },
                     ) {
@@ -355,13 +352,13 @@ fun AniListTrackerDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Slider(
-                        state = scoreSliderState,
+                        value = score,
                         onValueChange = { value ->
                             // Aggancia il valore al passo del formato voto dell'account.
-                            score = (Math.round(value / scoreStep) * scoreStep)
+                            score = ((value / scoreStep).roundToInt() * scoreStep)
                                 .coerceIn(0f, scoreFormat.maxValue)
-                            scoreSliderState.value = score
                         },
+                        valueRange = 0f..scoreFormat.maxValue,
                     )
                 }
 

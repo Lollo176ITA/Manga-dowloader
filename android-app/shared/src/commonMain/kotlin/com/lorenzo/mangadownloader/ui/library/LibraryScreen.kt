@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lorenzo.mangadownloader.app.DownloadJobState
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
@@ -239,7 +240,7 @@ private fun LibrarySortPicker(
 }
 
 private fun isActiveDownload(status: SeriesDownloadStatus): Boolean {
-    return status.state == androidx.work.WorkInfo.State.RUNNING ||
-        status.state == androidx.work.WorkInfo.State.ENQUEUED ||
-        status.state == androidx.work.WorkInfo.State.BLOCKED
+    return status.state == DownloadJobState.RUNNING ||
+        status.state == DownloadJobState.ENQUEUED ||
+        status.state == DownloadJobState.BLOCKED
 }

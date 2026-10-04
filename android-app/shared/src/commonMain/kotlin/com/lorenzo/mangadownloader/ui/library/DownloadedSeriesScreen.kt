@@ -45,7 +45,7 @@ fun DownloadedSeriesScreen(
     // centinaia di capitoli il segnalibro può essere molto più in basso. Una riga di contesto
     // sopra. Keyed sulla cartella (identità serie) così non riscrolla a ogni refresh/eliminazione.
     val listState = rememberLazyListState()
-    LaunchedEffect(series.directory.absolutePath) {
+    LaunchedEffect(series.directory.toString()) {
         val resume = series.resumeChapter() ?: return@LaunchedEffect
         val index = series.chapters.indexOf(resume)
         if (index > 0) {

@@ -15,8 +15,6 @@ import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 import com.lorenzo.mangadownloader.domain.series.mergeFavoriteShelves
-import java.io.InputStream
-import java.io.OutputStream
 
 /**
  * Coordinatore Android-facing del backup (l'unico pezzo non puro). Costruito nel ViewModel dagli
@@ -50,18 +48,15 @@ class BackupManager(
         favoriteShelves = favoriteShelvesStore.read(),
     )
 
-    /** Scrive il backup come JSON UTF-8 sullo stream fornito (aperto/chiuso dal chiamante). */
-    fun export(output: OutputStream, nowMs: Long) {
-        output.write(encodeBackup(buildBackup(nowMs)).toByteArray(Charsets.UTF_8))
-    }
+    /** Il backup come testo JSON (la piattaforma lo scrive dove ha scelto l'utente). */
+    fun exportJson(nowMs: Long): String = encodeBackup(buildBackup(nowMs))
 
     /**
      * Legge e applica un backup dallo stream. Persiste su tutti gli store e restituisce i valori
      * per aggiornare lo stato della UI; `null` se il file non è un backup valido (gli store
      * restano intatti).
      */
-    fun restore(input: InputStream, mode: BackupRestoreMode): BackupRestoreResult? {
-        val raw = input.readBytes().toString(Charsets.UTF_8)
+    fun restoreJson(raw: String, mode: BackupRestoreMode): BackupRestoreResult? {
         val backup = decodeBackup(raw) ?: return null
 
         val currentFavorites = favoritesStore.read()

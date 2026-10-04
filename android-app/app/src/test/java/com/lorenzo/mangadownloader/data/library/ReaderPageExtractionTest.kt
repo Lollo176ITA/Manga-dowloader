@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.library
 
+import okio.Path.Companion.toOkioPath
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayOutputStream
@@ -64,7 +65,7 @@ class ReaderPageExtractionTest {
                 "003__part_0001.webp",
                 "003__part_0002.webp",
             ),
-            pages.map(File::getName),
+            pages.map { it.name },
         )
     }
 
@@ -77,8 +78,8 @@ class ReaderPageExtractionTest {
 
         val pages = runBlocking { repo.extractReaderPages(chapter) }
 
-        assertEquals(listOf("001__part_0001.webp"), pages.map(File::getName))
-        assertTrue(pages.single().canonicalPath.startsWith(application.cacheDir.canonicalPath))
+        assertEquals(listOf("001__part_0001.webp"), pages.map { it.name })
+        assertTrue(pages.single().toFile().canonicalPath.startsWith(application.cacheDir.canonicalPath))
     }
 
     @Test
@@ -130,13 +131,13 @@ class ReaderPageExtractionTest {
         val chapter = chapterWithCbz(zipBytes("a.jpg" to byteArrayOf(1, 2, 3), "b.jpg" to byteArrayOf(4, 5)))
         val firstPages = runBlocking { repo.extractReaderPages(chapter) }
         // Simula una pagina persa (scrittura troncata, cache ripulita a metà).
-        firstPages[0].writeBytes(ByteArray(0))
+        firstPages[0].toFile().writeBytes(ByteArray(0))
 
         val pages = runBlocking { repo.extractReaderPages(chapter) }
 
         assertEquals(2, pages.size)
-        assertTrue(pages.all { it.length() > 0L })
-        assertEquals(3L, pages[0].length())
+        assertTrue(pages.all { it.toFile().length() > 0L })
+        assertEquals(3L, pages[0].toFile().length())
     }
 
     @Test
@@ -186,7 +187,7 @@ class ReaderPageExtractionTest {
     }
 
     private fun chapterWithCbz(cbzBytes: ByteArray, index: Int = 1): DownloadedChapter {
-        val root = DownloadStorage.libraryRoot(application)
+        val root = LibraryRepository(application).libraryRoot.toFile()
         val seriesDir = File(root, "TestSeries").apply { mkdirs() }
         val cbz = File(seriesDir, "chapter_${index.toString().padStart(3, '0')}.cbz")
         cbz.writeBytes(cbzBytes)
@@ -196,8 +197,8 @@ class ReaderPageExtractionTest {
             numberValue = null,
             volumeText = null,
             labelPrefix = "Capitolo",
-            file = cbz,
-            relativePath = DownloadStorage.relativePath(root, cbz),
+            file = cbz.toOkioPath(),
+            relativePath = DownloadStorage.relativePath(root.toOkioPath(), cbz.toOkioPath()),
             chapterId = "number:$index",
             isRead = false,
             readerPageIndex = null,

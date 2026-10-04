@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.ui.theme.MangaDownloaderTheme
+import com.lorenzo.mangadownloader.ui.widget.ReadingWidgetSettingsContent
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith

@@ -1,7 +1,7 @@
 package com.lorenzo.mangadownloader.data.library
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
  * `DownloadStorage.imageExtension` è una funzione pura (niente Android): testabile su JVM.

@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -21,7 +22,7 @@ class HomeSettingsPersistenceTest {
         val prefs = ApplicationProvider.getApplicationContext<Application>()
             .getSharedPreferences("home_test_prefs", Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        return SettingsStore(prefs)
+        return SettingsStore(AndroidPreferencesSettings(prefs))
     }
 
     @Test

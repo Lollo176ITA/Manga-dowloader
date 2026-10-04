@@ -77,7 +77,7 @@ fun MangaUiState.tabPageIndex(tab: AppTab): Int =
  */
 fun MangaUiState.saveableScreenKey(): String = when (currentScreen()) {
     Screen.Detail -> "Detail:${selected?.mangaUrl.orEmpty()}"
-    Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.absolutePath.orEmpty()}"
+    Screen.DownloadedSeries -> "DownloadedSeries:${selectedDownloadedSeries?.directory?.toString().orEmpty()}"
     Screen.DiscoverGenre -> "DiscoverGenre:${discovery.selectedGenre?.apiGenre.orEmpty()}"
     else -> currentScreen().toString()
 }

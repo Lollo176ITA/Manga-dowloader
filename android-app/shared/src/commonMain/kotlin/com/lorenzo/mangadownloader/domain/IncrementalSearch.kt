@@ -1,9 +1,9 @@
 package com.lorenzo.mangadownloader.domain
 
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
+import com.lorenzo.mangadownloader.data.network.SourceTimeoutException
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.SOURCE_SEARCH_BUDGET_MILLIS
-import java.net.SocketTimeoutException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -47,7 +47,7 @@ suspend fun searchSourcesIncrementally(
                     ?: run {
                         call.cancel()
                         Result.failure(
-                            SocketTimeoutException(
+                            SourceTimeoutException(
                                 "${MangaSourceCatalog.displayName(sourceId)} non ha risposto in tempo",
                             ),
                         )

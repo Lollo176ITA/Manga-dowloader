@@ -65,13 +65,13 @@ import com.lorenzo.mangadownloader.domain.reading.canReopenStreaming
 import com.lorenzo.mangadownloader.domain.reading.computeHomeResume
 import com.lorenzo.mangadownloader.domain.reading.currentReadingStreak
 import com.lorenzo.mangadownloader.domain.reading.lastDiaryDays
+import com.lorenzo.mangadownloader.domain.todayLocalDate
 import com.lorenzo.mangadownloader.ui.components.AppLoadingIndicator
 import com.lorenzo.mangadownloader.ui.components.CardDensity
 import com.lorenzo.mangadownloader.ui.components.LocalCardDensity
 import com.lorenzo.mangadownloader.ui.components.MangaRowCard
 import com.lorenzo.mangadownloader.ui.components.UnseenDot
 import com.lorenzo.mangadownloader.ui.history.WeekBarChart
-import java.time.LocalDate
 
 /**
  * Tab Home: il centro dell'app. Il saluto e l'azione di personalizzazione vivono nella top bar
@@ -134,10 +134,10 @@ fun HomeScreen(
         computeHomeStats(state.library, state.favorites.size, state.readingMemory)
     }
     val streak = remember(state.readingDiary) {
-        currentReadingStreak(state.readingDiary, LocalDate.now())
+        currentReadingStreak(state.readingDiary, todayLocalDate())
     }
     val lastWeek = remember(state.readingDiary) {
-        lastDiaryDays(state.readingDiary, days = 7, today = LocalDate.now())
+        lastDiaryDays(state.readingDiary, days = 7, today = todayLocalDate())
     }
     val readingHistory = remember(state.library, state.readingMemory) {
         computeReadingHistory(state.readingMemory, state.library, limit = 10)
@@ -329,7 +329,7 @@ fun HomeScreen(
                                 }
                                 recommendations.error != null -> item(key = "b-recommended-error") {
                                     HomeDiscoverError(
-                                        message = recommendations.error,
+                                        message = recommendations.error.orEmpty(),
                                         onRetry = onLoadRecommendations,
                                     )
                                 }
@@ -381,14 +381,15 @@ fun HomeScreen(
                                 onTrailingAction = onOpenHistory,
                             ) {
                                 HomeCarousel(readingHistory) { entry ->
+                                    val chapter = entry.chapter
                                     MangaRowCard(
                                         coverModel = entry.series?.coverFile,
                                         title = entry.memory.seriesTitle,
                                         subtitle = entry.memory.chapterLabel,
                                         caption = entry.memory.progressLabel(),
                                         onClick = when {
-                                            entry.chapter != null -> {
-                                                { onResume(entry.chapter) }
+                                            chapter != null -> {
+                                                { onResume(chapter) }
                                             }
                                             // Letta in streaming: nessun file, ma l'indirizzo
                                             // basta a tornarci (se il record lo conserva).

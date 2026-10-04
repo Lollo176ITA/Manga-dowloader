@@ -31,9 +31,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.domain.formatItalianLongDate
 import com.lorenzo.mangadownloader.domain.home.computeHomeStats
 import com.lorenzo.mangadownloader.domain.home.formatStatNumber
 import com.lorenzo.mangadownloader.domain.home.topReadSeries
+import com.lorenzo.mangadownloader.domain.italianNarrowDayName
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.bestReadingDay
 import com.lorenzo.mangadownloader.domain.reading.currentReadingStreak
@@ -41,13 +43,13 @@ import com.lorenzo.mangadownloader.domain.reading.diaryDayOf
 import com.lorenzo.mangadownloader.domain.reading.diaryTotalsBetween
 import com.lorenzo.mangadownloader.domain.reading.lastDiaryDays
 import com.lorenzo.mangadownloader.domain.reading.longestReadingStreak
+import com.lorenzo.mangadownloader.domain.todayLocalDate
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.MangaRowCard
 import com.lorenzo.mangadownloader.ui.components.icon
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
-import java.util.Locale
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.minus
 
 /**
  * Pagina Statistiche (dal "Vedi tutto" del blocco Home): il quadro completo delle letture.
@@ -60,14 +62,14 @@ fun StatsScreen(
     padding: PaddingValues,
     onOpenSeries: (DownloadedSeries) -> Unit,
 ) {
-    val today = remember { LocalDate.now() }
+    val today = remember { todayLocalDate() }
     val memory = state.readingMemory
     val diary = state.readingDiary
     val stats = remember(state.library, state.favorites, memory) {
         computeHomeStats(state.library, state.favorites.size, memory)
     }
-    val week = remember(diary) { diaryTotalsBetween(diary, today.minusDays(6), today) }
-    val month = remember(diary) { diaryTotalsBetween(diary, today.withDayOfMonth(1), today) }
+    val week = remember(diary) { diaryTotalsBetween(diary, today.minus(6, DateTimeUnit.DAY), today) }
+    val month = remember(diary) { diaryTotalsBetween(diary, LocalDate(today.year, today.month, 1), today) }
     val streak = remember(diary) { currentReadingStreak(diary, today) }
     val longestStreak = remember(diary) { longestReadingStreak(diary) }
     val bestDay = remember(diary) { bestReadingDay(diary) }
@@ -201,8 +203,7 @@ fun StatsScreen(
 private fun chapterCountLabel(count: Int): String =
     if (count == 1) "1 capitolo" else "${formatStatNumber(count)} capitoli"
 
-private fun LocalDate.italianDate(): String =
-    format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ITALIAN))
+private fun LocalDate.italianDate(): String = formatItalianLongDate(this)
 
 @Composable
 private fun StatsSectionTitle(title: String) {
@@ -321,7 +322,7 @@ fun WeekBarChart(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.ITALIAN),
+                    text = italianNarrowDayName(day.dayOfWeek),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

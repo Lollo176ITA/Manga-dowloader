@@ -1,10 +1,11 @@
 package com.lorenzo.mangadownloader.data.library
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.ui.library.resumeChapter
 import java.io.File
-import java.math.BigDecimal
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,13 +20,13 @@ class LibraryScannerTest {
     fun buildChapterFileName_padsIntegerNumbers_andKeepsDecimals() {
         val integerChapter = ChapterEntry(
             numberText = "7",
-            numberValue = BigDecimal("7"),
+            numberValue = ChapterNumber.parse("7"),
             url = "https://example.com/7",
             slug = "seven",
         )
         val decimalChapter = ChapterEntry(
             numberText = "10.5",
-            numberValue = BigDecimal("10.5"),
+            numberValue = ChapterNumber.parse("10.5"),
             url = "https://example.com/10.5",
             slug = "ten-five",
         )
@@ -43,7 +44,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_011.cbz").writeText("chapter11")
 
         SeriesMetadataJson.write(
-            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME).toOkioPath(),
             SeriesMetadata(
                 sourceId = MangaSourceIds.MANGAPILL,
                 title = "Berserk",
@@ -70,7 +71,7 @@ class LibraryScannerTest {
             ),
         )
 
-        val series = LibraryScanner.scan(root, isRead = { relativePath ->
+        val series = LibraryScanner.scan(root.toOkioPath(), isRead = { relativePath ->
             relativePath.endsWith("chapter_011.cbz")
         })
 
@@ -90,7 +91,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_001.cbz").writeText("chapter1")
         File(seriesDir, "chapter_10.5.cbz").writeText("chapter10.5")
 
-        val series = LibraryScanner.scan(root, isRead = { false })
+        val series = LibraryScanner.scan(root.toOkioPath(), isRead = { false })
 
         assertEquals(1, series.size)
         assertEquals("my series", series.first().title)
@@ -107,7 +108,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_002.cbz").writeText("chapter2")
 
         val series = LibraryScanner.scan(
-            root = root,
+            root = root.toOkioPath(),
             isRead = { relativePath -> relativePath.endsWith("chapter_001.cbz") },
             readerPagePosition = { relativePath ->
                 if (relativePath.endsWith("chapter_001.cbz")) {
@@ -131,7 +132,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_002.cbz").writeText("chapter2")
 
         val series = LibraryScanner.scan(
-            root = root,
+            root = root.toOkioPath(),
             isRead = { false },
             readerPagePosition = { relativePath ->
                 if (relativePath.endsWith("chapter_001.cbz")) {
@@ -154,7 +155,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_002.cbz").writeText("chapter2")
 
         val series = LibraryScanner.scan(
-            root = root,
+            root = root.toOkioPath(),
             isRead = { relativePath -> relativePath.endsWith("chapter_001.cbz") },
             readerPagePosition = { relativePath ->
                 if (relativePath.endsWith("chapter_001.cbz")) {
@@ -192,7 +193,7 @@ class LibraryScannerTest {
         File(seriesDir, "chapter_201.cbz").writeText("chapter201")
 
         SeriesMetadataJson.write(
-            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME).toOkioPath(),
             SeriesMetadata(
                 sourceId = MangaSourceIds.DEMONIC_SCANS,
                 title = "Solo Leveling",
@@ -212,7 +213,7 @@ class LibraryScannerTest {
             ),
         )
 
-        val chapters = LibraryScanner.scan(root, isRead = { false }).single().chapters
+        val chapters = LibraryScanner.scan(root.toOkioPath(), isRead = { false }).single().chapters
 
         assertEquals(1697414400000L, chapters.first().publishedAtMillis)
         assertNull(chapters.last().publishedAtMillis)

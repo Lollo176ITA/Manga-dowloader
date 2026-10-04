@@ -12,8 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.lorenzo.mangadownloader.BuildConfig
-import java.io.File
-import java.util.Properties
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import jakarta.activation.DataHandler
 import jakarta.mail.Authenticator
 import jakarta.mail.Message
@@ -25,7 +24,10 @@ import jakarta.mail.internet.MimeBodyPart
 import jakarta.mail.internet.MimeMessage
 import jakarta.mail.internet.MimeMultipart
 import jakarta.mail.util.ByteArrayDataSource
+import java.io.File
+import java.util.Properties
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 /**
@@ -207,7 +209,7 @@ class FeedbackAudioRecorder(private val context: Context) {
         if (isRecording) return
         discard()
         val dir = File(context.cacheDir, FEEDBACK_DIR).apply { mkdirs() }
-        val file = File(dir, "voice_${System.currentTimeMillis()}.m4a")
+        val file = File(dir, "voice_${currentTimeMillis()}.m4a")
         val rec = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
         } else {
@@ -261,7 +263,7 @@ class FeedbackAudioRecorder(private val context: Context) {
     private fun cleanupOldRecordings() {
         val dir = File(context.cacheDir, FEEDBACK_DIR)
         if (!dir.isDirectory) return
-        val cutoff = System.currentTimeMillis() - OLD_RECORDING_MILLIS
+        val cutoff = currentTimeMillis() - OLD_RECORDING_MILLIS
         dir.listFiles()?.forEach { file ->
             if (file.lastModified() < cutoff) {
                 file.delete()

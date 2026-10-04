@@ -1,7 +1,6 @@
 package com.lorenzo.mangadownloader.domain.series
 
-import java.text.Normalizer
-import java.util.Locale
+import com.lorenzo.mangadownloader.platform.normalizeNfkd
 
 /**
  * Identità canonica di una serie, indipendente dalla fonte: `anilist:<mediaId>` quando la
@@ -22,12 +21,12 @@ object SeriesIdentity {
      * collassati. Applicata a entrambi i lati di ogni confronto, mai mostrata in UI.
      */
     fun normalizeTitle(raw: String): String {
-        val decomposed = Normalizer.normalize(raw, Normalizer.Form.NFKD)
+        val decomposed = normalizeNfkd(raw)
             .replace(COMBINING_MARKS, "")
         return decomposed
             .replace(NON_ALPHANUMERIC, " ")
             .trim()
-            .lowercase(Locale.ROOT)
+            .lowercase()
     }
 
     fun keyForAniList(mediaId: Int): String = "$ANILIST_PREFIX$mediaId"

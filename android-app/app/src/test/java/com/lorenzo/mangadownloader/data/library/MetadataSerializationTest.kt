@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.library
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import java.io.File
 import java.nio.file.Files
@@ -47,13 +48,13 @@ class MetadataSerializationTest {
             ),
         )
 
-        SeriesMetadataJson.write(target, expected)
+        SeriesMetadataJson.write(target.toOkioPath(), expected)
 
         val raw = target.readText()
         assertFalse(raw.contains("\"mangaUrl\""))
         assertFalse(raw.contains("\"coverFileName\""))
         assertTrue(raw.indexOf("chapter:1") < raw.indexOf("chapter:2"))
-        assertEquals(expected, SeriesMetadataJson.read(target))
+        assertEquals(expected, SeriesMetadataJson.read(target.toOkioPath()))
     }
 
     @Test
@@ -66,7 +67,7 @@ class MetadataSerializationTest {
         val directory = createTempDirectory("legacy-streaming-metadata")
         File(directory, "metadata.json").writeText(fixture("legacy-streaming-reader-cache-metadata.json"))
 
-        val metadata = StreamingReaderCacheMetadata.read(directory)
+        val metadata = StreamingReaderCacheMetadata.read(directory.toOkioPath())
 
         assertNotNull(metadata)
         assertEquals(MangaSourceIds.MANGAPILL, metadata?.sourceId)
@@ -87,13 +88,13 @@ class MetadataSerializationTest {
             lastAccessAtMs = 42L,
         )
 
-        StreamingReaderCacheMetadata.write(directory, expected)
+        StreamingReaderCacheMetadata.write(directory.toOkioPath(), expected)
 
         val raw = File(directory, "metadata.json").readText()
         assertFalse(raw.contains("\"sourceId\""))
         assertFalse(raw.contains("\"mangaUrl\""))
         assertFalse(raw.contains("\"chapterUrl\""))
-        assertEquals(expected, StreamingReaderCacheMetadata.read(directory))
+        assertEquals(expected, StreamingReaderCacheMetadata.read(directory.toOkioPath()))
     }
 
     @Test
@@ -117,9 +118,9 @@ class MetadataSerializationTest {
             referer = "https://example.test/chapter",
         )
 
-        StreamingReaderCacheMetadata.write(directory, expected)
+        StreamingReaderCacheMetadata.write(directory.toOkioPath(), expected)
 
-        assertEquals(expected, StreamingReaderCacheMetadata.read(directory))
+        assertEquals(expected, StreamingReaderCacheMetadata.read(directory.toOkioPath()))
     }
 
     private fun fixture(name: String): String {

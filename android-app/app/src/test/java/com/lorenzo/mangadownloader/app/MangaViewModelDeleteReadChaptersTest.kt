@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.data.library.LibraryRepository
+import okio.Path.Companion.toOkioPath
 import android.app.Application
 import android.content.Context
 import android.os.Looper
@@ -42,7 +44,7 @@ class MangaViewModelDeleteReadChaptersTest {
             .clear()
             .commit()
 
-        val root = DownloadStorage.libraryRoot(application)
+        val root = LibraryRepository(application).libraryRoot.toFile()
         root.deleteRecursively()
         seriesDir = File(root, "berserk").apply { mkdirs() }
         File(seriesDir, "chapter_001.cbz").writeText("c1")
@@ -51,7 +53,7 @@ class MangaViewModelDeleteReadChaptersTest {
 
         // I capitoli 1 e 2 sono già letti (readChapterIds), il 3 no.
         SeriesMetadataJson.write(
-            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME).toOkioPath(),
             SeriesMetadata(
                 sourceId = MangaSourceIds.MANGAPILL,
                 title = "Berserk",
@@ -91,7 +93,7 @@ class MangaViewModelDeleteReadChaptersTest {
     fun deleteReadChapters_withNothingRead_isNoOp() {
         // Azzera la baseline: nessun capitolo letto.
         SeriesMetadataJson.write(
-            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME),
+            File(seriesDir, DownloadStorage.SERIES_METADATA_FILE_NAME).toOkioPath(),
             SeriesMetadata(
                 sourceId = MangaSourceIds.MANGAPILL,
                 title = "Berserk",

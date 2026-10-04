@@ -1,12 +1,12 @@
 package com.lorenzo.mangadownloader.data.store
 
 import com.lorenzo.mangadownloader.data.model.identityKey
-import java.time.Instant
-import java.time.ZoneId
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Instant
+import kotlinx.datetime.TimeZone
 
 /**
  * Logica pura del feed "Aggiornamenti": append/de-dup/cap, conteggio non visti, mark-all-seen
@@ -96,12 +96,12 @@ class FavoriteUpdatesFeedLogicTest {
 
     @Test
     fun groupEventsByDay_labelsTodayYesterdayAndDate() {
-        val zone = ZoneId.of("UTC")
-        val now = Instant.parse("2026-05-31T12:00:00Z").toEpochMilli()
-        val today1 = event(key = "t1", chapter = "1", ts = Instant.parse("2026-05-31T09:00:00Z").toEpochMilli())
-        val today2 = event(key = "t2", chapter = "2", ts = Instant.parse("2026-05-31T11:00:00Z").toEpochMilli())
-        val yesterday = event(key = "y1", chapter = "3", ts = Instant.parse("2026-05-30T20:00:00Z").toEpochMilli())
-        val older = event(key = "o1", chapter = "4", ts = Instant.parse("2026-05-20T10:00:00Z").toEpochMilli())
+        val zone = TimeZone.of("UTC")
+        val now = Instant.parse("2026-05-31T12:00:00Z").toEpochMilliseconds()
+        val today1 = event(key = "t1", chapter = "1", ts = Instant.parse("2026-05-31T09:00:00Z").toEpochMilliseconds())
+        val today2 = event(key = "t2", chapter = "2", ts = Instant.parse("2026-05-31T11:00:00Z").toEpochMilliseconds())
+        val yesterday = event(key = "y1", chapter = "3", ts = Instant.parse("2026-05-30T20:00:00Z").toEpochMilliseconds())
+        val older = event(key = "o1", chapter = "4", ts = Instant.parse("2026-05-20T10:00:00Z").toEpochMilliseconds())
 
         val days = groupEventsByDay(listOf(today1, yesterday, older, today2), zone, now)
 

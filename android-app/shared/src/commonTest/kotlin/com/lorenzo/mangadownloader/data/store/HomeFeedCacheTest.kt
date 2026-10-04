@@ -1,12 +1,13 @@
 package com.lorenzo.mangadownloader.data.store
 
-import java.time.LocalDateTime
-import java.time.ZoneId
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 
 /**
  * Scadenza della cache delle vetrine AniList della Home. La regola non è "24 ore dall'ultimo
@@ -18,112 +19,92 @@ import org.junit.Test
  */
 class HomeFeedCacheTest {
 
-    private val rome: ZoneId = ZoneId.of("Europe/Rome")
+    private val rome: TimeZone = TimeZone.of("Europe/Rome")
 
     private fun at(text: String): Long =
-        LocalDateTime.parse(text).atZone(rome).toInstant().toEpochMilli()
+        LocalDateTime.parse(text).toInstant(rome).toEpochMilliseconds()
 
     @Test
-    fun `data fetched after this morning's rollover is fresh`() {
-        assertTrue(
-            isHomeFeedFresh(
+    fun data_fetched_after_this_morning_s_rollover_is_fresh() {
+        assertTrue(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-11T09:30:00"),
                 nowMillis = at("2026-01-11T20:00:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `data fetched exactly at the rollover is fresh`() {
-        assertTrue(
-            isHomeFeedFresh(
+    fun data_fetched_exactly_at_the_rollover_is_fresh() {
+        assertTrue(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-11T09:00:00"),
                 nowMillis = at("2026-01-11T09:00:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `data fetched last night is stale once 9 has passed`() {
-        assertFalse(
-            isHomeFeedFresh(
+    fun data_fetched_last_night_is_stale_once_9_has_passed() {
+        assertFalse(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-10T22:00:00"),
                 nowMillis = at("2026-01-11T09:00:01"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `data fetched yesterday morning survives the night until 9`() {
+    fun data_fetched_yesterday_morning_survives_the_night_until_9() {
         // Apri l'app alle 8:59: il rollover di stamattina non è ancora scoccato, quindi quello
         // che hai scaricato ieri dopo le 9 vale ancora. Nessuna richiesta.
-        assertTrue(
-            isHomeFeedFresh(
+        assertTrue(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-10T10:00:00"),
                 nowMillis = at("2026-01-11T08:59:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `data fetched before yesterday's rollover is stale even before 9`() {
-        assertFalse(
-            isHomeFeedFresh(
+    fun data_fetched_before_yesterday_s_rollover_is_stale_even_before_9() {
+        assertFalse(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-10T08:59:00"),
                 nowMillis = at("2026-01-11T08:59:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `data stamped in the future is treated as stale`() {
+    fun data_stamped_in_the_future_is_treated_as_stale() {
         // Orologio del telefono spostato avanti e poi rimesso a posto: senza questo controllo
         // la cache resterebbe "fresca" finché il futuro non viene raggiunto.
-        assertFalse(
-            isHomeFeedFresh(
+        assertFalse(isHomeFeedFresh(
                 fetchedAtMillis = at("2026-01-12T10:00:00"),
                 nowMillis = at("2026-01-11T10:00:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     @Test
-    fun `never fetched is stale`() {
-        assertFalse(
-            isHomeFeedFresh(
+    fun never_fetched_is_stale() {
+        assertFalse(isHomeFeedFresh(
                 fetchedAtMillis = 0L,
                 nowMillis = at("2026-01-11T10:00:00"),
                 zone = rome,
-            ),
-        )
+            ))
     }
 
     // --- Impronta dei semi dei Consigliati ---
 
     @Test
-    fun `seed signature ignores order and duplicates`() {
-        assertEquals(
-            recommendationSeedSignature(listOf("Berserk", "Vinland Saga")),
-            recommendationSeedSignature(listOf("Vinland Saga", "Berserk", "Berserk")),
-        )
+    fun seed_signature_ignores_order_and_duplicates() {
+        assertEquals(recommendationSeedSignature(listOf("Berserk", "Vinland Saga")), recommendationSeedSignature(listOf("Vinland Saga", "Berserk", "Berserk")))
     }
 
     @Test
-    fun `seed signature changes when a series is added`() {
-        assertNotEquals(
-            recommendationSeedSignature(listOf("Berserk")),
-            recommendationSeedSignature(listOf("Berserk", "Vinland Saga")),
-        )
+    fun seed_signature_changes_when_a_series_is_added() {
+        assertNotEquals(recommendationSeedSignature(listOf("Berserk")), recommendationSeedSignature(listOf("Berserk", "Vinland Saga")))
     }
 
     @Test
-    fun `seed signature of no seeds is stable`() {
+    fun seed_signature_of_no_seeds_is_stable() {
         assertEquals(recommendationSeedSignature(emptyList()), recommendationSeedSignature(emptyList()))
     }
 }

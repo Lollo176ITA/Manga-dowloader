@@ -1,27 +1,27 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.domain.isAdultGenre
 import com.lorenzo.mangadownloader.domain.reading.chapterDateFromItalianDate
-import java.math.BigDecimal
-import java.util.Locale
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
+import com.fleeksoft.ksoup.nodes.Element
 
 class MangaWorldSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.MANGA_WORLD,
         displayName = "MangaWorld",
@@ -34,22 +34,17 @@ class MangaWorldSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
         }
-        val url = BASE_URL.toHttpUrl()
-            .newBuilder()
-            .addPathSegment("archive")
-            .addQueryParameter("keyword", trimmed)
-            .build()
-            .toString()
+        val url = buildHttpUrl(BASE_URL, pathSegments = listOf("archive"), query = listOf("keyword" to trimmed))
 
         return parseSearchResults(fetchString(url))
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga MangaWorld non valido")
         val document = fetchDocument(canonical)
@@ -58,7 +53,7 @@ class MangaWorldSource(
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val readerUrl = chapterReaderUrl(chapterUrl)
             ?: throw IllegalArgumentException("URL capitolo MangaWorld non valido")
         val document = fetchDocument(readerUrl)
@@ -100,15 +95,15 @@ class MangaWorldSource(
         }
 
         fun parseSearchResults(raw: String): List<MangaSearchResult> {
-            return parseSearchResults(Jsoup.parse(raw, BASE_URL))
+            return parseSearchResults(Ksoup.parse(raw, BASE_URL))
         }
 
         fun parseMangaDetails(raw: String, mangaUrl: String): MangaDetails {
-            return parseMangaDetails(Jsoup.parse(raw, mangaUrl), mangaUrl)
+            return parseMangaDetails(Ksoup.parse(raw, mangaUrl), mangaUrl)
         }
 
         fun parsePageImageUrls(raw: String, chapterUrl: String): List<String> {
-            return parsePageImageUrls(Jsoup.parse(raw, chapterUrl), chapterUrl)
+            return parsePageImageUrls(Ksoup.parse(raw, chapterUrl), chapterUrl)
         }
 
         private fun parseSearchResults(document: Document): List<MangaSearchResult> {
@@ -207,12 +202,12 @@ class MangaWorldSource(
                 ) ?: continue
                 val entryMatch = readingEntryRegex.find(title) ?: continue
                 val labelPrefix = entryMatch.groupValues[1]
-                    .lowercase(Locale.US)
-                    .replaceFirstChar { it.titlecase(Locale.US) }
+                    .lowercase()
+                    .replaceFirstChar { it.titlecase() }
                 val numberText = entryMatch.groupValues[2].trim()
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
-                    ?: numberText.toBigDecimalOrNull()
-                    ?: BigDecimal(numberText)
+                    ?: numberText.toChapterNumberOrNull()
+                    ?: ChapterNumber.parse(numberText)
                 val normalizedVolumeText = volumeText?.takeIf(String::isNotBlank)
                 target[chapterUrl] = ChapterEntry(
                     numberText = numberText,
@@ -275,7 +270,7 @@ class MangaWorldSource(
         private fun chapterSlug(chapterUrl: String, numberText: String): String {
             val id = readRegex.find(chapterUrl)?.groupValues?.getOrNull(3)
                 ?: chapterUrl.substringBefore('?').substringAfterLast('/')
-            val chapter = numberText.lowercase(Locale.US).replace('.', '-')
+            val chapter = numberText.lowercase().replace('.', '-')
             return "capitolo-$chapter-$id"
         }
 

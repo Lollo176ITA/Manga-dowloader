@@ -1,11 +1,15 @@
 package com.lorenzo.mangadownloader.domain.series
 
-import android.content.SharedPreferences
-import androidx.core.content.edit
+import com.lorenzo.mangadownloader.platform.putIfMissing
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
+import com.lorenzo.mangadownloader.data.store.edit
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.model.matchKeys
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesFeedStore
@@ -21,11 +25,11 @@ import com.lorenzo.mangadownloader.data.store.SeriesSourceBinding
  * Serve perché baseline delle notifiche, trame e feed erano indicizzati sulla fonte con cui
  * il preferito era stato aggiunto: appena il fallback cambia mirror, quelle voci non si
  * ritroverebbero più e l'app ri-notificherebbe capitoli già visti. La migrazione è **one-shot**
- * (flag in [SharedPreferences]) e **idempotente**, così ViewModel e worker possono invocarla
+ * (flag in [Settings]) e **idempotente**, così ViewModel e worker possono invocarla
  * entrambi senza coordinarsi.
  */
 class FavoritesSeriesMigration(
-    private val prefs: SharedPreferences,
+    private val prefs: Settings,
     private val favoritesStore: FavoritesStore,
     private val favoriteUpdatesStore: FavoriteUpdatesStore,
     private val favoriteDescriptionsStore: FavoriteDescriptionsStore,
@@ -37,7 +41,7 @@ class FavoritesSeriesMigration(
      * Esegue la migrazione se non è già stata fatta e restituisce i preferiti aggiornati
      * (già letti da disco in ogni caso, così il chiamante non rilegge).
      */
-    fun migrateIfNeeded(nowMillis: Long = System.currentTimeMillis()): List<FavoriteManga> {
+    fun migrateIfNeeded(nowMillis: Long = currentTimeMillis()): List<FavoriteManga> {
         val favorites = favoritesStore.read()
         if (prefs.getBoolean(KEY_MIGRATED, false)) {
             return favorites
@@ -127,8 +131,8 @@ fun <T> rekeyBySeries(
  * la migrazione non può far ri-notificare qualcosa di già visto. Pura.
  */
 fun mostAdvancedSeenState(a: FavoriteSeenState, b: FavoriteSeenState): FavoriteSeenState {
-    val left = a.latestChapterNumber.toBigDecimalOrNull()
-    val right = b.latestChapterNumber.toBigDecimalOrNull()
+    val left = a.latestChapterNumber.toChapterNumberOrNull()
+    val right = b.latestChapterNumber.toChapterNumberOrNull()
     return when {
         left == null -> b
         right == null -> a
@@ -169,7 +173,7 @@ fun mergeFavoritesBySeries(favorites: List<FavoriteManga>): FavoritesMergeResult
             )
             existingIndex
         }
-        favorite.matchKeys().forEach { claimed.putIfAbsent(it, index) }
+        favorite.matchKeys().forEach { claimed.putIfMissing(it, index) }
         winnerIndexByIdentity[favorite.identityKey()] = index
     }
     return FavoritesMergeResult(

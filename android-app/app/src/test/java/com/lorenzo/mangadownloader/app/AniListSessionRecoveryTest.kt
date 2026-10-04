@@ -1,8 +1,9 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
+import android.content.SharedPreferences
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.anilist.AniListScoreFormat
 import com.lorenzo.mangadownloader.data.anilist.AniListStore
@@ -124,7 +125,7 @@ class AniListSessionRecoveryTest {
         assertEquals(TOKEN, store.readHandledAuthToken())
     }
 
-    private fun connectedStore(): AniListStore = AniListStore(prefs)
+    private fun connectedStore(): AniListStore = AniListStore(AndroidPreferencesSettings(prefs))
 
     private fun createViewModel(): MangaViewModel =
         MangaViewModel(application, AppUpdateRepository(application))

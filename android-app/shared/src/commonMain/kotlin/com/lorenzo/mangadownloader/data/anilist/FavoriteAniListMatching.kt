@@ -1,6 +1,6 @@
 package com.lorenzo.mangadownloader.data.anilist
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.store.readJson
@@ -38,7 +38,7 @@ fun matchAniListCandidate(title: String, candidates: List<AniListManga>): AniLis
  * del worker, per sempre. Le voci risolte spariscono da sole: la loro chiave diventa
  * `anilist:` e non rientra più tra i candidati.
  */
-class AniListResolutionAttemptsStore(private val prefs: SharedPreferences) {
+class AniListResolutionAttemptsStore(private val prefs: Settings) {
 
     fun read(): Set<String> = prefs.readJson<List<String>>(KEY_ATTEMPTS, emptyList()).toSet()
 

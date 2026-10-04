@@ -6,6 +6,7 @@ import com.lorenzo.mangadownloader.data.model.canonicalKey
 import com.lorenzo.mangadownloader.data.store.SeriesLinksStore
 import com.lorenzo.mangadownloader.data.store.SeriesSourceBinding
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -31,7 +32,7 @@ class AniListFavoritesSynchronizer(
      * un aggiornamento dell'app — può benissimo avere ciò che ieri non trovava nessuno.
      */
     private val sourcesSignature: () -> String = { "" },
-    private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val nowMillis: () -> Long = ::currentTimeMillis,
 ) {
 
     /**

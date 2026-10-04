@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.history
 
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,7 +51,7 @@ fun HistoryScreen(
     val history = remember(memory, library) { computeReadingHistory(memory, library) }
     // Raggruppamento NON memoizzato: "Oggi"/"Ieri" dipendono dall'orologio, e una schermata
     // rimasta aperta oltre la mezzanotte deve rietichettare i gruppi alla ricomposizione.
-    val now = System.currentTimeMillis()
+    val now = currentTimeMillis()
     val groups = history.groupBy { historyDayLabel(it.memory.lastReadAtMillis, now) }
 
     if (history.isEmpty()) {

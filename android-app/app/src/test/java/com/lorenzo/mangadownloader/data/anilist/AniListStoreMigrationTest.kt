@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.anilist
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -27,7 +28,7 @@ class AniListStoreMigrationTest {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        store = AniListStore(prefs)
+        store = AniListStore(AndroidPreferencesSettings(prefs))
     }
 
     @Test

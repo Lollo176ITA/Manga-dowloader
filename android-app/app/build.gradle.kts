@@ -201,19 +201,10 @@ android {
 // Col Kotlin integrato di AGP 9 il jvmTarget eredita compileOptions.targetCompatibility (17):
 // non serve più il blocco kotlin.compilerOptions.
 
-// Il changelog mostrato in-app (schermata "Novità") ha un'unica fonte di verità: il
-// CHANGELOG.md nella root del repo. Lo copiamo negli assets a ogni build, prima del merge
-// degli asset, così l'app legge sempre la versione aggiornata senza duplicati che divergono.
-val copyChangelogToAssets = tasks.register<Copy>("copyChangelogToAssets") {
-    description = "Copia il CHANGELOG.md della root negli assets per la schermata Novità."
-    from(rootProject.file("../CHANGELOG.md"))
-    into(layout.projectDirectory.dir("src/main/assets"))
-}
-tasks.named("preBuild").configure { dependsOn(copyChangelogToAssets) }
-
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
 
+    implementation(project(":shared"))
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -232,11 +223,9 @@ dependencies {
     implementation("androidx.glance:glance-material3:1.2.0")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
-    implementation("org.jsoup:jsoup:1.23.2")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("io.github.aldefy:lumen-android:1.0.0-beta20")
     // Installa i profili ART (richiesto da Macrobenchmark; servirà anche al Baseline Profile).
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Invio email via SMTP per le segnalazioni (Jakarta Mail + runtime Angus per Android).
@@ -245,6 +234,7 @@ dependencies {
     implementation("jakarta.activation:jakarta.activation-api:2.1.4")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.ktor:ktor-client-mock:3.6.0")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("androidx.work:work-testing:2.12.0")

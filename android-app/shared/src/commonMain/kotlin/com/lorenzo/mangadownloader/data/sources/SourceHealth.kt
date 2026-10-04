@@ -1,12 +1,9 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.data.store.readJson
 import com.lorenzo.mangadownloader.data.store.writeJson
-import java.io.IOException
-import java.net.SocketTimeoutException
-import java.net.UnknownHostException
-import javax.net.ssl.SSLException
+import okio.IOException
 import kotlinx.serialization.Serializable
 
 /**
@@ -52,25 +49,6 @@ const val SOURCE_COOLDOWN_MILLIS = 10 * 60_000L
  * sotto i timeout di OkHttp ([SharedHttpClient]), che da soli lascerebbero passare minuti.
  */
 const val SOURCE_SEARCH_BUDGET_MILLIS = 12_000L
-
-/**
- * Il tentativo è fallito perché **la fonte** non risponde? Solo questi guasti muovono
- * l'interruttore: un 404 (contenuto rimosso) o un parsing andato storto su una pagina strana
- * non dicono niente sulla salute del sito, e saltarlo per quello significherebbe togliere
- * all'utente una fonte perfettamente viva. Pura.
- */
-fun isSourceOutage(exc: Throwable): Boolean {
-    if (exc is SocketTimeoutException || exc is UnknownHostException || exc is SSLException) {
-        return true
-    }
-    if (exc !is IOException) return false
-    val status = HTTP_STATUS_IN_MESSAGE.find(exc.message.orEmpty())
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.toIntOrNull()
-    // Nessuno status nel messaggio = errore di trasporto (connessione rifiutata, reset).
-    return status == null || status >= 500 || status == 429
-}
 
 /** Esito positivo: azzera il guasto e ricorda quando la fonte ha risposto. Pura. */
 fun recordSourceProbeSuccess(now: Long): SourceReachability =
@@ -160,14 +138,12 @@ private fun elapsedLabel(elapsedMillis: Long): String {
     }
 }
 
-private val HTTP_STATUS_IN_MESSAGE = Regex("""HTTP (\d{3})""")
-
 /**
  * Persistenza di `sourceId -> `[SourceReachability]. Sopravvive alla chiusura dell'app apposta:
  * l'interruttore deve valere anche per la ricerca fatta appena riaperta, altrimenti ogni
  * riavvio ricomincerebbe ad aspettare la fonte morta.
  */
-class SourceHealthStore(private val prefs: SharedPreferences) {
+class SourceHealthStore(private val prefs: Settings) {
 
     fun read(): Map<String, SourceReachability> =
         prefs.readJson(KEY_SOURCE_HEALTH_JSON, emptyMap())

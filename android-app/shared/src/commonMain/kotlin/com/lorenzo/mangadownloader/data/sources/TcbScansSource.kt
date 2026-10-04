@@ -1,19 +1,19 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.platform.putIfMissing
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
-import java.util.Locale
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
 
 /**
  * Fonte per **TCB Scans** (`tcbonepiecechapters.com`), sito HTML server-rendered da
- * parsare con jsoup.
+ * parsare con Ksoup.
  *
  * Il dominio suggerisce "solo One Piece", ma il sito pubblica un intero catalogo
  * (~19 serie: One Piece, Jujutsu Kaisen, Chainsaw Man, Attack on Titan, Bleach, My
@@ -42,10 +42,10 @@ import org.jsoup.nodes.Document
  * ricostruisce da esso il vero URL del reader per scaricare le pagine.
  */
 class TcbScansSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.TCB_SCANS,
         displayName = "TCB Scans",
@@ -58,18 +58,18 @@ class TcbScansSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val all = parseCatalog(fetchString(PROJECTS_URL), PROJECTS_URL)
         return all.filterByTitle(query).sortedAlphabetically()
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga TCB Scans non valido")
         return parseMangaDetails(fetchString(canonical), canonical)
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val ref = parseChapterRef(chapterUrl)
             ?: throw IllegalArgumentException(invalidChapterUrlMessage)
         return parsePageImageUrls(fetchString(realChapterUrl(ref.chapterId, ref.chapterSlug)))
@@ -137,17 +137,17 @@ class TcbScansSource(
          * (`font-bold`, `items-center`), puramente estetiche e a rischio a ogni restyle.
          */
         fun parseCatalog(html: String, baseUrl: String): List<MangaSearchResult> {
-            val document = Jsoup.parse(html, baseUrl)
+            val document = Ksoup.parse(html, baseUrl)
             val titles = linkedMapOf<String, String>()
             val covers = mutableMapOf<String, String>()
             for (anchor in document.select("a[href]")) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
                 anchor.text().trim().takeIf(String::isNotBlank)
-                    ?.let { titles.putIfAbsent(mangaUrl, it) }
+                    ?.let { titles.putIfMissing(mangaUrl, it) }
                 anchor.selectFirst("img")
                     ?.let { firstNonBlankTrimmed(it.absUrl("src"), it.attr("src")) }
                     ?.takeUnless(::isSiteChromeImage)
-                    ?.let { covers.putIfAbsent(mangaUrl, it) }
+                    ?.let { covers.putIfMissing(mangaUrl, it) }
             }
             return titles.map { (mangaUrl, title) ->
                 MangaSearchResult(
@@ -166,7 +166,7 @@ class TcbScansSource(
                 ?: throw IllegalArgumentException("URL manga TCB Scans non valido")
             val seriesId = match.groupValues[1]
             val seriesSlug = match.groupValues[2]
-            val document: Document = Jsoup.parse(html, canonical)
+            val document: Document = Ksoup.parse(html, canonical)
             val title = firstNonBlankTrimmed(document.selectFirst("h1")?.text()) ?: "manga"
             // Le pagine serie hanno due sole immagini: il logo del sito e la copertina.
             val cover = document.select("img")
@@ -184,7 +184,7 @@ class TcbScansSource(
         }
 
         fun parsePageImageUrls(html: String): List<String> {
-            val document = Jsoup.parse(html, BASE_URL)
+            val document = Ksoup.parse(html, BASE_URL)
             val urls = document.select("img.fixed-ratio-content")
                 .mapNotNull { img -> firstNonBlankTrimmed(img.absUrl("src"), img.attr("src")) }
             if (urls.isEmpty()) {
@@ -207,7 +207,7 @@ class TcbScansSource(
                 val numberText = chapterNumberRegex.find(labelText)?.groupValues?.getOrNull(1) ?: continue
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText) ?: continue
                 val chapterUrl = syntheticChapterUrl(seriesId, seriesSlug, chapterId, chapterSlug)
-                entries.putIfAbsent(
+                entries.putIfMissing(
                     chapterUrl,
                     ChapterEntry(
                         numberText = numberText,
@@ -238,7 +238,7 @@ class TcbScansSource(
         }
 
         fun List<MangaSearchResult>.sortedAlphabetically(): List<MangaSearchResult> {
-            return sortedBy { result -> result.title.lowercase(Locale.ROOT) }
+            return sortedBy { result -> result.title.lowercase() }
         }
     }
 }

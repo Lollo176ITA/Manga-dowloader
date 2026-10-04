@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.model
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.ReaderPagePosition
 import com.lorenzo.mangadownloader.data.library.StreamingReaderCachedChapter
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
@@ -23,7 +24,7 @@ class ReaderPageRecoveryTest {
         val directory = createTempDirectory()
         val cached = StreamingReaderCachedChapter(
             title = "Capitolo 1",
-            pages = listOf(File(directory, "001.jpg"), File(directory, "002.jpg")),
+            pages = listOf(File(directory, "001.jpg"), File(directory, "002.jpg")).map { it.toOkioPath() },
             pageUrls = listOf("https://example.test/1.jpg", "https://example.test/2.jpg"),
             referer = "https://example.test/chapter-1",
         )
@@ -44,7 +45,7 @@ class ReaderPageRecoveryTest {
         val directory = createTempDirectory()
         val cached = StreamingReaderCachedChapter(
             title = "Capitolo",
-            pages = listOf(File(directory, "001.jpg"), File(directory, "002.jpg")),
+            pages = listOf(File(directory, "001.jpg"), File(directory, "002.jpg")).map { it.toOkioPath() },
             pageUrls = listOf("https://example.test/1.jpg"),
             referer = "https://example.test/chapter",
         )
@@ -62,18 +63,18 @@ class ReaderPageRecoveryTest {
         val empty = File(directory, "empty.jpg").apply { writeBytes(ByteArray(0)) }
         val missing = File(directory, "missing.jpg")
 
-        assertFalse(ReaderPage.Local(valid).isFileBroken)
-        assertTrue(ReaderPage.Local(empty).isFileBroken)
-        assertTrue(ReaderPage.Local(missing).isFileBroken)
+        assertFalse(ReaderPage.Local(valid.toOkioPath()).isFileBroken)
+        assertTrue(ReaderPage.Local(empty.toOkioPath()).isFileBroken)
+        assertTrue(ReaderPage.Local(missing.toOkioPath()).isFileBroken)
     }
 
     @Test
     fun persistedTallPageParts_shareGroupWithoutGroupingNormalPages() {
         val directory = createTempDirectory()
-        val first = ReaderPage.Local(File(directory, "001__part_0001.webp"))
-        val second = ReaderPage.Local(File(directory, "001__part_0002.webp"))
-        val anotherPage = ReaderPage.Local(File(directory, "002__part_0001.webp"))
-        val normal = ReaderPage.Local(File(directory, "003.jpg"))
+        val first = ReaderPage.Local(File(directory, "001__part_0001.webp").toOkioPath())
+        val second = ReaderPage.Local(File(directory, "001__part_0002.webp").toOkioPath())
+        val anotherPage = ReaderPage.Local(File(directory, "002__part_0001.webp").toOkioPath())
+        val normal = ReaderPage.Local(File(directory, "003.jpg").toOkioPath())
 
         assertEquals(first.persistedTallPageGroupKey(), second.persistedTallPageGroupKey())
         assertTrue(first.persistedTallPageGroupKey() != anotherPage.persistedTallPageGroupKey())
@@ -85,7 +86,7 @@ class ReaderPageRecoveryTest {
         val directory = createTempDirectory()
         val cached = StreamingReaderCachedChapter(
             title = "Capitolo",
-            pages = (1..4).map { File(directory, "$it.png") },
+            pages = (1..4).map { File(directory, "$it.png").toOkioPath() },
             pageUrls = listOf("u0", "u1", "u1", "u2"),
             referer = "chapter",
             originalPageIndexes = listOf(0, 1, 1, 2),

@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import android.app.Application
 import android.content.Context
 import android.os.Looper
@@ -37,7 +38,7 @@ class MangaViewModelReaderAdjacencyTest {
             .clear()
             .commit()
 
-        val root = DownloadStorage.libraryRoot(application)
+        val root = LibraryRepository(application).libraryRoot.toFile()
         root.deleteRecursively()
         val seriesDir = File(root, "test_series").apply { mkdirs() }
         File(seriesDir, "chapter_001.cbz").writeText("c1")

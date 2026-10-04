@@ -14,6 +14,8 @@ import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
+import com.lorenzo.mangadownloader.app.DownloadJobState
+import com.lorenzo.mangadownloader.app.toDownloadJob
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.ui.library.buildSeriesDownloadStatuses
 import java.util.UUID
@@ -120,10 +122,12 @@ class DownloadWorkerQueueTest {
         enqueue(SERIES_A, firstUrl = "$SERIES_A/chapter-5")
         enqueue(SERIES_B)
         val status = buildSeriesDownloadStatuses(
-            allDownloads().filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED },
+            allDownloads()
+                .filter { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+                .map(WorkInfo::toDownloadJob),
         ).values.single { it.mangaUrl == SERIES_A }
 
-        DownloadWorker.stopWork(context, status.workIds)
+        DownloadWorker.stopWork(context, status.workIds.map(UUID::fromString))
 
         assertTrue(chain(SERIES_A).all { it.state == WorkInfo.State.CANCELLED })
         assertEquals(WorkInfo.State.ENQUEUED, chain(SERIES_B).single().state)
@@ -179,10 +183,10 @@ class DownloadWorkerQueueTest {
             progress = Data.EMPTY,
         )
 
-        val status = buildSeriesDownloadStatuses(listOf(blocked, waiting)).values.single()
+        val status = buildSeriesDownloadStatuses(listOf(blocked, waiting).map(WorkInfo::toDownloadJob)).values.single()
 
-        assertEquals(WorkInfo.State.ENQUEUED, status.state)
-        assertEquals(setOf(waiting.id, blocked.id), status.workIds.toSet())
+        assertEquals(DownloadJobState.ENQUEUED, status.state)
+        assertEquals(setOf(waiting.id.toString(), blocked.id.toString()), status.workIds.toSet())
     }
 
     private companion object {

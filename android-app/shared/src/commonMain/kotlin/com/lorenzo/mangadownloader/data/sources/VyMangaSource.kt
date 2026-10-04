@@ -1,6 +1,8 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
+import com.lorenzo.mangadownloader.platform.putIfMissing
 import com.lorenzo.mangadownloader.app.hidesAdultContent
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
@@ -11,10 +13,9 @@ import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.isAdultGenre
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
+import com.fleeksoft.ksoup.nodes.Element
 
 /**
  * Fonte per **VyManga**. Il sito ha cambiato dominio: `vymanga.com` ora rimanda per tutti a
@@ -44,10 +45,10 @@ import org.jsoup.nodes.Element
  * pubblicamente scaricabile.
  */
 class VyMangaSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.VYMANGA,
         displayName = "VyManga",
@@ -60,7 +61,7 @@ class VyMangaSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
@@ -82,13 +83,13 @@ class VyMangaSource(
         return parseSearchResults(html, url)
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga VyManga non valido")
         return parseMangaDetails(fetchString(liveUrl(canonical)), canonical)
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val ref = parseChapterRef(chapterUrl)
             ?: throw IllegalArgumentException(invalidChapterUrlMessage)
         // I token sono monouso: prendine uno fresco dalla pagina manga al momento del download.
@@ -102,7 +103,7 @@ class VyMangaSource(
     }
 
     private fun hidesAdultContent(): Boolean =
-        SettingsStore(context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE))
+        SettingsStore(appSettings)
             .read()
             .hidesAdultContent()
 
@@ -172,19 +173,17 @@ class VyMangaSource(
         }
 
         fun searchUrl(query: String, excludedGenres: List<String>): String =
-            "$LIVE_BASE/search".toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("q", query)
-                .apply { excludedGenres.forEach { addQueryParameter("exclude_genre[]", it) } }
-                .build()
-                .toString()
+            buildHttpUrl(
+                "$LIVE_BASE/search",
+                query = listOf("q" to query) + excludedGenres.map { "exclude_genre[]" to it },
+            )
 
         /**
          * I `data-value` dei generi per adulti elencati nel selettore generi della pagina di
          * ricerca (`.checkbox-genre`), secondo `isAdultGenre`. Vuoto se la pagina non li elenca.
          */
         fun adultGenreValues(html: String): List<String> =
-            Jsoup.parse(html).select(".checkbox-genre[data-value]")
+            Ksoup.parse(html).select(".checkbox-genre[data-value]")
                 .map { it.attr("data-value").trim() }
                 .filter { value ->
                     val name = genreValueRegex.find(value)?.groupValues?.get(1) ?: return@filter false
@@ -204,16 +203,16 @@ class VyMangaSource(
         // --- Parsing puro, testabile senza rete ---
 
         fun parseSearchResults(raw: String, baseUrl: String): List<MangaSearchResult> {
-            return parseSearchResults(Jsoup.parse(raw, baseUrl))
+            return parseSearchResults(Ksoup.parse(raw, baseUrl))
         }
 
         fun parseMangaDetails(raw: String, mangaUrl: String): MangaDetails {
-            return parseMangaDetails(Jsoup.parse(raw, mangaUrl), mangaUrl)
+            return parseMangaDetails(Ksoup.parse(raw, mangaUrl), mangaUrl)
         }
 
         /** URL del token (cloaker) per il capitolo con id [chapterId] dato l'HTML della pagina manga. */
         fun extractChapterToken(mangaHtml: String, chapterId: String): String? {
-            val anchor = Jsoup.parse(mangaHtml, LIVE_BASE).getElementById(chapterId) ?: return null
+            val anchor = Ksoup.parse(mangaHtml, LIVE_BASE).getElementById(chapterId) ?: return null
             return firstNonBlankTrimmed(anchor.absUrl("href"), anchor.attr("href"))
         }
 
@@ -227,7 +226,7 @@ class VyMangaSource(
 
         /** URL immagine (in ordine) dall'HTML del reader. */
         fun parseReaderImageUrls(raw: String): List<String> {
-            val document = Jsoup.parse(raw)
+            val document = Ksoup.parse(raw)
             val ordered = linkedSetOf<String>()
             val selectors = listOf(
                 "div.hview img.lozad",
@@ -263,7 +262,7 @@ class VyMangaSource(
                 val cover = image?.let {
                     firstNonBlankTrimmed(it.absUrl("data-src"), it.absUrl("src"), it.attr("data-src"))
                 }?.takeUnless(::isPlaceholderImage)
-                results.putIfAbsent(
+                results.putIfMissing(
                     mangaUrl,
                     MangaSearchResult(
                         sourceId = MangaSourceIds.VYMANGA,

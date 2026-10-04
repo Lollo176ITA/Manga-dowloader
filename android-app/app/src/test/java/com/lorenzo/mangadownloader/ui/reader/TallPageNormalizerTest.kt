@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader.ui.reader
 
+import okio.Path.Companion.toOkioPath
+import com.lorenzo.mangadownloader.platform.AndroidTallPageNormalizer
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import java.awt.image.BufferedImage
@@ -70,7 +72,7 @@ class TallPageNormalizerTest {
         val input = createStripImage("short.png", width = 8, height = 12)
         val output = File(temporaryFolder.root, "parts")
 
-        val result = TallPageNormalizer.normalize(
+        val result = normalizeFiles(
             source = input,
             outputDirectory = output,
             outputBaseName = "001",
@@ -91,7 +93,7 @@ class TallPageNormalizerTest {
         val input = createStripImage("tall.png", width = 8, height = 10)
         val output = temporaryFolder.newFolder("parts")
 
-        val result = TallPageNormalizer.normalize(
+        val result = normalizeFiles(
             source = input,
             outputDirectory = output,
             outputBaseName = "003",
@@ -121,7 +123,7 @@ class TallPageNormalizerTest {
         val input = createStripImage("sliver.png", width = 4, height = 33)
         val output = temporaryFolder.newFolder("sliver-parts")
 
-        val result = TallPageNormalizer.normalize(
+        val result = normalizeFiles(
             source = input,
             outputDirectory = output,
             outputBaseName = "004",
@@ -144,7 +146,7 @@ class TallPageNormalizerTest {
         )
         val output = File(temporaryFolder.root, "bomb-parts")
 
-        val result = TallPageNormalizer.normalize(
+        val result = normalizeFiles(
             source = input,
             outputDirectory = output,
             outputBaseName = "008",
@@ -163,7 +165,7 @@ class TallPageNormalizerTest {
         File(output, "005__part_0001.png").writeText("old")
         File(output, "005__part_0004.png").writeText("stale")
 
-        val result = TallPageNormalizer.normalize(
+        val result = normalizeFiles(
             source = input,
             outputDirectory = output,
             outputBaseName = "005",
@@ -182,7 +184,7 @@ class TallPageNormalizerTest {
         val output = temporaryFolder.newFolder("broken-parts")
 
         try {
-            TallPageNormalizer.normalize(input, output, "009")
+            normalizeFiles(input, output, "009")
         } finally {
             assertTrue(output.listFiles().orEmpty().isEmpty())
         }
@@ -216,4 +218,34 @@ class TallPageNormalizerTest {
             BitmapFactory.decodeFile(file.absolutePath, this)
             outWidth
         }
+
+    private data class FileNormalization(
+        val files: List<File>,
+        val originalWidth: Int,
+        val originalHeight: Int,
+        val wasSplit: Boolean,
+    )
+
+    /** Il normalizzatore lavora su okio.Path: qui i test restano sui File di Robolectric. */
+    private fun normalizeFiles(
+        source: File,
+        outputDirectory: File,
+        outputBaseName: String,
+        minHeightPx: Int = TallPageNormalizationMinHeightPx,
+        chunkHeightPx: Int = TallPageNormalizationChunkHeightPx,
+    ): FileNormalization {
+        val result = AndroidTallPageNormalizer.normalize(
+            source = source.toOkioPath(),
+            outputDirectory = outputDirectory.toOkioPath(),
+            outputBaseName = outputBaseName,
+            minHeightPx = minHeightPx,
+            chunkHeightPx = chunkHeightPx,
+        )
+        return FileNormalization(
+            files = result.files.map { if (it == source.toOkioPath()) source else it.toFile() },
+            originalWidth = result.originalWidth,
+            originalHeight = result.originalHeight,
+            wasSplit = result.wasSplit,
+        )
+    }
 }

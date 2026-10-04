@@ -1,9 +1,9 @@
 package com.lorenzo.mangadownloader.domain
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /** Parsing del changelog per la schermata "Novità" (formato prodotto dall'agente changelog-writer). */
 class ChangelogContentTest {
@@ -45,17 +45,14 @@ class ChangelogContentTest {
 
         val first = days.first()
         assertEquals(listOf("Aggiunto", "Corretto"), first.sections.map { it.category })
-        assertEquals(
-            listOf("Azione \"Elimina capitoli letti\".", "Modalità di lettura \"Manga\"."),
-            first.sections.first().entries,
-        )
+        assertEquals(listOf("Azione \"Elimina capitoli letti\".", "Modalità di lettura \"Manga\"."), first.sections.first().entries)
     }
 
     @Test
     fun skipsInternalCategoryByDefault() {
         val days = parseChangelog(sample)
         val categories = days.flatMap { it.sections }.map { it.category }
-        assertFalse("La categoria 'Interno' non deve comparire", categories.contains("Interno"))
+        assertFalse(categories.contains("Interno"), "La categoria 'Interno' non deve comparire")
     }
 
     @Test

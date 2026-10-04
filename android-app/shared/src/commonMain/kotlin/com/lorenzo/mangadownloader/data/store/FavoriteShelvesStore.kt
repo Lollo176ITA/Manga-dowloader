@@ -1,10 +1,10 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.domain.series.FavoriteShelves
 
 /** Persistenza degli scaffali dei preferiti. Tollerante: JSON illeggibile → nessuno scaffale. */
-class FavoriteShelvesStore(private val prefs: SharedPreferences) {
+class FavoriteShelvesStore(private val prefs: Settings) {
 
     fun read(): FavoriteShelves = prefs.readJson(KEY_FAVORITE_SHELVES_JSON, FavoriteShelves())
 

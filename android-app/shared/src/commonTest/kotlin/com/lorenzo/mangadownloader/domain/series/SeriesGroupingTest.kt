@@ -3,9 +3,9 @@ package com.lorenzo.mangadownloader.domain.series
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class SeriesGroupingTest {
 
@@ -31,7 +31,7 @@ class SeriesGroupingTest {
     )
 
     @Test
-    fun `raggruppa ITA e ENG sotto lo stesso media via sinonimi`() {
+    fun raggruppa_ITA_e_ENG_sotto_lo_stesso_media_via_sinonimi() {
         val results = listOf(
             result("mangapill", "Attack on Titan", "https://mangapill.com/manga/1"),
             result("manga_world", "L'Attacco dei Giganti", "https://www.mangaworld.mx/manga/2"),
@@ -48,7 +48,7 @@ class SeriesGroupingTest {
     }
 
     @Test
-    fun `senza candidati degrada al raggruppamento per titolo`() {
+    fun senza_candidati_degrada_al_raggruppamento_per_titolo() {
         val results = listOf(
             result("mangapill", "One Piece", "https://mangapill.com/manga/3"),
             result("vymanga", "One Piece!", "https://vymanga.com/manga/4"),
@@ -63,7 +63,7 @@ class SeriesGroupingTest {
     }
 
     @Test
-    fun `titolo non matchato resta card singola e ordine preservato`() {
+    fun titolo_non_matchato_resta_card_singola_e_ordine_preservato() {
         val results = listOf(
             result("mangapill", "Doujin Sconosciuto", "https://mangapill.com/manga/6"),
             result("mangapill", "Attack on Titan", "https://mangapill.com/manga/1"),
@@ -76,7 +76,7 @@ class SeriesGroupingTest {
     }
 
     @Test
-    fun `match solo per uguaglianza normalizzata esatta`() {
+    fun match_solo_per_uguaglianza_normalizzata_esatta() {
         val results = listOf(
             result("mangapill", "Attack on Titan: Before the Fall", "https://mangapill.com/manga/7"),
         )
@@ -86,7 +86,7 @@ class SeriesGroupingTest {
     }
 
     @Test
-    fun `cover di gruppo ripiega sulla prima fonte se AniList non la ha`() {
+    fun cover_di_gruppo_ripiega_sulla_prima_fonte_se_AniList_non_la_ha() {
         val results = listOf(
             MangaSearchResult("mangapill", "Attack on Titan", "https://mangapill.com/manga/1", "https://mp/cover.jpg"),
         )

@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader
 
+import coil3.request.Options
+import coil3.map.Mapper
 import android.app.Application
 import android.content.Context
 import coil3.ImageLoader
@@ -47,6 +49,7 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
 
         return ImageLoader.Builder(context)
             .components {
+                add(OkioPathMapper())
                 add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
             }
             .crossfade(true)
@@ -58,6 +61,14 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
             "Mozilla/5.0 (Linux; Android 13; Pixel) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     }
+}
+
+/**
+ * Copertine e pagine locali sono [okio.Path]: Coil li carica come i [java.io.File] di prima
+ * (stessa chiave di cache, basata su percorso e data di modifica).
+ */
+private class OkioPathMapper : Mapper<okio.Path, java.io.File> {
+    override fun map(data: okio.Path, options: Options): java.io.File = data.toFile()
 }
 
 private fun Context.mangaApp(): MangaApplication? = applicationContext as? MangaApplication

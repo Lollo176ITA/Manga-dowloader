@@ -3,7 +3,16 @@ package com.lorenzo.mangadownloader.data.anilist
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.sources.firstNonBlankTrimmed
-import java.io.IOException
+import io.ktor.client.HttpClient
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.content.TextContent
+import io.ktor.http.isSuccess
+import io.ktor.http.withCharset
+import io.ktor.utils.io.charsets.Charsets
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -19,109 +28,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-
-/**
- * Un manga come lo descrive AniList: **solo metadati** (titolo, copertina, generi, voto, trama,
- * stato). AniList è un catalogo, non una fonte da cui scaricare: per leggere/scaricare il titolo
- * va ri-cercato sulle fonti reali ([MangaSource]) tramite [searchTitle]. Per questo [AniListManga]
- * vive fuori dal [MangaSourceRegistry].
- */
-@Serializable
-data class AniListManga(
-    val id: Int,
-    val titleRomaji: String?,
-    val titleEnglish: String?,
-    val titleNative: String? = null,
-    /** Titoli alternativi noti ad AniList (spesso includono il titolo italiano). */
-    val synonyms: List<String> = emptyList(),
-    val coverUrl: String?,
-    val genres: List<String>,
-    val averageScore: Int?,
-    val description: String?,
-    val status: MangaPublicationStatus,
-    /** Numero totale di capitoli secondo AniList; `null` se la serie è in corso o ignoto. */
-    val chapters: Int? = null,
-    /** Formato AniList grezzo (MANGA, ONE_SHOT, NOVEL…), mostrato nel matching del tracking. */
-    val format: String? = null,
-    /** Contenuto per adulti secondo AniList (in pratica: hentai). Vedi `isAdultContent`. */
-    val isAdult: Boolean = false,
-) {
-    /**
-     * Titolo da usare per cercare sulle fonti: prima l'inglese (più comune sui siti EN tipo
-     * Mangapill), poi il romaji come fallback. `null` se entrambi mancano.
-     */
-    fun searchTitle(): String? = firstNonBlankTrimmed(titleEnglish, titleRomaji)
-
-    /** Titolo da mostrare in UI, con lo stesso ordine di preferenza di [searchTitle]. */
-    fun displayTitle(): String = searchTitle() ?: "Senza titolo"
-
-    /**
-     * I titoli **veri** della serie: come si chiama, nelle tre lingue che AniList tiene.
-     * Vanno tenuti distinti dai [synonymTitles] perché valgono molto di più in un confronto:
-     * un titolo principale identifica la serie, un sinonimo può essere qualsiasi cosa.
-     */
-    fun primaryTitles(): List<String> =
-        listOfNotNull(titleEnglish, titleRomaji, titleNative)
-            .map(String::trim)
-            .filter(String::isNotBlank)
-
-    /**
-     * I titoli alternativi noti ad AniList. Utili — spesso contengono il titolo italiano — ma
-     * inaffidabili come prova d'identità: sono compilati dalla community e su certe raccolte
-     * contengono i titoli dei singoli capitoli. Un esempio reale: la raccolta hentai
-     * `Gekka Bijin` (id 94792) ha "Pick Me Up" fra i suoi diciotto sinonimi, e la ricerca
-     * AniList per quel titolo la mette PRIMA del webtoon che si chiama davvero così.
-     */
-    fun synonymTitles(): List<String> =
-        synonyms.map(String::trim).filter(String::isNotBlank)
-
-    /** Tutti i titoli noti, in ordine di preferenza, per il matching tra fonti. */
-    fun allTitles(): List<String> = primaryTitles() + synonymTitles()
-}
-
-/**
- * Una raccomandazione della community AniList: "chi ha letto [seedMediaId] consiglia [manga]",
- * con [rating] = voti netti della community su quel suggerimento. Alimenta il blocco Home
- * "Consigliati per te" (vedi [aggregateRecommendations]).
- */
-data class AniListRecommendation(
-    val seedMediaId: Int,
-    val rating: Int,
-    val manga: AniListManga,
-)
-
-/** Criterio di ordinamento AniList, una sezione della schermata Scopri per ogni valore. */
-enum class AniListSort(val apiValue: String) {
-    TRENDING("TRENDING_DESC"),
-    POPULAR("POPULARITY_DESC"),
-    TOP_RATED("SCORE_DESC"),
-    NEWEST("START_DATE_DESC"),
-}
-
-/**
- * Il token AniList non è (più) valido: chi chiama deve disconnettere l'account.
- *
- * [token] è il token con cui la richiesta era partita. Serve a distinguere il rifiuto della
- * sessione **corrente** da un 401 arrivato in ritardo da una richiesta partita con il token
- * PRECEDENTE: senza questa distinzione la risposta tardiva di una sessione scaduta scollega
- * un account appena ricollegato, e l'unico rimedio per l'utente è riavviare l'app.
- */
-class AniListAuthException(message: String, val token: String? = null) : IOException(message)
+import okio.IOException
 
 /**
  * Client minimale per l'API GraphQL di AniList. Le sezioni della schermata Scopri usano la sola
  * query pubblica parametrica [fetchMedia] (nessuna API key). Le operazioni di **tracking**
  * ([fetchViewer], [searchManga], [fetchMediaEntry], [saveListEntry]) richiedono il token OAuth
- * dell'utente (vedi [AniListAuth]). Sincrono: va chiamato da un thread IO.
+ * dell'utente (vedi [AniListAuth]).
  */
 class AniListClient(
-    private val httpClient: OkHttpClient,
+    private val httpClient: HttpClient,
 ) {
-    fun fetchMedia(
+    suspend fun fetchMedia(
         sort: AniListSort,
         genre: String? = null,
         page: Int = 1,
@@ -141,7 +59,7 @@ class AniListClient(
     }
 
     /** L'utente autenticato (id, nome, formato voto). Valida di fatto il token appena ottenuto. */
-    fun fetchViewer(token: String): AniListViewer {
+    suspend fun fetchViewer(token: String): AniListViewer {
         val payload = buildJsonObject {
             put("query", VIEWER_QUERY)
         }.toString()
@@ -153,7 +71,7 @@ class AniListClient(
      * Ricerca per titolo usata dal matching del tracking. Nessun filtro `isAdult`: qui l'utente
      * sta collegando un titolo che già legge, non sfogliando una vetrina.
      */
-    fun searchManga(query: String, perPage: Int = MATCH_PER_PAGE): List<AniListManga> {
+    suspend fun searchManga(query: String, perPage: Int = MATCH_PER_PAGE): List<AniListManga> {
         val variables = buildJsonObject {
             put("search", query)
             put("perPage", perPage)
@@ -170,7 +88,7 @@ class AniListClient(
      * "Consigliati per te": i semi sono i titoli dell'utente (preferiti/letti) già risolti in id
      * AniList via [searchManga]. Le voci per adulti vengono scartate come nella vetrina Scopri.
      */
-    fun fetchRecommendations(
+    suspend fun fetchRecommendations(
         mediaIds: List<Int>,
         perSeed: Int = RECOMMENDATIONS_PER_SEED,
     ): List<AniListRecommendation> {
@@ -191,7 +109,7 @@ class AniListClient(
      * di lettura: su AniList un titolo può stare in lista senza essere un preferito e viceversa.
      * Paginata di suo, qui la si scorre tutta: l'elenco è tipicamente di poche decine di voci.
      */
-    fun fetchFavouriteManga(token: String, userId: Int): List<AniListManga> {
+    suspend fun fetchFavouriteManga(token: String, userId: Int): List<AniListManga> {
         val collected = mutableListOf<AniListManga>()
         var page = 1
         while (page <= MAX_FAVOURITE_PAGES) {
@@ -218,7 +136,7 @@ class AniListClient(
      * riconciliazione parte sempre da [fetchFavouriteManga]). Ritorna `true` se dopo la chiamata
      * il manga risulta tra i preferiti.
      */
-    fun toggleFavouriteManga(token: String, mediaId: Int): Boolean {
+    suspend fun toggleFavouriteManga(token: String, mediaId: Int): Boolean {
         val variables = buildJsonObject { put("mangaId", mediaId) }
         val payload = buildJsonObject {
             put("query", TOGGLE_FAVOURITE_MUTATION)
@@ -228,7 +146,7 @@ class AniListClient(
     }
 
     /** Capitoli totali + entry dell'utente (se esiste) per un media, per seedare il tracking. */
-    fun fetchMediaEntry(mediaId: Int, token: String): AniListMediaEntry {
+    suspend fun fetchMediaEntry(mediaId: Int, token: String): AniListMediaEntry {
         val variables = buildJsonObject { put("mediaId", mediaId) }
         val payload = buildJsonObject {
             put("query", MEDIA_ENTRY_QUERY)
@@ -243,7 +161,7 @@ class AniListClient(
      * AniList conserva il valore esistente. [score] è nel formato voto dell'account
      * (vedi [AniListScoreFormat]). Ritorna l'entry come salvata dal server.
      */
-    fun saveListEntry(
+    suspend fun saveListEntry(
         token: String,
         mediaId: Int,
         status: AniListListStatus? = null,
@@ -264,28 +182,24 @@ class AniListClient(
             ?: throw IOException("Risposta inattesa da AniList al salvataggio")
     }
 
-    private fun post(jsonBody: String, token: String? = null): String {
-        val request = Request.Builder()
-            .url(ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .header("User-Agent", USER_AGENT)
-            .apply { token?.let { header("Authorization", "Bearer $it") } }
-            .post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (response.code == 401 || response.code == 403) {
-                throw AniListAuthException("Sessione AniList scaduta", token)
-            }
-            if (response.code == 429) {
-                throw IOException("AniList sta limitando le richieste, riprova tra poco")
-            }
-            if (!response.isSuccessful) {
-                throw IOException("HTTP ${response.code} da AniList")
-            }
-            return response.body.string()
+    private suspend fun post(jsonBody: String, token: String? = null): String {
+        val response = httpClient.post(ENDPOINT) {
+            header("Accept", "application/json")
+            header("User-Agent", USER_AGENT)
+            token?.let { header("Authorization", "Bearer $it") }
+            setBody(TextContent(jsonBody, JSON_CONTENT_TYPE))
         }
+        val code = response.status.value
+        if (code == 401 || code == 403) {
+            throw AniListAuthException("Sessione AniList scaduta", token)
+        }
+        if (code == 429) {
+            throw IOException("AniList sta limitando le richieste, riprova tra poco")
+        }
+        if (!response.status.isSuccess()) {
+            throw IOException("HTTP $code da AniList")
+        }
+        return response.bodyAsText()
     }
 
     companion object {
@@ -300,7 +214,7 @@ class AniListClient(
          * ben oltre qualsiasi lista reale. Evita un ciclo infinito se `hasNextPage` mentisse.
          */
         private const val MAX_FAVOURITE_PAGES = 25
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        private val JSON_CONTENT_TYPE = ContentType.Application.Json.withCharset(Charsets.UTF_8)
         private val json = Json { ignoreUnknownKeys = true }
 
         private const val USER_AGENT =

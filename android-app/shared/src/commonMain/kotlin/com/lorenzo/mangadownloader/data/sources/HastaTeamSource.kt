@@ -1,16 +1,17 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.resolveUrl
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.domain.reading.chapterDateFromIso
-import java.math.BigDecimal
-import java.net.URI
-import java.util.Locale
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -21,13 +22,12 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class HastaTeamSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.HASTA_TEAM,
         displayName = "Hasta Team",
@@ -40,7 +40,7 @@ class HastaTeamSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         val results = when {
             trimmed.isEmpty() || trimmed.length < REMOTE_SEARCH_MIN_QUERY_LENGTH -> {
@@ -48,36 +48,24 @@ class HastaTeamSource(
                     .filterByTitle(trimmed)
             }
             else -> {
-                val url = BASE_URL.toHttpUrl()
-                    .newBuilder()
-                    .addPathSegment("api")
-                    .addPathSegment("search")
-                    .addPathSegment(trimmed)
-                    .build()
-                    .toString()
+                val url = buildHttpUrl(BASE_URL, pathSegments = listOf("api", "search", trimmed))
                 parseSearchResponse(fetchString(url, jsonHeaders()))
             }
         }
         return results.sortedAlphabetically()
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga Hasta Team non valido")
         val slug = canonical.substringAfterLast('/')
-        val apiUrl = BASE_URL.toHttpUrl()
-            .newBuilder()
-            .addPathSegment("api")
-            .addPathSegment("comics")
-            .addPathSegment(slug)
-            .build()
-            .toString()
+        val apiUrl = buildHttpUrl(BASE_URL, pathSegments = listOf("api", "comics", slug))
         return parseMangaDetails(fetchString(apiUrl, jsonHeaders()))
     }
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         val apiUrl = chapterApiUrl(chapterUrl)
             ?: throw IllegalArgumentException("URL capitolo Hasta Team non valido")
         return parseChapterPageUrls(fetchString(apiUrl, jsonHeaders()))
@@ -243,7 +231,7 @@ class HastaTeamSource(
             ) ?: return null
             return ChapterEntry(
                 numberText = numberText,
-                numberValue = numberText.toBigDecimalOrNull() ?: BigDecimal(numberText),
+                numberValue = numberText.toChapterNumberOrNull() ?: ChapterNumber.parse(numberText),
                 url = chapterUrl,
                 slug = slug,
                 // `published_on` è l'uscita vera; `updated_at` cambia a ogni ritocco del
@@ -263,7 +251,7 @@ class HastaTeamSource(
             return if (normalizedSubchapter != null && normalizedSubchapter != "0") {
                 "${normalizedChapter.toIntOrNull() ?: normalizedChapter}.${normalizedSubchapter.toIntOrNull() ?: normalizedSubchapter}"
             } else {
-                normalizedChapter.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: normalizedChapter
+                normalizedChapter.toChapterNumberOrNull()?.stripTrailingZeros()?.toPlainString() ?: normalizedChapter
             }
         }
 
@@ -274,17 +262,12 @@ class HastaTeamSource(
             ) {
                 normalized
             } else {
-                URI(BASE_URL).resolve(normalized).toString()
+                resolveUrl(BASE_URL, normalized)
             }
         }
 
         private fun allComicsApiUrl(): String {
-            return BASE_URL.toHttpUrl()
-                .newBuilder()
-                .addPathSegment("api")
-                .addPathSegment("comics")
-                .build()
-                .toString()
+            return buildHttpUrl(BASE_URL, pathSegments = listOf("api", "comics"))
         }
 
         fun List<MangaSearchResult>.filterByTitle(query: String): List<MangaSearchResult> {
@@ -296,7 +279,7 @@ class HastaTeamSource(
         }
 
         fun List<MangaSearchResult>.sortedAlphabetically(): List<MangaSearchResult> {
-            return sortedBy { result -> result.title.lowercase(Locale.ROOT) }
+            return sortedBy { result -> result.title.lowercase() }
         }
     }
 }

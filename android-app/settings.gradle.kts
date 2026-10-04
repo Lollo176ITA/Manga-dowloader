@@ -22,4 +22,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "MangaDownloaderAndroid"
 include(":app")
+include(":shared")
 include(":benchmark")

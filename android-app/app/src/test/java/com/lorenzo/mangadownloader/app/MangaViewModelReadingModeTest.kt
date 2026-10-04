@@ -4,11 +4,11 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -142,7 +142,7 @@ class MangaViewModelReadingModeTest {
     ): MangaDetails {
         val chapter = ChapterEntry(
             numberText = "1",
-            numberValue = BigDecimal("1"),
+            numberValue = ChapterNumber.parse("1"),
             url = chapterUrl,
             slug = slug,
         )

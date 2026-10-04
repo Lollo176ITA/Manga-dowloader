@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.settings
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import java.io.File
@@ -53,7 +54,7 @@ class StorageSizeTest {
         title = directory.name,
         mangaUrl = null,
         coverFile = null,
-        directory = directory,
+        directory = directory.toOkioPath(),
         chapters = emptyList(),
         totalChapterCount = 0,
         readChapterIds = emptySet(),

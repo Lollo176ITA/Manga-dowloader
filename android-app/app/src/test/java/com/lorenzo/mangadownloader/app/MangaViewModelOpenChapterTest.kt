@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import android.app.Application
 import android.content.Context
 import android.os.Looper
@@ -7,10 +8,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import java.io.File
-import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -40,7 +41,7 @@ class MangaViewModelOpenChapterTest {
             .clear()
             .commit()
 
-        val root = DownloadStorage.libraryRoot(application)
+        val root = LibraryRepository(application).libraryRoot.toFile()
         root.deleteRecursively()
         val seriesDir = File(root, "test_series").apply { mkdirs() }
         File(seriesDir, "chapter_001.cbz").writeText("c1")
@@ -93,7 +94,7 @@ class MangaViewModelOpenChapterTest {
 
     private fun chapterEntry(number: String) = ChapterEntry(
         numberText = number,
-        numberValue = BigDecimal(number),
+        numberValue = ChapterNumber.parse(number),
         url = "https://mangapill.com/chapters/$number/test-$number",
         slug = "test-$number",
     )

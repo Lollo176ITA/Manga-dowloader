@@ -8,6 +8,9 @@ import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.update.AppUpdateInfo
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -19,9 +22,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -135,7 +135,7 @@ class MangaViewModelParentalControlTest {
 
         when {
             pendingState.biometricPromptRequest != null ->
-                viewModel.parental.cancelBiometric(pendingState.biometricPromptRequest.requestId)
+                viewModel.parental.cancelBiometric(pendingState.biometricPromptRequest!!.requestId)
             pendingState.parentalPinEntryState != null ->
                 viewModel.parental.dismissPinEntry()
             else -> fail("Expected an authentication prompt for Cerca")

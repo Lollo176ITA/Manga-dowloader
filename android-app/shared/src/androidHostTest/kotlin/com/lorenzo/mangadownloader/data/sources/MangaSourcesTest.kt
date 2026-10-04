@@ -715,7 +715,8 @@ class MangaSourcesTest {
         assertTrue(
             MangaSource::class.java.methods.any { method ->
                 method.name == "fetchChapterPageImageUrls" &&
-                    method.parameterTypes.toList() == listOf(String::class.java)
+                    method.parameterTypes.toList() ==
+                    listOf(String::class.java, kotlin.coroutines.Continuation::class.java)
             },
         )
     }
@@ -934,15 +935,15 @@ class MangaSourcesTest {
 
     @Test
     fun parseDescription_prefersSpecificSelectorThenOgFallback() {
-        val withSelector = org.jsoup.Jsoup.parse(
+        val withSelector = com.fleeksoft.ksoup.Ksoup.parse(
             """<div class="syn">Trama specifica</div><meta property="og:description" content="OG">""",
         )
         assertEquals("Trama specifica", parseDescription(withSelector, ".syn"))
 
-        val ogOnly = org.jsoup.Jsoup.parse("""<meta property="og:description" content="Solo OG">""")
+        val ogOnly = com.fleeksoft.ksoup.Ksoup.parse("""<meta property="og:description" content="Solo OG">""")
         assertEquals("Solo OG", parseDescription(ogOnly, ".syn"))
 
-        assertNull(parseDescription(org.jsoup.Jsoup.parse("<div>niente meta</div>")))
+        assertNull(parseDescription(com.fleeksoft.ksoup.Ksoup.parse("<div>niente meta</div>")))
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.lorenzo.mangadownloader.data.sources
 
-import android.content.Context
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.network.buildHttpUrl
+import com.lorenzo.mangadownloader.platform.putIfMissing
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
@@ -9,13 +11,12 @@ import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
 import com.lorenzo.mangadownloader.domain.reading.chapterDateFromIso
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import com.fleeksoft.ksoup.Ksoup
+import com.fleeksoft.ksoup.nodes.Document
 
 /**
  * Fonte per **DemonicScans** (`demonicscans.org`), sito PHP con pagine HTML da
- * parsare con jsoup.
+ * parsare con Ksoup.
  *
  * - ricerca: `GET /search.php?manga=<query>` → frammenti `<a href="/manga/<Slug>">`
  *   con `img.search-thumb` e il titolo.
@@ -32,10 +33,10 @@ import org.jsoup.nodes.Document
  * `/manga/<Slug>` e carica le pagine direttamente, senza bisogno dell'id.
  */
 class DemonicScansSource(
-    context: Context,
+    appSettings: Settings,
     networkClient: MangaNetworkClient,
-    libraryRepository: LibraryRepository = LibraryRepository(context),
-) : BaseMangaSource(context, networkClient, libraryRepository) {
+    libraryRepository: LibraryRepository,
+) : BaseMangaSource(appSettings, networkClient, libraryRepository) {
     override val descriptor = MangaSourceDescriptor(
         id = MangaSourceIds.DEMONIC_SCANS,
         displayName = "DemonicScans",
@@ -48,26 +49,22 @@ class DemonicScansSource(
 
     override fun canHandleUrl(url: String): Boolean = handlesUrl(url)
 
-    override fun searchManga(query: String): List<MangaSearchResult> {
+    override suspend fun searchManga(query: String): List<MangaSearchResult> {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             return emptyList()
         }
-        val url = "$BASE_URL/search.php".toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("manga", trimmed)
-            .build()
-            .toString()
+        val url = buildHttpUrl("$BASE_URL/search.php", query = listOf("manga" to trimmed))
         return parseSearchResults(fetchString(url), url)
     }
 
-    override fun fetchMangaDetails(mangaUrl: String): MangaDetails {
+    override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails {
         val canonical = canonicalMangaUrl(mangaUrl)
             ?: throw IllegalArgumentException("URL manga DemonicScans non valido")
         return parseMangaDetails(fetchString(canonical), canonical)
     }
 
-    override fun fetchPageImageUrls(chapterUrl: String): List<String> {
+    override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> {
         // L'URL reader carica le pagine direttamente (o via redirect da chaptered.php).
         return parseReaderImageUrls(fetchString(chapterUrl.trim()))
     }
@@ -103,7 +100,7 @@ class DemonicScansSource(
         // --- Parsing puro, testabile senza rete ---
 
         fun parseSearchResults(html: String, baseUrl: String): List<MangaSearchResult> {
-            val document = Jsoup.parse(html, baseUrl)
+            val document = Ksoup.parse(html, baseUrl)
             val results = linkedMapOf<String, MangaSearchResult>()
             for (anchor in document.select("""a[href^="/manga/"]""")) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
@@ -117,7 +114,7 @@ class DemonicScansSource(
                     continue
                 }
                 val cover = image?.let { firstNonBlankTrimmed(it.absUrl("src"), it.attr("src")) }
-                results.putIfAbsent(
+                results.putIfMissing(
                     mangaUrl,
                     MangaSearchResult(
                         sourceId = MangaSourceIds.DEMONIC_SCANS,
@@ -133,7 +130,7 @@ class DemonicScansSource(
         fun parseMangaDetails(html: String, mangaUrl: String): MangaDetails {
             val canonical = canonicalSeriesUrl(mangaUrl)
                 ?: throw IllegalArgumentException("URL manga DemonicScans non valido")
-            val document: Document = Jsoup.parse(html, canonical)
+            val document: Document = Ksoup.parse(html, canonical)
             val seriesSlug = canonical.substringAfterLast('/')
             val title = firstNonBlankTrimmed(
                 document.selectFirst("h1")?.text(),
@@ -156,7 +153,7 @@ class DemonicScansSource(
         }
 
         fun parseReaderImageUrls(html: String): List<String> {
-            val document = Jsoup.parse(html, BASE_URL)
+            val document = Ksoup.parse(html, BASE_URL)
             val ordered = linkedSetOf<String>()
             for (image in document.select("img.imgholder")) {
                 val src = firstNonBlankTrimmed(image.absUrl("src"), image.attr("src")) ?: continue
@@ -182,7 +179,7 @@ class DemonicScansSource(
                     ?: continue
                 val numberValue = DownloadStorage.parseChapterValueOrNull(numberText) ?: continue
                 val chapterUrl = readerUrl(seriesSlug, numberText)
-                entries.putIfAbsent(
+                entries.putIfMissing(
                     chapterUrl,
                     ChapterEntry(
                         numberText = numberText,

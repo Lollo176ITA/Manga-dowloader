@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.ui.widget
 
+import com.lorenzo.mangadownloader.platform.settings
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -88,7 +89,7 @@ class ReadingWidget : GlanceAppWidget() {
     }
 
     private fun loadData(context: Context): Pair<ResumeReadingItem?, AppSettings> {
-        val prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.settings(SettingsStore.PREFS_NAME)
         val resume = readingWidgetResume(
             library = runCatching { sharedLibraryRepository(context).scanLibrary() }.getOrDefault(emptyList()),
             memory = ReadingMemoryStore(prefs).read(),

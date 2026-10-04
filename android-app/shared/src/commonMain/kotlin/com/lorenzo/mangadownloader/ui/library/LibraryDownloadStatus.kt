@@ -1,11 +1,9 @@
 package com.lorenzo.mangadownloader.ui.library
 
-import androidx.work.WorkInfo
-import com.lorenzo.mangadownloader.DownloadWorker
-import com.lorenzo.mangadownloader.data.library.DownloadedChapter
+import com.lorenzo.mangadownloader.app.DownloadJob
+import com.lorenzo.mangadownloader.app.DownloadJobState
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
-import java.util.UUID
 
 data class SeriesDownloadStatus(
     val sourceId: String,
@@ -15,10 +13,10 @@ data class SeriesDownloadStatus(
     val message: String?,
     val doneChapters: Int,
     val totalChapters: Int,
-    val state: WorkInfo.State,
+    val state: DownloadJobState,
     val requestCount: Int,
     /** Tutte le richieste della serie ancora attive: lo stop della card ferma queste. */
-    val workIds: List<UUID> = emptyList(),
+    val workIds: List<String> = emptyList(),
 )
 
 data class LibraryRowItem(
@@ -28,64 +26,32 @@ data class LibraryRowItem(
     val downloadStatus: SeriesDownloadStatus?,
 )
 
-/**
- * Criterio di ordinamento della Libreria, persistito nelle impostazioni (come il sort dei
- * Preferiti). Prima la lista era solo alfabetica, hardcoded.
- */
-enum class LibrarySort(val label: String) {
-    LAST_READ("Recenti"),
-    TITLE_ASC("A-Z"),
-    UNREAD_FIRST("Da leggere"),
-}
+fun buildSeriesDownloadStatuses(jobs: List<DownloadJob>): Map<String, SeriesDownloadStatus> {
+    val sorted = jobs.sortedBy { statePriority(it.displayState()) }
+    val grouped = linkedMapOf<String, MutableList<DownloadJob>>()
 
-fun buildSeriesDownloadStatuses(workInfos: List<WorkInfo>): Map<String, SeriesDownloadStatus> {
-    val sorted = workInfos.sortedBy { statePriority(it.displayState()) }
-    val grouped = linkedMapOf<String, MutableList<WorkInfo>>()
-
-    for (workInfo in sorted) {
-        val sourceId = workInfo.progress.getString(DownloadWorker.PROGRESS_SOURCE_ID)
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?: workInfo.tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX)
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-        val mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX)
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-        val title = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX)
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-        val key = downloadSeriesKey(sourceId = sourceId, mangaUrl = mangaUrl, title = title) ?: continue
-        grouped.getOrPut(key) { mutableListOf() } += workInfo
+    for (job in sorted) {
+        val key = downloadSeriesKey(
+            sourceId = job.sourceId?.trim()?.takeIf(String::isNotBlank),
+            mangaUrl = job.mangaUrl?.trim()?.takeIf(String::isNotBlank),
+            title = job.seriesTitle?.trim()?.takeIf(String::isNotBlank),
+        ) ?: continue
+        grouped.getOrPut(key) { mutableListOf() } += job
     }
 
     return grouped.mapValues { (_, entries) ->
-        val workInfo = entries.first()
+        val job = entries.first()
         SeriesDownloadStatus(
-            sourceId = workInfo.progress.getString(DownloadWorker.PROGRESS_SOURCE_ID)
-                ?: workInfo.tagValue(DownloadWorker.TAG_SOURCE_ID_PREFIX)
-                ?: MangaSourceCatalog.resolveSourceId(
-                    null,
-                    workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
-                        ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
-                ),
-            seriesTitle = workInfo.progress.getString(DownloadWorker.PROGRESS_SERIES_TITLE)
-                ?: workInfo.tagValue(DownloadWorker.TAG_SERIES_TITLE_PREFIX),
-            mangaUrl = workInfo.progress.getString(DownloadWorker.PROGRESS_MANGA_URL)
-                ?: workInfo.tagValue(DownloadWorker.TAG_MANGA_URL_PREFIX),
-            coverUrl = workInfo.tagValue(DownloadWorker.TAG_COVER_URL_PREFIX),
-            message = workInfo.progress.getString(DownloadWorker.PROGRESS_MESSAGE),
-            doneChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_DONE_CHAPTERS, -1),
-            totalChapters = workInfo.progress.getInt(DownloadWorker.PROGRESS_TOTAL_CHAPTERS, -1),
-            state = workInfo.displayState(),
+            sourceId = job.sourceId ?: MangaSourceCatalog.resolveSourceId(null, job.mangaUrl),
+            seriesTitle = job.seriesTitle,
+            mangaUrl = job.mangaUrl,
+            coverUrl = job.coverUrl,
+            message = job.message,
+            doneChapters = job.doneChapters,
+            totalChapters = job.totalChapters,
+            state = job.displayState(),
             requestCount = entries.size,
-            workIds = entries.map(WorkInfo::id),
+            workIds = entries.map(DownloadJob::id),
         )
     }
 }
@@ -106,7 +72,7 @@ fun buildLibraryRowItems(
             ?.let(usedStatusKeys::add)
         if (query.isBlank() || series.title.contains(query, ignoreCase = true)) {
             rows += LibraryRowItem(
-                key = "series:${series.directory.absolutePath}",
+                key = "series:${series.directory}",
                 title = series.title,
                 series = series,
                 downloadStatus = status,
@@ -170,83 +136,18 @@ private fun downloadSeriesKey(
     return MangaSourceCatalog.identityKeyOrNull(sourceId, mangaUrl, title)
 }
 
-private fun statePriority(state: WorkInfo.State): Int {
+private fun statePriority(state: DownloadJobState): Int {
     return when (state) {
-        WorkInfo.State.RUNNING -> 0
-        WorkInfo.State.ENQUEUED -> 1
-        WorkInfo.State.BLOCKED -> 2
+        DownloadJobState.RUNNING -> 0
+        DownloadJobState.ENQUEUED -> 1
+        DownloadJobState.BLOCKED -> 2
         else -> 3
     }
 }
 
 /**
- * Lo stato da mostrare. Un worker che aspetta il turno di un'altra serie è RUNNING per
- * WorkManager, ma per chi guarda la Libreria è in coda.
+ * Lo stato da mostrare. Un download che aspetta il turno di un'altra serie è in esecuzione per
+ * la piattaforma, ma per chi guarda la Libreria è in coda.
  */
-private fun WorkInfo.displayState(): WorkInfo.State =
-    if (state == WorkInfo.State.RUNNING && progress.getBoolean(DownloadWorker.PROGRESS_WAITING, false)) {
-        WorkInfo.State.ENQUEUED
-    } else {
-        state
-    }
-
-private fun WorkInfo.tagValue(prefix: String): String? {
-    return tags.firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)
-}
-
-fun DownloadedSeries.isFullyRead(): Boolean {
-    return totalChapterCount > 0 && readChapterCount() >= totalChapterCount
-}
-
-fun DownloadedSeries.resumeChapter(): DownloadedChapter? {
-    return chapters.lastOrNull { it.hasReaderProgress() && !it.isReaderCompleted() }
-        ?: chapters.firstOrNull { !it.isRead }
-        ?: chapters.lastOrNull()
-}
-
-fun DownloadedSeries.readChapterCount(): Int {
-    return readChapterIds.size.coerceAtMost(totalChapterCount.coerceAtLeast(0))
-}
-
-/** I capitoli **scaricati e già letti**: ciò che si può eliminare per liberare spazio. */
-fun DownloadedSeries.readDownloadedChapters(): List<DownloadedChapter> =
-    chapters.filter { it.isRead }
-
-/** Byte occupati dai capitoli letti (somma le dimensioni dei file). IO leggero (pochi file). */
-fun DownloadedSeries.readChaptersSizeBytes(): Long =
-    readDownloadedChapters().sumOf { it.file.length() }
-
-fun DownloadedSeries.readProgressPercent(): Int {
-    if (totalChapterCount <= 0) return 0
-    return ((readChapterCount() * 100f) / totalChapterCount.toFloat()).toInt()
-}
-
-fun DownloadedSeries.readProgressLabel(): String {
-    val readCount = readChapterCount()
-    return when {
-        totalChapterCount <= 0 -> "$readCount letti"
-        readCount >= totalChapterCount -> "Completato · $readCount / $totalChapterCount"
-        else -> "${readProgressPercent()}% letto · $readCount / $totalChapterCount"
-    }
-}
-
-fun DownloadedChapter.hasReaderProgress(): Boolean {
-    return readerPageIndex != null
-}
-
-fun DownloadedChapter.readerProgressDescription(): String {
-    val pageIndex = readerPageIndex ?: return "Lettura in corso"
-    val pageCount = readerPageCount
-    return if (pageCount != null && pageCount > 0) {
-        "Riprendi da pagina ${pageIndex + 1} di $pageCount"
-    } else {
-        "Lettura in corso"
-    }
-}
-
-fun DownloadedChapter.isReaderCompleted(): Boolean {
-    if (!isRead) return false
-    val pageIndex = readerPageIndex ?: return true
-    val pageCount = readerPageCount ?: return false
-    return pageCount > 0 && pageIndex >= pageCount - 1
-}
+private fun DownloadJob.displayState(): DownloadJobState =
+    if (state == DownloadJobState.RUNNING && waitingForTurn) DownloadJobState.ENQUEUED else state

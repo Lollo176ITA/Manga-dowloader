@@ -22,24 +22,15 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.lorenzo.mangadownloader.data.model.DownloadResult
-import com.lorenzo.mangadownloader.data.model.readingUnitPlural
-import com.lorenzo.mangadownloader.data.model.readingUnitSingular
+import com.lorenzo.mangadownloader.app.ChapterDownloadRequest
+import com.lorenzo.mangadownloader.data.download.ChapterDownloader
+import com.lorenzo.mangadownloader.data.download.DownloadStoppedException
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
-import java.io.IOException
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
+import okio.IOException
 
 class DownloadWorker(
     appContext: Context,
@@ -47,6 +38,7 @@ class DownloadWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     private val sourceRegistry = sharedSourceRegistry(appContext)
+    private val chapterDownloader = ChapterDownloader(sourceRegistry::resolve)
     private val workTags = workerParams.tags
 
     override suspend fun doWork(): Result {
@@ -94,138 +86,40 @@ class DownloadWorker(
     ): Result {
         return try {
             safeSetForeground(taggedSeriesTitle ?: "Preparazione download")
-            val source = sourceRegistry.resolve(inputSourceId ?: taggedSourceId, firstUrl)
-            val plan = source.buildDownloadPlan(firstUrl, lastUrl)
-            val unitSingular = readingUnitSingular(plan.chapters)
-            val unitPlural = readingUnitPlural(plan.chapters)
-            source.prepareSeriesStorage(plan)
-            updateStatus(
-                sourceId = plan.sourceId,
-                seriesTitle = plan.seriesTitle,
-                mangaUrl = plan.mangaUrl,
-                message = if (plan.startChapterLabel == plan.endChapterLabel) {
-                    "Trovato 1 $unitSingular: ${plan.startChapterLabel}"
-                } else {
-                    "Trovati ${plan.chapters.size} $unitPlural da ${plan.startChapterLabel} a ${plan.endChapterLabel}"
-                },
-                doneChapters = 0,
-                totalChapters = plan.chapters.size,
-            )
-
-            val totalChapters = plan.chapters.size
-            val completedChapters = AtomicInteger(0)
-            val statusMutex = Mutex()
-            val chapterSemaphore = Semaphore(CHAPTER_CONCURRENCY)
-            val lastPageEmitMs = AtomicLong(0L)
-
-            coroutineScope {
-                plan.chapters.map { chapter ->
-                    async(Dispatchers.IO) {
-                        chapterSemaphore.withPermit {
-                            ensureActiveDownload()
-                            val chapterLabel = chapter.displayLabel()
-                            emitStatus(
-                                mutex = statusMutex,
-                                sourceId = plan.sourceId,
-                                seriesTitle = plan.seriesTitle,
-                                mangaUrl = plan.mangaUrl,
-                                message = "$chapterLabel in download",
-                                doneChapters = completedChapters.get(),
-                                totalChapters = totalChapters,
-                            )
-
-                            val result = source.downloadChapterAsCbz(
-                                chapter = chapter,
-                                outputDir = plan.outputDir,
-                                pageConcurrency = PAGE_CONCURRENCY,
-                                onProcessingProgress = processing@ { processed, pageTotal ->
-                                    val isBoundary = processed == 0 ||
-                                        processed >= pageTotal ||
-                                        processed % PAGE_PROGRESS_STRIDE == 0
-                                    if (!isBoundary) return@processing
-                                    emitStatus(
-                                        mutex = statusMutex,
-                                        sourceId = plan.sourceId,
-                                        seriesTitle = plan.seriesTitle,
-                                        mangaUrl = plan.mangaUrl,
-                                        message = "$chapterLabel: preparazione immagini $processed/$pageTotal",
-                                        doneChapters = completedChapters.get(),
-                                        totalChapters = totalChapters,
-                                    )
-                                },
-                            ) download@ { pageDone, pageTotal ->
-                                // Skip per-page emits except the final one or boundaries:
-                                // a chapter of 50 pages would otherwise produce 50 setProgress
-                                // round-trips, each waking the UI observer.
-                                val isFinalPage = pageDone >= pageTotal
-                                val isBatchBoundary = pageDone % PAGE_PROGRESS_STRIDE == 0
-                                val now = System.currentTimeMillis()
-                                val previousEmitMs = lastPageEmitMs.get()
-                                val timedOut = now - previousEmitMs >= PAGE_PROGRESS_MIN_INTERVAL_MS
-                                if (
-                                    !isFinalPage &&
-                                    !isBatchBoundary &&
-                                    !timedOut
-                                ) {
-                                    return@download
-                                }
-                                lastPageEmitMs.set(now)
-                                emitStatus(
-                                    mutex = statusMutex,
-                                    sourceId = plan.sourceId,
-                                    seriesTitle = plan.seriesTitle,
-                                    mangaUrl = plan.mangaUrl,
-                                    message = "$chapterLabel: pagina $pageDone/$pageTotal",
-                                    doneChapters = completedChapters.get(),
-                                    totalChapters = totalChapters,
-                                )
-                            }
-
-                            val done = completedChapters.incrementAndGet()
-                            val message = when (result) {
-                                DownloadResult.DOWNLOADED ->
-                                    "$chapterLabel completato"
-                                DownloadResult.SKIPPED_EXISTING ->
-                                    "$chapterLabel già presente"
-                            }
-                            emitStatus(
-                                mutex = statusMutex,
-                                sourceId = plan.sourceId,
-                                seriesTitle = plan.seriesTitle,
-                                mangaUrl = plan.mangaUrl,
-                                message = message,
-                                doneChapters = done,
-                                totalChapters = totalChapters,
-                            )
-                        }
-                    }
-                }.awaitAll()
+            val summary = chapterDownloader.download(
+                request = ChapterDownloadRequest(
+                    firstUrl = firstUrl,
+                    lastUrl = lastUrl,
+                    sourceId = inputSourceId ?: taggedSourceId,
+                ),
+                isStopped = { isStopped },
+            ) { status ->
+                updateStatus(
+                    sourceId = status.sourceId,
+                    seriesTitle = status.seriesTitle,
+                    mangaUrl = status.mangaUrl,
+                    message = status.message,
+                    doneChapters = status.doneChapters,
+                    totalChapters = status.totalChapters,
+                )
             }
-
-            updateStatus(
-                sourceId = plan.sourceId,
-                seriesTitle = plan.seriesTitle,
-                mangaUrl = plan.mangaUrl,
-                message = "Download completato: $totalChapters $unitPlural",
-                doneChapters = totalChapters,
-                totalChapters = totalChapters,
-            )
+            val totalChapters = summary.totalChapters
             // Notifica finale NON-ongoing (id separato): la notifica di progresso è ongoing e
             // viene rimossa dal sistema appena il worker termina, quindi chi ha lo schermo
             // spento non vedrebbe mai un segnale di fine. Tocco = apre l'app sulla Libreria.
             postResultNotification(
-                key = notificationKey(plan.sourceId, plan.mangaUrl, plan.seriesTitle),
-                title = plan.seriesTitle,
-                text = "Download completato: $totalChapters $unitPlural — tocca per leggere",
+                key = notificationKey(summary.sourceId, summary.mangaUrl, summary.seriesTitle),
+                title = summary.seriesTitle,
+                text = "Download completato: $totalChapters ${summary.unitPlural} — tocca per leggere",
             )
             Result.success(
                 workDataOf(
                     PROGRESS_MESSAGE to "Completato",
                     PROGRESS_DONE_CHAPTERS to totalChapters,
                     PROGRESS_TOTAL_CHAPTERS to totalChapters,
-                    PROGRESS_SOURCE_ID to plan.sourceId,
-                    PROGRESS_SERIES_TITLE to plan.seriesTitle,
-                    PROGRESS_MANGA_URL to plan.mangaUrl,
+                    PROGRESS_SOURCE_ID to summary.sourceId,
+                    PROGRESS_SERIES_TITLE to summary.seriesTitle,
+                    PROGRESS_MANGA_URL to summary.mangaUrl,
                 ),
             )
         } catch (ioe: IOException) {
@@ -261,26 +155,6 @@ class DownloadWorker(
                     PROGRESS_LAST_URL to lastUrl,
                 ),
             )
-        }
-    }
-
-    private suspend fun emitStatus(
-        mutex: Mutex,
-        sourceId: String,
-        seriesTitle: String,
-        mangaUrl: String,
-        message: String,
-        doneChapters: Int,
-        totalChapters: Int,
-    ) {
-        mutex.withLock {
-            updateStatus(sourceId, seriesTitle, mangaUrl, message, doneChapters, totalChapters)
-        }
-    }
-
-    private fun ensureActiveDownload() {
-        if (isStopped) {
-            throw DownloadStoppedException()
         }
     }
 
@@ -442,10 +316,6 @@ class DownloadWorker(
         private const val NOTIFICATION_ID = 1001
         // Le notifiche finali (per-serie) vivono in un range separato dall'id ongoing (1001).
         private const val COMPLETION_ID_BASE = 2000
-        private const val CHAPTER_CONCURRENCY = 2
-        private const val PAGE_CONCURRENCY = 4
-        private const val PAGE_PROGRESS_STRIDE = 5
-        private const val PAGE_PROGRESS_MIN_INTERVAL_MS = 1_500L
 
         /** Serie scaricate insieme (FIFO: kotlinx `Semaphore` serve le attese in ordine). */
         private val seriesSlot = Semaphore(1)
@@ -552,7 +422,6 @@ class DownloadWorker(
     }
 }
 
-private class DownloadStoppedException : RuntimeException()
 
 private fun Set<String>.tagValue(prefix: String): String? {
     return firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)

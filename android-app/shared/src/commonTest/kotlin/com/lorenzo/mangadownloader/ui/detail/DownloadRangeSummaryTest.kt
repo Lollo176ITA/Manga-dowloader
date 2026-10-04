@@ -2,16 +2,16 @@ package com.lorenzo.mangadownloader.ui.detail
 
 import com.lorenzo.mangadownloader.data.library.DownloadStorage
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
-import java.math.BigDecimal
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /** Conteggio del riepilogo del dialog di range: selezionati e già scaricati (da saltare). */
 class DownloadRangeSummaryTest {
 
     private fun chapter(n: Int): ChapterEntry = ChapterEntry(
         numberText = n.toString(),
-        numberValue = BigDecimal(n),
+        numberValue = ChapterNumber.of(n.toLong()),
         url = "https://mangapill.com/chapters/$n/test-$n",
         slug = "test-$n",
     )
@@ -99,14 +99,8 @@ class DownloadRangeSummaryTest {
     @Test
     fun invertedOrUnknownRange_isEmpty() {
         // end prima di start
-        assertEquals(
-            DownloadRangeSummary(0, 0),
-            downloadRangeSummary(chapters, chapters[3].url, chapters[1].url, emptySet()),
-        )
+        assertEquals(DownloadRangeSummary(0, 0), downloadRangeSummary(chapters, chapters[3].url, chapters[1].url, emptySet()))
         // url inesistente
-        assertEquals(
-            DownloadRangeSummary(0, 0),
-            downloadRangeSummary(chapters, "https://x/none", chapters[1].url, emptySet()),
-        )
+        assertEquals(DownloadRangeSummary(0, 0), downloadRangeSummary(chapters, "https://x/none", chapters[1].url, emptySet()))
     }
 }

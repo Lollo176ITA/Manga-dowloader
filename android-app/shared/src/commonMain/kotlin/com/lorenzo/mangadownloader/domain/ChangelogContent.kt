@@ -1,8 +1,6 @@
 package com.lorenzo.mangadownloader.domain
 
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlinx.datetime.LocalDate
 
 /**
  * Modello del changelog mostrato in-app, ricavato dal `CHANGELOG.md` (bundlato negli assets,
@@ -79,9 +77,6 @@ fun parseChangelog(markdown: String, includeInternal: Boolean = false): List<Cha
     return days
 }
 
-private val CHANGELOG_DATE_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ITALIAN)
-
 /** Data ISO ("2026-06-10") → estesa italiana ("10 giugno 2026"); fallback alla stringa originale. */
 fun formatChangelogDate(isoDate: String): String =
-    runCatching { LocalDate.parse(isoDate).format(CHANGELOG_DATE_FORMATTER) }.getOrDefault(isoDate)
+    runCatching { formatItalianLongDate(LocalDate.parse(isoDate)) }.getOrDefault(isoDate)

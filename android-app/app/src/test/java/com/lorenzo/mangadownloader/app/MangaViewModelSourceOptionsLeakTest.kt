@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -54,8 +55,8 @@ class MangaViewModelSourceOptionsLeakTest {
         prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
 
-        FavoritesStore(prefs).persist(listOf(databook, onePiece))
-        val links = SeriesLinksStore(prefs)
+        FavoritesStore(AndroidPreferencesSettings(prefs)).persist(listOf(databook, onePiece))
+        val links = SeriesLinksStore(AndroidPreferencesSettings(prefs))
         links.ensureLink(
             seriesKey = databook.seriesKey,
             title = databook.title,
@@ -113,7 +114,7 @@ class MangaViewModelSourceOptionsLeakTest {
             ),
         )
 
-        val stored = FavoritesStore(prefs).read().first { it.title == onePiece.title }
+        val stored = FavoritesStore(AndroidPreferencesSettings(prefs)).read().first { it.title == onePiece.title }
         assertEquals(onePiece.sourceId, stored.sourceId)
         assertEquals(onePiece.mangaUrl, stored.mangaUrl)
     }

@@ -1,22 +1,13 @@
 package com.lorenzo.mangadownloader.domain
 
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
+import com.lorenzo.mangadownloader.platform.secureRandomBytes
+import okio.ByteString.Companion.encodeUtf8
+import okio.ByteString.Companion.toByteString
 
-private val secureRandom = SecureRandom()
+fun generateParentalPinSalt(): String = secureRandomBytes(16).toByteString().base64()
 
-fun generateParentalPinSalt(): String {
-    val bytes = ByteArray(16)
-    secureRandom.nextBytes(bytes)
-    return Base64.getEncoder().encodeToString(bytes)
-}
-
-fun hashParentalPin(pin: String, salt: String): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val hash = digest.digest("$salt:$pin".toByteArray(Charsets.UTF_8))
-    return Base64.getEncoder().encodeToString(hash)
-}
+/** SHA-256 di "salt:pin" in Base64 standard: formato invariato rispetto agli hash già salvati. */
+fun hashParentalPin(pin: String, salt: String): String = "$salt:$pin".encodeUtf8().sha256().base64()
 
 fun sanitizeParentalPin(input: String): String {
     return input.filter(Char::isDigit).take(6)

@@ -1,8 +1,11 @@
 package com.lorenzo.mangadownloader.data.network
 
 import android.content.Context
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.Volatile
 import okhttp3.Cache
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
@@ -21,6 +24,22 @@ object SharedHttpClient {
 
     @Volatile
     private var instance: OkHttpClient? = null
+
+    @Volatile
+    private var ktorInstance: HttpClient? = null
+
+    /**
+     * Client Ktor per il codice condiviso (fonti, AniList): usa lo stesso [OkHttpClient], quindi
+     * stessi pool, cache e timeout di prima.
+     */
+    fun ktor(context: Context): HttpClient {
+        ktorInstance?.let { return it }
+        return synchronized(this) {
+            ktorInstance ?: HttpClient(OkHttp) {
+                engine { preconfigured = get(context) }
+            }.also { ktorInstance = it }
+        }
+    }
 
     fun get(context: Context): OkHttpClient {
         instance?.let { return it }

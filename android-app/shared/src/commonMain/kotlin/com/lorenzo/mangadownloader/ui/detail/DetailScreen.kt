@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -51,6 +50,7 @@ import com.lorenzo.mangadownloader.data.model.displayLabel
 import com.lorenzo.mangadownloader.data.model.readingUnitPlural
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.ui.anilist.AniListTrackingRow
+import com.lorenzo.mangadownloader.ui.components.AppExposedDropdownMenu
 import com.lorenzo.mangadownloader.ui.components.ChapterRow
 import com.lorenzo.mangadownloader.ui.components.FullScreenLoading
 import com.lorenzo.mangadownloader.ui.components.SeriesHeader
@@ -338,7 +338,7 @@ private fun SourceSelector(
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             shape = MaterialTheme.shapes.large,
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        AppExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(
                     text = {
@@ -523,7 +523,7 @@ private fun DownloadRangeDialog(
                         },
                         shape = MaterialTheme.shapes.large,
                     )
-                    ExposedDropdownMenu(
+                    AppExposedDropdownMenu(
                         expanded = startMenuExpanded,
                         onDismissRequest = onDismissStartMenu,
                     ) {
@@ -554,7 +554,7 @@ private fun DownloadRangeDialog(
                         },
                         shape = MaterialTheme.shapes.large,
                     )
-                    ExposedDropdownMenu(
+                    AppExposedDropdownMenu(
                         expanded = endMenuExpanded,
                         onDismissRequest = onDismissEndMenu,
                     ) {

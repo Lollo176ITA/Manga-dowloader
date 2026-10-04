@@ -1,5 +1,8 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.platform.settings
+import okio.Path.Companion.toOkioPath
 import android.app.Application
 import android.content.Context
 import android.os.Environment
@@ -9,6 +12,7 @@ import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.library.LibraryScanner
 import com.lorenzo.mangadownloader.data.library.SeriesMetadataJson
 import com.lorenzo.mangadownloader.data.model.ChapterEntry
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaDetails
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.network.MangaNetworkClient
@@ -19,7 +23,7 @@ import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.data.sources.MangaSourceLanguage
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import java.io.File
-import java.math.BigDecimal
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -104,7 +108,7 @@ class StreamingReadStateTest {
     }
 
     @Test
-    fun prepareSeriesStorage_mergesStreamingReadIdsIntoDownloadedMetadataAndScan() {
+    fun prepareSeriesStorage_mergesStreamingReadIdsIntoDownloadedMetadataAndScan() = runBlocking<Unit> {
         val readChapter = chapter("1")
         val unreadChapter = chapter("2")
         val repository = LibraryRepository(application)
@@ -127,12 +131,12 @@ class StreamingReadStateTest {
         val plan = source.buildDownloadPlan(readChapter.url, unreadChapter.url)
         source.prepareSeriesStorage(plan)
         plan.chapters.forEach { selected ->
-            File(plan.outputDir, DownloadStorage.buildChapterFileName(selected)).writeText(selected.displayLabel())
+            File(plan.outputDir.toFile(), DownloadStorage.buildChapterFileName(selected)).writeText(selected.displayLabel())
         }
 
-        val metadata = SeriesMetadataJson.read(File(plan.outputDir, DownloadStorage.SERIES_METADATA_FILE_NAME))
+        val metadata = SeriesMetadataJson.read(File(plan.outputDir.toFile(), DownloadStorage.SERIES_METADATA_FILE_NAME).toOkioPath())
         val scanned = LibraryScanner.scan(
-            root = DownloadStorage.libraryRoot(application),
+            root = LibraryRepository(application).libraryRoot.toFile().toOkioPath(),
             isRead = { false },
         ).single()
 
@@ -169,7 +173,7 @@ class StreamingReadStateTest {
     private fun chapter(number: String): ChapterEntry {
         return ChapterEntry(
             numberText = number,
-            numberValue = BigDecimal(number),
+            numberValue = ChapterNumber.parse(number),
             url = "$MANGA_URL/chapter-$number",
             slug = "chapter-$number",
         )
@@ -187,8 +191,9 @@ class StreamingReadStateTest {
         context: Context,
         private val details: MangaDetails,
     ) : BaseMangaSource(
-        context = context,
-        networkClient = MangaNetworkClient(SharedHttpClient.get(context)),
+        appSettings = context.settings(SettingsStore.PREFS_NAME),
+        networkClient = MangaNetworkClient(SharedHttpClient.ktor(context)),
+        libraryRepository = LibraryRepository(context),
     ) {
         override val descriptor: MangaSourceDescriptor = MangaSourceDescriptor(
             id = MangaSourceIds.MANGAPILL,
@@ -200,13 +205,13 @@ class StreamingReadStateTest {
 
         override fun canHandleUrl(url: String): Boolean = url.startsWith(MANGA_URL)
 
-        override fun searchManga(query: String): List<MangaSearchResult> = emptyList()
+        override suspend fun searchManga(query: String): List<MangaSearchResult> = emptyList()
 
-        override fun fetchMangaDetails(mangaUrl: String): MangaDetails = details
+        override suspend fun fetchMangaDetails(mangaUrl: String): MangaDetails = details
 
         override fun canonicalMangaUrl(url: String): String? = MANGA_URL
 
-        override fun fetchPageImageUrls(chapterUrl: String): List<String> = emptyList()
+        override suspend fun fetchPageImageUrls(chapterUrl: String): List<String> = emptyList()
     }
 
     private companion object {

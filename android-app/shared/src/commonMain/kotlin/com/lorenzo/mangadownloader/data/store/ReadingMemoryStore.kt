@@ -1,19 +1,19 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
 import com.lorenzo.mangadownloader.data.backup.ReadingMemoryBackupEntry
 import com.lorenzo.mangadownloader.data.backup.toBackupEntry
 import com.lorenzo.mangadownloader.data.backup.toReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 
 /**
- * Persistenza della memoria di lettura ([ReadChapterMemory]) su [SharedPreferences], JSON
+ * Persistenza della memoria di lettura ([ReadChapterMemory]) su [Settings], JSON
  * tipizzato come gli altri store. La forma su disco è la stessa del backup
  * ([ReadingMemoryBackupEntry]): un solo DTO e un solo decoder, così store e restore non
  * possono divergere. La mappa è piccola (un record per capitolo con progresso) e sopravvive
  * all'eliminazione dei file scaricati: è la fonte di verità di statistiche e cronologia.
  */
-class ReadingMemoryStore(private val prefs: SharedPreferences) {
+class ReadingMemoryStore(private val prefs: Settings) {
 
     fun read(): Map<String, ReadChapterMemory> {
         return prefs.readJson<Map<String, ReadingMemoryBackupEntry>>(KEY_READING_MEMORY_JSON, emptyMap())

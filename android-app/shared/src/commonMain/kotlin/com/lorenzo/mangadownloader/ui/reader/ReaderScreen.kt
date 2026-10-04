@@ -1,6 +1,5 @@
 package com.lorenzo.mangadownloader.ui.reader
 
-import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.AnimationState
@@ -72,7 +71,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -81,17 +79,18 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
-import coil3.imageLoader
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
@@ -104,13 +103,13 @@ import com.lorenzo.mangadownloader.ui.components.AppLoadingIndicator
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.ReaderChapterNavigationRow
 import com.lorenzo.mangadownloader.ui.components.icon
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 @Composable
 fun ReaderScreen(
@@ -394,7 +393,7 @@ private fun VerticalReader(
     val zoomFlingDecay = remember { exponentialDecay<Float>() }
     val readerScope = rememberCoroutineScope()
     var zoomFlingJob by remember(chapterKey) { mutableStateOf<Job?>(null) }
-    val context = LocalContext.current
+    val context = LocalPlatformContext.current
     // Spazio in fondo alla lista per la barra capitoli flottante: senza, la riga
     // Precedente/Successivo finisce sotto la barra (da ingranditi resta cliccabile
     // solo la parte di parola che sporge).
@@ -793,7 +792,7 @@ private fun PagedReader(
         pageCount = { pages.size },
     )
     var hasMoved by remember(chapterKey) { mutableStateOf(false) }
-    val context = LocalContext.current
+    val context = LocalPlatformContext.current
     // Pagina più avanzata raggiunta nel capitolo: pilota il pulsante "riprendi"
     // quando si torna indietro di qualche pagina.
     var furthestPageIndex by remember(chapterKey) {
@@ -1102,15 +1101,14 @@ private fun ReaderPageImage(
 ) {
     var retryAttempt by remember(page.stableKey) { mutableIntStateOf(0) }
     var tallPageChunks by remember(page.stableKey) { mutableStateOf<List<ImageBitmap>?>(null) }
-    val context = LocalContext.current
+    val context = LocalPlatformContext.current
 
     val chunks = tallPageChunks
     if (chunks != null) {
         DisposableEffect(chunks) {
             onDispose {
                 chunks.forEach { chunk ->
-                    val bitmap = chunk.asAndroidBitmap()
-                    if (!bitmap.isRecycled) bitmap.recycle()
+                    chunk.releaseNativeMemory()
                 }
             }
         }
@@ -1202,7 +1200,7 @@ private fun ReaderPageImage(
  * conosciamo — rileggere lo stesso file rotto non la farebbe mai ricomparire.
  */
 private fun readerImageRequest(
-    context: Context,
+    context: PlatformContext,
     page: ReaderPage,
     retryAttempt: Int = 0,
     spreadRotation: SpreadRotation? = null,
@@ -1247,7 +1245,7 @@ private fun readerImageRequest(
  * deduplica Coil tramite cache.
  */
 private fun prefetchReaderPages(
-    context: Context,
+    context: PlatformContext,
     pages: List<ReaderPage>,
     fromIndex: Int,
     spreadRotation: SpreadRotation?,
@@ -1256,7 +1254,7 @@ private fun prefetchReaderPages(
     val last = (fromIndex + ReaderPrefetchPagesAhead).coerceAtMost(pages.lastIndex)
     for (index in first..last) {
         val page = pages.getOrNull(index) as? ReaderPage.Remote ?: continue
-        context.imageLoader.enqueue(
+        SingletonImageLoader.get(context).enqueue(
             // Stessa richiesta che farà la pagina quando toccherà a lei, rotazione compresa:
             // con parametri diversi la cache non verrebbe riusata e il prefetch sarebbe sprecato.
             readerImageRequest(context, page, spreadRotation = spreadRotation),

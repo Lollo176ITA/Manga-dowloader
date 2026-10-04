@@ -25,15 +25,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.domain.formatFixed
+import com.lorenzo.mangadownloader.platform.length
+import com.lorenzo.mangadownloader.platform.systemFileSystem
 import com.lorenzo.mangadownloader.ui.components.ConfirmationDialog
 import com.lorenzo.mangadownloader.ui.components.CoverImage
 import com.lorenzo.mangadownloader.ui.components.DeleteReadChaptersDialog
 import com.lorenzo.mangadownloader.ui.components.SeriesActionsMenu
 import com.lorenzo.mangadownloader.ui.components.SeriesDownloadSummary
 import com.lorenzo.mangadownloader.ui.components.appCardColors
+import com.lorenzo.mangadownloader.ui.settings.storageSizeBytes
 import com.lorenzo.mangadownloader.ui.theme.ReadGreen
-import java.io.File
-import java.util.Locale
 
 @Composable
 fun LibrarySeriesCard(
@@ -178,7 +180,7 @@ fun LibrarySeriesCard(
     }
 
     if (showDeleteReadDialog && series != null) {
-        val freedBytes = remember(series) { readChapters.sumOf { it.file.length() } }
+        val freedBytes = remember(series) { readChapters.sumOf { systemFileSystem.length(it.file) } }
         DeleteReadChaptersDialog(
             seriesTitle = series.title,
             readCount = readChapters.size,
@@ -193,15 +195,13 @@ fun LibrarySeriesCard(
 }
 
 private fun buildSeriesInfoText(series: DownloadedSeries): String {
-    val totalSizeBytes = series.directory.walkTopDown()
-        .filter(File::isFile)
-        .sumOf(File::length)
+    val totalSizeBytes = series.storageSizeBytes()
     return buildString {
         appendLine("Capitoli scaricati: ${series.chapters.size}")
         appendLine("Capitoli totali: ${series.totalChapterCount}")
         appendLine("Progresso: ${series.readProgressLabel()}")
         appendLine("Dimensione: ${formatBytes(totalSizeBytes)}")
-        appendLine("Percorso: ${series.directory.absolutePath}")
+        appendLine("Percorso: ${series.directory}")
         series.mangaUrl?.takeIf(String::isNotBlank)?.let { url ->
             appendLine("Sorgente: $url")
         }
@@ -217,5 +217,5 @@ internal fun formatBytes(bytes: Long): String {
         value /= 1024.0
         unitIndex += 1
     }
-    return String.format(Locale.getDefault(), "%.1f %s", value, units[unitIndex])
+    return "${formatFixed(value, 1).replace('.', ',')} ${units[unitIndex]}"
 }

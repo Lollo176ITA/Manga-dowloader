@@ -1,7 +1,5 @@
 package com.lorenzo.mangadownloader.app
 
-import android.content.Context
-import com.lorenzo.mangadownloader.DownloadWorker
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.model.matchKeys
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
@@ -11,42 +9,11 @@ import com.lorenzo.mangadownloader.data.store.FavoritesStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-enum class TutorialPhase {
-    Idle,
-    Welcome,
-    Preloading,
-    AwaitingSearchBar,
-    AwaitingResultTap,
-    AwaitingFavorite,
-    AwaitingDownload,
-    AwaitingFavoritesTab,
-    AwaitingLibraryTab,
-    AwaitingSeriesTap,
-    AwaitingChapterTap,
-    InReader,
-    AwaitingOverflow,
-    Closing,
-    FallbackShowcase,
-    FallbackClosing,
-}
-
-data class TutorialSample(
-    val sourceId: String,
-    val mangaUrl: String,
-    val title: String,
-    val coverUrl: String?,
-    val chapterUrl: String,
-)
-
-data class TutorialUiState(
-    val phase: TutorialPhase = TutorialPhase.Idle,
-    val sample: TutorialSample? = null,
-)
 
 /**
  * Tutorial guidato estratto da [MangaViewModel]: benvenuto, preload del manga di esempio
@@ -56,7 +23,7 @@ data class TutorialUiState(
 class TutorialController(
     private val state: MutableStateFlow<MangaUiState>,
     private val scope: CoroutineScope,
-    private val context: Context,
+    private val downloadScheduler: DownloadScheduler,
     private val sourceRegistry: MangaSourceRegistry,
     private val favoritesStore: FavoritesStore,
     private val libraryRepository: LibraryRepository,
@@ -128,14 +95,15 @@ class TutorialController(
                     coverUrl = match.coverUrl,
                     chapterUrl = chapter.url,
                 )
-                DownloadWorker.enqueue(
-                    context = context,
-                    firstUrl = chapter.url,
-                    lastUrl = chapter.url,
-                    sourceId = match.sourceId,
-                    seriesTitle = match.title,
-                    mangaUrl = match.mangaUrl,
-                    coverUrl = match.coverUrl,
+                downloadScheduler.enqueue(
+                    ChapterDownloadRequest(
+                        firstUrl = chapter.url,
+                        lastUrl = chapter.url,
+                        sourceId = match.sourceId,
+                        seriesTitle = match.title,
+                        mangaUrl = match.mangaUrl,
+                        coverUrl = match.coverUrl,
+                    ),
                 )
                 updateState {
                     copy(

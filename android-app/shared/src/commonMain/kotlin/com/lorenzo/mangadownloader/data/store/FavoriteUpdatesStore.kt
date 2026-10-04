@@ -1,13 +1,14 @@
 package com.lorenzo.mangadownloader.data.store
 
-import android.content.SharedPreferences
+import com.russhwolf.settings.Settings
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
-import java.math.BigDecimal
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import kotlinx.serialization.Serializable
 
 /**
  * Stato "ultimo visto" di un manga preferito, per decidere se è uscito un nuovo capitolo.
- * [latestChapterNumber] è il numero capitolo massimo già visto (BigDecimal in formato piano);
+ * [latestChapterNumber] è il numero capitolo massimo già visto (ChapterNumber in formato piano);
  * [status] è lo stato di pubblicazione dell'ultimo controllo (per saltare i conclusi).
  */
 @Serializable
@@ -33,7 +34,7 @@ data class FavoriteUpdateResult(
  */
 fun computeFavoriteUpdate(
     seen: FavoriteSeenState?,
-    latestNumber: BigDecimal,
+    latestNumber: ChapterNumber,
     latestLabel: String,
     status: MangaPublicationStatus,
 ): FavoriteUpdateResult {
@@ -44,7 +45,7 @@ fun computeFavoriteUpdate(
     if (seen == null) {
         return FavoriteUpdateResult(newChapterLabel = null, newState = newState)
     }
-    val previous = seen.latestChapterNumber.toBigDecimalOrNull()
+    val previous = seen.latestChapterNumber.toChapterNumberOrNull()
     val isNew = previous == null || latestNumber > previous
     return FavoriteUpdateResult(
         newChapterLabel = if (isNew) latestLabel else null,
@@ -63,10 +64,10 @@ fun shouldPollFavorite(seen: FavoriteSeenState?): Boolean {
 }
 
 /**
- * Persistenza della mappa `identityKey -> `[FavoriteSeenState] su [SharedPreferences].
+ * Persistenza della mappa `identityKey -> `[FavoriteSeenState] su [Settings].
  * Tollerante: JSON illeggibile → mappa vuota (la baseline si ricostruisce al giro successivo).
  */
-class FavoriteUpdatesStore(private val prefs: SharedPreferences) {
+class FavoriteUpdatesStore(private val prefs: Settings) {
 
     fun read(): Map<String, FavoriteSeenState> =
         prefs.readJson(KEY_FAVORITE_UPDATES_JSON, emptyMap())

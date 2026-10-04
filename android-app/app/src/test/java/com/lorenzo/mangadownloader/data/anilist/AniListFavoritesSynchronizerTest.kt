@@ -1,8 +1,9 @@
 package com.lorenzo.mangadownloader.data.anilist
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
+import android.content.SharedPreferences
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
@@ -41,8 +42,8 @@ class AniListFavoritesSynchronizerTest {
         val application = ApplicationProvider.getApplicationContext<Application>()
         prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        syncStore = AniListFavoritesSyncStore(prefs)
-        seriesLinksStore = SeriesLinksStore(prefs)
+        syncStore = AniListFavoritesSyncStore(AndroidPreferencesSettings(prefs))
+        seriesLinksStore = SeriesLinksStore(AndroidPreferencesSettings(prefs))
         toggled.clear()
     }
 

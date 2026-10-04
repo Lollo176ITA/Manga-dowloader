@@ -48,6 +48,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.domain.formatFixed
+import com.lorenzo.mangadownloader.platform.isFile
+import com.lorenzo.mangadownloader.platform.length
+import com.lorenzo.mangadownloader.platform.systemFileSystem
 import com.lorenzo.mangadownloader.ui.components.ConfirmationDialog
 import com.lorenzo.mangadownloader.ui.components.CoverImage
 import com.lorenzo.mangadownloader.ui.components.DeleteReadChaptersDialog
@@ -58,9 +62,8 @@ import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.library.formatBytes
 import com.lorenzo.mangadownloader.ui.library.readChaptersSizeBytes
 import com.lorenzo.mangadownloader.ui.library.readDownloadedChapters
-import java.io.File
-import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 
 enum class StorageSortOrder { SIZE_DESC, SIZE_ASC, NAME }
@@ -137,7 +140,7 @@ fun StorageScreen(
                             onSelect = { sortOrder = it },
                         )
                     }
-                    items(sortedItems, key = { it.series.directory.absolutePath }) { info ->
+                    items(sortedItems, key = { it.series.directory.toString() }) { info ->
                         StorageSeriesRow(
                             info = info,
                             totalBytes = totalBytes,
@@ -326,7 +329,7 @@ private fun StorageSeriesRow(
                 // Disambigua: i "letti" sono il progresso di lettura, la % è la quota di spazio.
                 Text(
                     text = "$readDownloaded/${series.chapters.size} letti · " +
-                        "${String.format(Locale.US, "%.0f", percent)}% dello spazio",
+                        "${formatFixed(percent.toDouble(), 0)}% dello spazio",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -398,14 +401,16 @@ private fun List<SeriesStorageInfo>.sortedByOrder(order: StorageSortOrder): List
     return when (order) {
         StorageSortOrder.SIZE_DESC -> sortedByDescending { it.sizeBytes }
         StorageSortOrder.SIZE_ASC -> sortedBy { it.sizeBytes }
-        StorageSortOrder.NAME -> sortedBy { it.series.title.lowercase(Locale.US) }
+        StorageSortOrder.NAME -> sortedBy { it.series.title.lowercase() }
     }
 }
 
 internal fun DownloadedSeries.storageSizeBytes(): Long {
-    return directory.walkTopDown()
-        .filter(File::isFile)
-        .sumOf(File::length)
+    val fileSystem = systemFileSystem
+    if (!fileSystem.exists(directory)) return 0L
+    return fileSystem.listRecursively(directory)
+        .filter { fileSystem.isFile(it) }
+        .sumOf { fileSystem.length(it) }
 }
 
 private fun DownloadedSeries.colorKey(): String = directory.name

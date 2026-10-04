@@ -7,6 +7,7 @@ import com.lorenzo.mangadownloader.data.sources.SearchScope
 import com.lorenzo.mangadownloader.data.store.SeriesLinksStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope

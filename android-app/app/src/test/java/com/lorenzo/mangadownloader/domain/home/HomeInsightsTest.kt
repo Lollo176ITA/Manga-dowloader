@@ -1,13 +1,15 @@
 package com.lorenzo.mangadownloader.domain.home
 
+import okio.Path.Companion.toOkioPath
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
 import com.lorenzo.mangadownloader.data.library.DownloadedSeries
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
+import com.lorenzo.mangadownloader.data.model.toChapterNumberOrNull
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.seedReadingMemory
 import java.io.File
-import java.math.BigDecimal
-import java.time.ZoneId
+import kotlinx.datetime.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,10 +27,10 @@ class HomeInsightsTest {
     ) = DownloadedChapter(
         title = "Capitolo $number",
         numberText = number,
-        numberValue = number.toBigDecimalOrNull() ?: BigDecimal.ZERO,
+        numberValue = number.toChapterNumberOrNull() ?: ChapterNumber.ZERO,
         volumeText = null,
         labelPrefix = "Capitolo",
-        file = File("$number.cbz"),
+        file = File("$number.cbz").toOkioPath(),
         relativePath = "$dir/$number.cbz",
         chapterId = "id-$number",
         isRead = isRead,
@@ -42,7 +44,7 @@ class HomeInsightsTest {
         title = title,
         mangaUrl = "https://mangapill.com/manga/${title.lowercase()}",
         coverFile = null,
-        directory = File(title),
+        directory = File(title).toOkioPath(),
         chapters = chapters,
         totalChapterCount = chapters.size,
         readChapterIds = emptySet(),
@@ -186,7 +188,7 @@ class HomeInsightsTest {
 
     @Test
     fun dayLabel_todayYesterdayAndDate() {
-        val zone = ZoneId.of("Europe/Rome")
+        val zone = TimeZone.of("Europe/Rome")
         val now = 1_770_000_000_000L // un istante fisso
         assertEquals("Oggi", historyDayLabel(now - 60_000L, now, zone))
         assertEquals("Ieri", historyDayLabel(now - 24L * 60 * 60 * 1000, now, zone))

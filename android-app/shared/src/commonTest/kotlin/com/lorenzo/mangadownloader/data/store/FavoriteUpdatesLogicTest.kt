@@ -1,16 +1,16 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.fleeksoft.ksoup.Ksoup
+import com.lorenzo.mangadownloader.data.model.ChapterNumber
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.displayLabel
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.sources.statusTextNearLabel
-import java.math.BigDecimal
-import org.jsoup.Jsoup
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Logica pura delle notifiche sui preferiti: mappatura stato, decisione "nuovo capitolo",
@@ -58,7 +58,7 @@ class FavoriteUpdatesLogicTest {
     fun computeUpdate_firstTimeIsBaselineWithoutNotification() {
         val result = computeFavoriteUpdate(
             seen = null,
-            latestNumber = BigDecimal("10"),
+            latestNumber = ChapterNumber.parse("10"),
             latestLabel = "Capitolo 10",
             status = MangaPublicationStatus.ONGOING,
         )
@@ -71,7 +71,7 @@ class FavoriteUpdatesLogicTest {
     fun computeUpdate_notifiesWhenNewerChapter() {
         val result = computeFavoriteUpdate(
             seen = FavoriteSeenState("10", MangaPublicationStatus.ONGOING.name),
-            latestNumber = BigDecimal("11"),
+            latestNumber = ChapterNumber.parse("11"),
             latestLabel = "Capitolo 11",
             status = MangaPublicationStatus.ONGOING,
         )
@@ -83,7 +83,7 @@ class FavoriteUpdatesLogicTest {
     fun computeUpdate_noNotificationWhenSameOrOlder() {
         val same = computeFavoriteUpdate(
             seen = FavoriteSeenState("11", MangaPublicationStatus.ONGOING.name),
-            latestNumber = BigDecimal("11"),
+            latestNumber = ChapterNumber.parse("11"),
             latestLabel = "Capitolo 11",
             status = MangaPublicationStatus.ONGOING,
         )
@@ -91,7 +91,7 @@ class FavoriteUpdatesLogicTest {
 
         val older = computeFavoriteUpdate(
             seen = FavoriteSeenState("11", MangaPublicationStatus.ONGOING.name),
-            latestNumber = BigDecimal("10"),
+            latestNumber = ChapterNumber.parse("10"),
             latestLabel = "Capitolo 10",
             status = MangaPublicationStatus.ONGOING,
         )
@@ -102,7 +102,7 @@ class FavoriteUpdatesLogicTest {
     fun computeUpdate_recordsStatusEvenWithoutNewChapter() {
         val result = computeFavoriteUpdate(
             seen = FavoriteSeenState("11", MangaPublicationStatus.ONGOING.name),
-            latestNumber = BigDecimal("11"),
+            latestNumber = ChapterNumber.parse("11"),
             latestLabel = "Capitolo 11",
             status = MangaPublicationStatus.COMPLETED,
         )
@@ -121,7 +121,7 @@ class FavoriteUpdatesLogicTest {
 
     @Test
     fun statusTextNearLabel_readsSiblingValue() {
-        val doc = Jsoup.parse(
+        val doc = Ksoup.parse(
             """<div class="meta-data-item"><span class="title">Stato</span><a href="#">In corso</a></div>""",
         )
         assertEquals("In corso", statusTextNearLabel(doc, "Stato", "Status"))
@@ -129,14 +129,14 @@ class FavoriteUpdatesLogicTest {
 
     @Test
     fun statusTextNearLabel_readsInlineLabelColonValue() {
-        val doc = Jsoup.parse("""<li><b>Stato:</b> Completato</li>""")
+        val doc = Ksoup.parse("""<li><b>Stato:</b> Completato</li>""")
         assertEquals("Completato", statusTextNearLabel(doc, "Stato"))
     }
 
     @Test
     fun statusTextNearLabel_readsValueInsideChildLink() {
         // Pattern "Etichetta: <a>valore</a>" sulla stessa riga — prima non lo prendeva.
-        val doc = Jsoup.parse("""<p class="mb-1">Status: <a href="/status/2">Completed</a></p>""")
+        val doc = Ksoup.parse("""<p class="mb-1">Status: <a href="/status/2">Completed</a></p>""")
         assertEquals("Completed", statusTextNearLabel(doc, "Status", "Stato"))
     }
 
@@ -144,7 +144,7 @@ class FavoriteUpdatesLogicTest {
     fun statusTextNearLabel_skipsSeparatorSpanBetweenLabelAndValue() {
         // Markup reale VyManga: <span>Status</span><span>:</span><span>Ongoing</span>.
         // Il separatore ":" va saltato, altrimenti si leggeva ":" invece del valore.
-        val doc = Jsoup.parse(
+        val doc = Ksoup.parse(
             """<p><span class="pre-title">Status</span><span class="space">:</span><span class="text-ongoing">Ongoing</span></p>""",
         )
         assertEquals("Ongoing", statusTextNearLabel(doc, "Status", "Stato"))
@@ -152,7 +152,7 @@ class FavoriteUpdatesLogicTest {
 
     @Test
     fun statusTextNearLabel_nullWhenNoLabel() {
-        val doc = Jsoup.parse("""<div><span>Genere</span><a>Azione</a></div>""")
+        val doc = Ksoup.parse("""<div><span>Genere</span><a>Azione</a></div>""")
         assertNull(statusTextNearLabel(doc, "Stato", "Status"))
     }
 }

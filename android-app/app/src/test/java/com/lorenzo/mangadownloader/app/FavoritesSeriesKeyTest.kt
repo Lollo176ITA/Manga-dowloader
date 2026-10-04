@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.app
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -93,7 +94,7 @@ class FavoritesSeriesKeyTest {
             FavoriteManga("mangapill", "One Piece", "https://mangapill.com/manga/2", null),
         )
         val link = SeriesLinksStore(
-            application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE),
+            AndroidPreferencesSettings(application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)),
         ).linkFor("title:one piece")
         assertEquals("mangapill", link?.sources?.single()?.sourceId)
     }

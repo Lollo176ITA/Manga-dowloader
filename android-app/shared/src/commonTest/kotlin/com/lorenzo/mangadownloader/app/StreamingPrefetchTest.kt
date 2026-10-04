@@ -1,11 +1,11 @@
 package com.lorenzo.mangadownloader.app
 
 import com.lorenzo.mangadownloader.data.sources.MangaSourceIds
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Decisioni del prefetch del capitolo successivo in streaming: quando parte e a quale
@@ -22,10 +22,7 @@ class StreamingPrefetchTest {
 
     @Test
     fun pagesFor_serveLePagineSoloAlCapitoloEsatto() {
-        assertEquals(
-            pages,
-            prefetched.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/1/berserk-chapter-1"),
-        )
+        assertEquals(pages, prefetched.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/1/berserk-chapter-1"))
     }
 
     /**
@@ -35,18 +32,9 @@ class StreamingPrefetchTest {
      */
     @Test
     fun pagesFor_nonServeLePagineAUnAltroCapitoloOFonte() {
-        assertNull(
-            "Fonte diversa",
-            prefetched.pagesFor(MangaSourceIds.VYMANGA, "https://mangapill.com/chapters/1/berserk-chapter-1"),
-        )
-        assertNull(
-            "Capitolo diverso",
-            prefetched.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/2/berserk-chapter-2"),
-        )
-        assertNull(
-            "Nessun prefetch in corso",
-            null.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/1/berserk-chapter-1"),
-        )
+        assertNull(prefetched.pagesFor(MangaSourceIds.VYMANGA, "https://mangapill.com/chapters/1/berserk-chapter-1"), "Fonte diversa")
+        assertNull(prefetched.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/2/berserk-chapter-2"), "Capitolo diverso")
+        assertNull(null.pagesFor(MangaSourceIds.MANGAPILL, "https://mangapill.com/chapters/1/berserk-chapter-1"), "Nessun prefetch in corso")
     }
 
     @Test

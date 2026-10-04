@@ -7,48 +7,10 @@ import com.lorenzo.mangadownloader.data.library.StreamingReaderCachedChapter
 import com.lorenzo.mangadownloader.domain.reading.displayLabel
 import com.lorenzo.mangadownloader.ui.reader.PageHalf
 import com.lorenzo.mangadownloader.ui.reader.SpreadRotation
-import java.io.File
-
-/**
- * Come vengono sfogliate le pagine nel reader.
- * - [VERTICAL]: scroll verticale continuo (webtoon), modalità storica.
- * - [PAGED]: una pagina per volta, si sfoglia da sinistra a destra (occidentale).
- * - [PAGED_RTL]: come [PAGED] ma da destra a sinistra, il senso di lettura dei manga.
- */
-enum class ReadingMode(val menuLabel: String, val shortLabel: String) {
-    VERTICAL("Scroll verticale", "Verticale"),
-    PAGED("A pagine", "Pagine"),
-    PAGED_RTL("A pagine (da destra)", "Manga");
-
-    /** Vero per entrambe le modalità a pagine (occidentale e manga). */
-    val isPaged: Boolean get() = this == PAGED || this == PAGED_RTL
-
-    /** Vero solo per la modalità manga: lo swipe e l'ordine pagine vanno da destra a sinistra. */
-    val isRightToLeft: Boolean get() = this == PAGED_RTL
-
-    /**
-     * In quale ordine mostrare le due metà di una pagina doppia divisa: `true` per l'ordine
-     * di lettura dei manga, prima la metà destra.
-     *
-     * Vale ovunque tranne che in [PAGED], l'unica modalità in cui l'utente ha dichiarato di
-     * leggere da sinistra. Anche nello scroll verticale, quindi: le pagine doppie arrivano
-     * dai volumi manga, mentre le strisce webtoon — l'altro contenuto tipico di quella
-     * modalità — non ne producono mai.
-     */
-    val splitsSpreadRightFirst: Boolean get() = this != PAGED
-
-    /**
-     * Verso in cui ruotare una pagina doppia lasciata intera (vedi [SpreadRotation]). Stessa
-     * regola di [splitsSpreadRightFirst]: la facciata da leggere per prima deve finire in
-     * alto, così scorrendo verso il basso l'ordine resta quello giusto.
-     */
-    val spreadRotation: SpreadRotation
-        get() = if (splitsSpreadRightFirst) {
-            SpreadRotation.COUNTER_CLOCKWISE
-        } else {
-            SpreadRotation.CLOCKWISE
-        }
-}
+import com.lorenzo.mangadownloader.platform.length
+import com.lorenzo.mangadownloader.platform.isFile
+import com.lorenzo.mangadownloader.platform.systemFileSystem
+import okio.Path
 
 data class ReaderChapter(
     val title: String,
@@ -73,7 +35,7 @@ sealed class ReaderPage {
     abstract val sourceId: String?
 
     data class Local(
-        val file: File,
+        val file: Path,
         /**
          * Origine remota della pagina, quando nota (capitoli streaming in cache): permette
          * di riscaricarla se il file locale è sparito o corrotto, invece di rileggere
@@ -92,10 +54,10 @@ sealed class ReaderPage {
         // Le due metà della stessa pagina sono due voci distinte del pager e della lista:
         // senza il suffisso condividerebbero la chiave, che deve essere unica.
         override val stableKey: String =
-            file.absolutePath + (half?.let { "#${it.name}" } ?: "")
+            file.toString() + (half?.let { "#${it.name}" } ?: "")
 
         /** Vero se il file locale non è utilizzabile (sparito o vuoto). */
-        val isFileBroken: Boolean get() = !file.isFile || file.length() == 0L
+        val isFileBroken: Boolean get() = !systemFileSystem.isFile(file) || systemFileSystem.length(file) == 0L
     }
 
     data class Remote(
@@ -117,10 +79,10 @@ private val persistedTallPagePartPattern = Regex(
  * pagine normali e remote. Il reader verticale usa questa informazione per applicare
  * la spaziatura soltanto tra pagine originali, mai in mezzo a una striscia.
  */
-internal fun ReaderPage.persistedTallPageGroupKey(): String? {
+fun ReaderPage.persistedTallPageGroupKey(): String? {
     val local = this as? ReaderPage.Local ?: return null
     val match = persistedTallPagePartPattern.matchEntire(local.file.name) ?: return null
-    return "${local.file.parentFile?.absolutePath.orEmpty()}::${match.groupValues[1]}"
+    return "${local.file.parent?.toString().orEmpty()}::${match.groupValues[1]}"
 }
 
 /**
@@ -147,7 +109,7 @@ fun StreamingReaderCachedChapter.toReaderPages(): List<ReaderPage> {
  * remota 1:1. Nel secondo caso converte l'indice della pagina originale nel primo
  * frammento corrispondente.
  */
-internal fun StreamingReaderCachedChapter.restoreReaderPageIndex(
+fun StreamingReaderCachedChapter.restoreReaderPageIndex(
     savedPosition: ReaderPagePosition?,
 ): Int {
     val savedIndex = savedPosition?.pageIndex ?: 0

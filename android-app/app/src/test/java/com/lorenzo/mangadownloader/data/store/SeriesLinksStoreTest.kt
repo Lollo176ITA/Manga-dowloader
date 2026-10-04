@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -27,7 +28,7 @@ class SeriesLinksStoreTest {
         application = ApplicationProvider.getApplicationContext()
         val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        store = SeriesLinksStore(prefs)
+        store = SeriesLinksStore(AndroidPreferencesSettings(prefs))
     }
 
     private fun group(key: String, aniListId: Int?, vararg bindings: Pair<String, String>) =

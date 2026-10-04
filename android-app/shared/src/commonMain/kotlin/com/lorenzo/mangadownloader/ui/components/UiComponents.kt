@@ -1,7 +1,7 @@
 package com.lorenzo.mangadownloader.ui.components
 
+import com.lorenzo.mangadownloader.platform.currentTimeMillis
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -11,11 +11,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,7 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.work.WorkInfo
+import com.lorenzo.mangadownloader.app.DownloadJobState
 import coil3.compose.AsyncImage
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.library.DownloadedChapter
@@ -602,7 +600,7 @@ fun FavoriteReadingState.iconTint(): Color = when (this) {
 @Composable
 private fun ChapterDateLabel(publishedAtMillis: Long?) {
     val label = publishedAtMillis?.let { millis ->
-        remember(millis) { formatChapterDate(millis, System.currentTimeMillis()) }
+        remember(millis) { formatChapterDate(millis, currentTimeMillis()) }
     } ?: return
     Text(
         text = label,
@@ -973,9 +971,9 @@ fun SeriesDownloadSummary(
     onStopDownloads: () -> Unit,
 ) {
     val supporting = when {
-        status.state == WorkInfo.State.RUNNING && status.totalChapters > 0 ->
+        status.state == DownloadJobState.RUNNING && status.totalChapters > 0 ->
             "${status.doneChapters} / ${status.totalChapters} capitoli"
-        status.state == WorkInfo.State.ENQUEUED || status.state == WorkInfo.State.BLOCKED ->
+        status.state == DownloadJobState.ENQUEUED || status.state == DownloadJobState.BLOCKED ->
             if (status.requestCount > 1) "In coda (${status.requestCount})" else "In coda"
         else -> null
     }
@@ -992,7 +990,7 @@ fun SeriesDownloadSummary(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (status.state == WorkInfo.State.RUNNING) {
+            if (status.state == DownloadJobState.RUNNING) {
                 Spacer(modifier = Modifier.height(4.dp))
                 DownloadProgressIndicator(
                     doneChapters = status.doneChapters,

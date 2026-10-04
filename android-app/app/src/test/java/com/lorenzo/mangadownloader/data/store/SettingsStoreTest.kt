@@ -1,8 +1,9 @@
 package com.lorenzo.mangadownloader.data.store
 
+import com.lorenzo.mangadownloader.platform.AndroidPreferencesSettings
+import android.content.SharedPreferences
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.data.backup.decodeSettingsBackup
@@ -35,7 +36,7 @@ class SettingsStoreTest {
         val application = ApplicationProvider.getApplicationContext<Application>()
         prefs = application.getSharedPreferences("settings_store_test", Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        store = SettingsStore(prefs)
+        store = SettingsStore(AndroidPreferencesSettings(prefs))
     }
 
     @Test

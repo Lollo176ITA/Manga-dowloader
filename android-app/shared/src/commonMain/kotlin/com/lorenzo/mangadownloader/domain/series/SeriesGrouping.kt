@@ -1,5 +1,6 @@
 package com.lorenzo.mangadownloader.domain.series
 
+import com.lorenzo.mangadownloader.platform.putIfMissing
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
 import com.lorenzo.mangadownloader.data.model.identityKey
@@ -47,7 +48,7 @@ object SeriesGrouping {
                 titlesOf(candidate).forEach { title ->
                     val normalized = SeriesIdentity.normalizeTitle(title)
                     if (normalized.isNotBlank()) {
-                        titleToCandidate.putIfAbsent(normalized, candidate)
+                        titleToCandidate.putIfMissing(normalized, candidate)
                     }
                 }
             }

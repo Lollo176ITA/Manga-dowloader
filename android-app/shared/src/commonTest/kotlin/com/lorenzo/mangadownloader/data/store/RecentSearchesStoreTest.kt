@@ -1,8 +1,8 @@
 package com.lorenzo.mangadownloader.data.store
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 /**
  * Regola pura di inserimento delle ricerche recenti (estratta da `MangaViewModel`):
@@ -12,18 +12,12 @@ class RecentSearchesStoreTest {
 
     @Test
     fun withRecorded_putsNewQueryFirst() {
-        assertEquals(
-            listOf("naruto", "berserk"),
-            RecentSearchesStore.withRecorded(listOf("berserk"), "naruto"),
-        )
+        assertEquals(listOf("naruto", "berserk"), RecentSearchesStore.withRecorded(listOf("berserk"), "naruto"))
     }
 
     @Test
     fun withRecorded_dedupsCaseInsensitiveAndPromotes() {
-        assertEquals(
-            listOf("Berserk", "naruto"),
-            RecentSearchesStore.withRecorded(listOf("naruto", "berserk"), "Berserk"),
-        )
+        assertEquals(listOf("Berserk", "naruto"), RecentSearchesStore.withRecorded(listOf("naruto", "berserk"), "Berserk"))
     }
 
     @Test

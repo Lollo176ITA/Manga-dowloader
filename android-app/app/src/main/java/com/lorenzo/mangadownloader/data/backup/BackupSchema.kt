@@ -27,6 +27,7 @@ import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
 import com.lorenzo.mangadownloader.ui.components.CardDensity
 import com.lorenzo.mangadownloader.ui.library.LibrarySort
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -208,6 +209,7 @@ data class SettingsBackup(
     val homeBlockOrder: List<String> = emptyList(),
     val hiddenHomeBlocks: List<String> = emptyList(),
     val cardDensity: String = CardDensity.NORMAL.name,
+    val animationLevel: String = AnimationLevel.FULL.name,
     val showHomeTab: Boolean = true,
     val disabledSourceIds: List<String> = emptyList(),
 )
@@ -274,6 +276,7 @@ fun AppSettings.toBackup(): SettingsBackup = SettingsBackup(
     homeBlockOrder = homeBlockOrder.map { it.name },
     hiddenHomeBlocks = hiddenHomeBlocks.map { it.name },
     cardDensity = cardDensity.name,
+    animationLevel = animationLevel.name,
     showHomeTab = showHomeTab,
     disabledSourceIds = disabledSourceIds.toList(),
 )
@@ -337,6 +340,8 @@ fun SettingsBackup.applyTo(current: AppSettings): AppSettings = current.copy(
     ),
     hiddenHomeBlocks = hiddenHomeBlocks.mapNotNull { runCatching { HomeBlock.valueOf(it) }.getOrNull() }.toSet(),
     cardDensity = runCatching { CardDensity.valueOf(cardDensity) }.getOrDefault(current.cardDensity),
+    animationLevel = runCatching { AnimationLevel.valueOf(animationLevel) }
+        .getOrDefault(current.animationLevel),
     showHomeTab = showHomeTab,
     // Id non più in catalogo scartati; un backup che disabilitasse TUTTE le fonti viene
     // azzerato (deve sempre restare almeno una fonte attiva).

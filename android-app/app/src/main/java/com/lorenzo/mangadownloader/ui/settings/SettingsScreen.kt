@@ -25,6 +25,7 @@ import com.lorenzo.mangadownloader.data.sources.SourceReachability
 import com.lorenzo.mangadownloader.ui.components.CardDensity
 import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 
 @Composable
 fun SettingsScreen(
@@ -40,6 +41,7 @@ fun SettingsScreen(
     onSelectThemeMode: (ThemeMode) -> Unit,
     onToggleDynamicColor: (Boolean) -> Unit,
     onSelectCardDensity: (CardDensity) -> Unit,
+    onSelectAnimationLevel: (AnimationLevel) -> Unit,
     onRestartTutorial: () -> Unit,
     onConnectAniList: () -> Unit,
     onDisconnectAniList: () -> Unit,
@@ -92,6 +94,11 @@ fun SettingsScreen(
             CardDensityContent(
                 currentDensity = settings.cardDensity,
                 onSelectDensity = onSelectCardDensity,
+            )
+            SettingsDivider()
+            AnimationLevelContent(
+                currentLevel = settings.animationLevel,
+                onSelectLevel = onSelectAnimationLevel,
             )
             SettingsDivider()
             ReadingModeContent(

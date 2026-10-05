@@ -101,7 +101,9 @@ import com.lorenzo.mangadownloader.ui.library.hasReaderProgress
 import com.lorenzo.mangadownloader.ui.library.isReaderCompleted
 import com.lorenzo.mangadownloader.ui.library.readerProgressDescription
 import com.lorenzo.mangadownloader.ui.library.resumeChapter
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 import com.lorenzo.mangadownloader.ui.theme.FavoriteYellow
+import com.lorenzo.mangadownloader.ui.theme.LocalAnimationLevel
 import com.lorenzo.mangadownloader.ui.theme.ReadGreen
 
 /**
@@ -449,8 +451,9 @@ fun FavoriteToggleBadge(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val grows = LocalAnimationLevel.current == AnimationLevel.FULL
     val scale by animateFloatAsState(
-        targetValue = if (isFavorite) 1.05f else 1f,
+        targetValue = if (isFavorite && grows) 1.05f else 1f,
         label = "favoriteBadgeScale",
     )
     FilledIconToggleButton(

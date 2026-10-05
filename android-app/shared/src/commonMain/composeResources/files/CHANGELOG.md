@@ -4,12 +4,6 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Opus). Raggruppate per giorno (dal più recente) e per tipo.
 
-## 2026-10-06
-
-### Aggiunto
-
-- Nuova impostazione "Animazioni" in Impostazioni → Aspetto, con tre livelli. "Complete" (predefinito) funziona come prima e rispetta "Rimuovi animazioni" di Android. "Ridotte" toglie i rimbalzi, cambia capitolo nel lettore con una dissolvenza invece dello scorrimento, mostra copertine e pagine senza dissolvenza e la stellina dei preferiti senza ingrandimento. "Nessuna" rende tutto istantaneo (tab, capitoli, menu, messaggi), ferma gli indicatori di caricamento ed elimina l'effetto onda al tocco; lo scorrimento delle liste resta normale. Il cambio vale subito ed è incluso nel backup delle impostazioni.
-
 ## 2026-09-25
 
 ### Aggiunto

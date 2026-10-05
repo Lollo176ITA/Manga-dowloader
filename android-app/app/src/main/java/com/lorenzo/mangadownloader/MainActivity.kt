@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -28,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,6 +44,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.compositionContext
+import androidx.compose.ui.platform.createLifecycleAwareWindowRecomposer
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -107,6 +111,9 @@ import com.lorenzo.mangadownloader.ui.search.SearchScreen
 import com.lorenzo.mangadownloader.ui.settings.BackupScreen
 import com.lorenzo.mangadownloader.ui.settings.SettingsScreen
 import com.lorenzo.mangadownloader.ui.settings.StorageScreen
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
+import com.lorenzo.mangadownloader.ui.theme.AppMotion
+import com.lorenzo.mangadownloader.ui.theme.LocalAnimationLevel
 import com.lorenzo.mangadownloader.ui.theme.MangaDownloaderTheme
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialAnchor
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialOverlay
@@ -119,12 +126,27 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Recomposer della finestra con la nostra scala di durata al posto di quella di
+        // sistema (che [AppMotion] comunque rispetta): è ciò che rende "Nessuna" istantaneo
+        // per tutte le animazioni Compose, dialog e popup compresi.
+        AppMotion.systemScale = AppMotion.readSystemScale(this)
+        AppMotion.level = ViewModelProvider(this)[MangaViewModel::class.java]
+            .state.value.settings.animationLevel
+        window.decorView.compositionContext = window.decorView
+            .createLifecycleAwareWindowRecomposer(AppMotion.durationScale, lifecycle)
         handleAniListRedirect(intent)
         handleNotificationIntent(intent)
 
         setContent {
             MangaDownloaderApp()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // "Rimuovi animazioni" può essere cambiata dalle impostazioni di Android mentre
+        // l'app è in background.
+        AppMotion.systemScale = AppMotion.readSystemScale(this)
     }
 
     override fun onStop() {
@@ -189,10 +211,23 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
     MangaDownloaderTheme(
         themeMode = state.settings.themeMode,
         useDynamicColor = state.settings.useDynamicColor,
+        animationLevel = state.settings.animationLevel,
     ) {
+        val animationLevel = state.settings.animationLevel
+        SideEffect { AppMotion.level = animationLevel }
         // Densità globale delle card (impostazione stile tema): fornita qui alla radice,
         // le card condivise la leggono via LocalCardDensity senza parametri da infilare.
-        CompositionLocalProvider(LocalCardDensity provides state.settings.cardDensity) {
+        CompositionLocalProvider(
+            LocalCardDensity provides state.settings.cardDensity,
+            LocalAnimationLevel provides animationLevel,
+            // Il ripple è un RippleDrawable di sistema, fuori dalla scala di durata: con
+            // "Nessuna" va spento a parte (null = niente ripple nei componenti M3).
+            LocalRippleConfiguration provides if (animationLevel == AnimationLevel.NONE) {
+                null
+            } else {
+                LocalRippleConfiguration.current
+            },
+        ) {
             MangaDownloaderAppContent(state = state, viewModel = viewModel)
         }
     }
@@ -798,6 +833,7 @@ private fun MangaDownloaderAppContent(
                     padding = innerPadding,
                     onSelectThemeMode = viewModel::setThemeMode,
                     onSelectCardDensity = viewModel::setCardDensity,
+                    onSelectAnimationLevel = viewModel::setAnimationLevel,
                     onToggleDynamicColor = viewModel::setUseDynamicColor,
                     onRestartTutorial = viewModel.tutorial::restart,
                     onConnectAniList = {

@@ -57,6 +57,7 @@ import com.lorenzo.mangadownloader.ui.components.NumberSettingField
 import com.lorenzo.mangadownloader.ui.components.appCardColors
 import com.lorenzo.mangadownloader.ui.components.icon
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 import com.lorenzo.mangadownloader.ui.widget.ReadingWidgetPinning
 
 /**
@@ -281,6 +282,37 @@ fun CardDensityContent(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AnimationLevelContent(
+    currentLevel: AnimationLevel,
+    onSelectLevel: (AnimationLevel) -> Unit,
+) {
+    Column {
+        SettingsSubheader("Animazioni")
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            AnimationLevel.entries.forEachIndexed { index, level ->
+                SegmentedButton(
+                    selected = currentLevel == level,
+                    onClick = { onSelectLevel(level) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = AnimationLevel.entries.size),
+                    label = { Text(level.label) },
+                )
+            }
+        }
+        Text(
+            text = when (currentLevel) {
+                AnimationLevel.FULL -> "Se su Android hai attivato \"Rimuovi animazioni\", vale quella."
+                AnimationLevel.REDUCED -> "Movimenti senza rimbalzo, capitoli e immagini senza scivolamenti né dissolvenze."
+                AnimationLevel.NONE -> "Tutto istantaneo: tab, capitoli e menu cambiano di colpo, i caricamenti restano fermi."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 

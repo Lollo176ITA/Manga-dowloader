@@ -104,6 +104,8 @@ import com.lorenzo.mangadownloader.ui.components.AppLoadingIndicator
 import com.lorenzo.mangadownloader.ui.components.EmptyState
 import com.lorenzo.mangadownloader.ui.components.ReaderChapterNavigationRow
 import com.lorenzo.mangadownloader.ui.components.icon
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
+import com.lorenzo.mangadownloader.ui.theme.LocalAnimationLevel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
@@ -136,11 +138,17 @@ fun ReaderScreen(
     // fullscreen: quando il pager si assesta sull'ultima pagina la barra riappare da sola,
     // così il passaggio al capitolo successivo non richiede tap + tap.
     var pagedAtLastPage by remember(chapter?.relativePath, readingMode) { mutableStateOf(false) }
+    val animationLevel = LocalAnimationLevel.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = chapter?.relativePath,
             transitionSpec = {
+                // Con le animazioni ridotte il capitolo cambia in dissolvenza, senza scivolare.
+                if (animationLevel != AnimationLevel.FULL) {
+                    return@AnimatedContent fadeIn(animationSpec = tween(220))
+                        .togetherWith(fadeOut(animationSpec = tween(180)))
+                }
                 val slideSpec = spring<IntOffset>(
                     dampingRatio = Spring.DampingRatioLowBouncy,
                     stiffness = Spring.StiffnessMediumLow,

@@ -145,6 +145,7 @@ import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
 import com.lorenzo.mangadownloader.ui.reader.expandSpreadPages
 import com.lorenzo.mangadownloader.ui.reader.readPageBounds
 import com.lorenzo.mangadownloader.ui.reader.unexpandedReaderPages
+import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import java.io.File
 import java.io.IOException
@@ -362,6 +363,8 @@ data class AppSettings(
     val hiddenHomeBlocks: Set<HomeBlock> = emptySet(),
     // Densità globale delle card (come il tema): guida dimensioni e varianti compatte.
     val cardDensity: CardDensity = CardDensity.NORMAL,
+    // Quanto si muove l'interfaccia (Complete/Ridotte/Nessuna), anch'essa stile tema.
+    val animationLevel: AnimationLevel = AnimationLevel.FULL,
     // Tab Home visibile nella bottom bar. Disattivata, l'app si apre sulla Ricerca.
     val showHomeTab: Boolean = true,
     // Fonti escluse da ricerca aggregata e selettore fonte. Vuoto = tutte attive.
@@ -4174,6 +4177,10 @@ class MangaViewModel internal constructor(
     /** Densità globale delle card (Grande/Normale/Compatta), come il tema. */
     fun setCardDensity(density: CardDensity) = updateSettings {
         it.copy(cardDensity = density)
+    }
+
+    fun setAnimationLevel(level: AnimationLevel) = updateSettings {
+        it.copy(animationLevel = level)
     }
 
     /**

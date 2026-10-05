@@ -21,6 +21,7 @@ import com.lorenzo.mangadownloader.data.model.ThemeMode
 fun MangaDownloaderTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
     useDynamicColor: Boolean = false,
+    animationLevel: AnimationLevel = AnimationLevel.FULL,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -53,7 +54,12 @@ fun MangaDownloaderTheme(
         colorScheme = colorScheme,
         typography = AppTypography,
         shapes = AppShapes,
-        motionScheme = MotionScheme.expressive(),
+        // Con le animazioni ridotte i componenti si muovono senza rimbalzo.
+        motionScheme = if (animationLevel == AnimationLevel.FULL) {
+            MotionScheme.expressive()
+        } else {
+            MotionScheme.standard()
+        },
         content = content,
     )
 }

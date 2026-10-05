@@ -1,6 +1,6 @@
 # Manga Downloader
 
-**App Android** per cercare manga su più siti insieme, leggerli online o scaricarli come `.cbz`, con reader integrato, preferiti con notifiche dei nuovi capitoli, integrazione AniList e aggiornamento automatico. Vive in [android-app](./android-app).
+**App Android e iOS** per cercare manga su più siti insieme, leggerli online o scaricarli come `.cbz`, con reader integrato, preferiti e integrazione AniList. UI e logica condivise vivono in [android-app/shared](./android-app/shared); gli host sono [android-app/app](./android-app/app) e [ios-app](./ios-app).
 
 ## Cosa fa
 
@@ -42,7 +42,33 @@ cd android-app
 ./gradlew testDebugUnitTest :shared:testAndroidHostTest assembleRelease
 ```
 
-### Segnalazioni in-app (facoltativo)
+## Build locale iOS
+
+Serve un Mac Apple Silicon con Xcode completo e un runtime iOS installato. Il modulo KMP configura `iosArm64` (dispositivo) e `iosSimulatorArm64` (simulatore). L'app è stata verificata sul simulatore iOS 18.5; le versioni precedenti richiedono una verifica separata delle dipendenze native.
+
+Dalla root del repository:
+
+```bash
+./scripts/ios-simulator.sh
+# Oppure scegli un dispositivo da `xcrun simctl list devices available`:
+./scripts/ios-simulator.sh UUID_SIMULATORE
+```
+
+Lo script seleziona Xcode tramite `DEVELOPER_DIR`, compila il framework Kotlin insieme all'app Swift, installa e avvia l'app. Non modifica `xcode-select`. Il primo build scarica le dipendenze Gradle/Kotlin e può richiedere diversi minuti. Se Xcode è in un'altra cartella, imposta `DEVELOPER_DIR` prima del comando.
+
+Puoi anche aprire `ios-app/MangApp.xcodeproj`, selezionare lo scheme **MangApp** e un simulatore. Per Run da Xcode serve un runtime compatibile con l'SDK installato; lo script usa il target diretto e funziona anche con un runtime precedente. Per un iPhone reale configura il Team di firma nelle impostazioni del target.
+
+Test del codice condiviso e delle integrazioni iOS:
+
+```bash
+cd android-app
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./gradlew \
+    :shared:compileCommonMainKotlinMetadata :shared:iosSimulatorArm64Test
+```
+
+L'host gestisce file in Documents/Caches, backup tramite File, permessi notifiche, Face ID, orientamento del lettore e callback AniList `mangapp://anilist-auth`. Download e controlli periodici dei preferiti funzionano mentre il processo resta attivo: iOS può sospenderli quando l'app passa in background. Widget Android, invio SMTP e aggiornamento APK restano specifici di Android.
+
+### Segnalazioni in-app Android (facoltativo)
 
 "Segnala un problema" invia un'email via SMTP da un account dedicato. In locale le credenziali vanno in `android-app/local.properties` (non versionato): `smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `reportToEmail`. Se mancano, le segnalazioni restano disattivate e il build funziona lo stesso. Attenzione: user e password finiscono nell'APK e sono estraibili, per questo si usa un account usa-e-getta.
 

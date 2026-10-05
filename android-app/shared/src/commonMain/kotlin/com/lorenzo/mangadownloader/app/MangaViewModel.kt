@@ -635,7 +635,7 @@ class MangaViewModel(
             val ok = withContext(readingMemoryDispatcher) {
                 runCatching {
                     document.writeText(backupManager.exportJson(currentTimeMillis()))
-                }.isSuccess
+                }.onFailure { if (it is CancellationException) throw it }.isSuccess
             }
             updateState {
                 copy(errorMessage = if (ok) "Backup esportato" else "Esportazione del backup non riuscita")

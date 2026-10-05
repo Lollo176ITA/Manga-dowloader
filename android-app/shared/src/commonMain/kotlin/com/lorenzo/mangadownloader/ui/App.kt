@@ -3,11 +3,14 @@ package com.lorenzo.mangadownloader.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -170,8 +173,10 @@ private fun MangaDownloaderAppContent(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val notificationsPermissionGranted = remember(notificationsPermissionTick) {
-        host.notificationsAllowed()
+    // La lettura fuori da remember osserva anche gli aggiornamenti asincroni UIKit.
+    val currentNotificationsPermission = host.notificationsAllowed()
+    val notificationsPermissionGranted = remember(notificationsPermissionTick, currentNotificationsPermission) {
+        currentNotificationsPermission
     }
 
     // Esito del permesso per "Notifiche preferiti": il toggle si accende SOLO se il
@@ -481,6 +486,14 @@ private fun MangaDownloaderAppContent(
     ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
+        // Su iOS gli inset sicuri restano presenti anche nascondendo le barre di sistema.
+        // Nel reader a schermo intero la pagina deve occupare anche queste aree.
+        contentWindowInsets = if (state.readerChapter != null && isReaderFullscreen) {
+            WindowInsets(0, 0, 0, 0)
+        } else {
+            ScaffoldDefaults.contentWindowInsets
+        },
+        containerColor = if (state.readerChapter != null && isReaderFullscreen) Color.Black else MaterialTheme.colorScheme.background,
         topBar = {
             if (!(state.readerChapter != null && isReaderFullscreen)) {
                 AppTopBar(

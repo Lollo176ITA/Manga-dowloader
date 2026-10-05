@@ -26,6 +26,11 @@ AGENTS.md
 perf-reports/
 __pycache__/
 
+# File locali Xcode e prodotti di build dell'host iOS.
+ios-app/build/
+**/xcuserdata/
+*.xcuserstate
+
 # Roba locale di Claude / audit interni: non serve nel repo.
 docs/superpowers/
 .superpowers/

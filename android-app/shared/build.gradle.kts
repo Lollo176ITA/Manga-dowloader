@@ -44,6 +44,7 @@ kotlin {
         }
         iosMain.dependencies {
             api("io.ktor:ktor-client-darwin:3.6.0")
+            implementation("io.coil-kt.coil3:coil-network-ktor3:3.6.3")
         }
         getByName("androidHostTest").dependencies {
             // Oracolo per i test di parità: il comportamento da replicare è quello di OkHttp.

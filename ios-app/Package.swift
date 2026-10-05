@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v15)],
     products: [.library(name: "DownloadCore", targets: ["DownloadCore"])],
     targets: [
-        .target(name: "DownloadCore", path: "MangApp", exclude: ["AppDelegate.swift", "NativePlatformServices.swift", "NativeDownloadManager.swift", "ContinuedDownloadExecution.swift", "Info.plist"], sources: ["DownloadQueueState.swift", "DownloadQueueStore.swift", "BackgroundTransfers.swift"]),
+        .target(name: "DownloadCore", path: "MangApp", exclude: ["AppDelegate.swift", "NativePlatformServices.swift", "NativeDownloadManager.swift", "ContinuedDownloadExecution.swift", "Info.plist", "Assets.xcassets"], sources: ["DownloadQueueState.swift", "DownloadQueueStore.swift", "BackgroundTransfers.swift"]),
         .testTarget(name: "DownloadCoreTests", dependencies: ["DownloadCore"], path: "Tests/DownloadCoreTests")
     ]
 )

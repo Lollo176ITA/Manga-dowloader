@@ -9,6 +9,10 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
     private var tasks: [String: URLSessionTask] = [:]
     private var definitions: [String: NativeTransfer] = [:]
     private var reconnecting = false
+    /** Trasferimenti in attesa di diventare task: creare un task è una chiamata sincrona a nsurlsessiond. */
+    private var queued: [NativeTransfer] = []
+    private var draining = false
+    private static let scheduleBatch = 8
     var onFinished: ((String, Result<Int64, Error>) -> Void)?
     var onProgress: ((String, Int64, Int64) -> Void)?
     var onEventsFinished: (() -> Void)?
@@ -53,24 +57,42 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
         }
     }
 
+    /** Un capitolo ha centinaia di pagine: i task nascono a blocchi, il main thread resta libero tra un blocco e l'altro. */
     func schedule(_ transfers: [NativeTransfer]) {
-        for transfer in transfers where tasks[transfer.key] == nil {
-            guard validRelativePath(transfer.relativePath), let url = URL(string: transfer.url), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else {
-                onFinished?(transfer.key, .failure(DownloadCoreError.invalidTransfer)); continue
-            }
-            if isComplete(transfer) { onFinished?(transfer.key, .success(fileSize(transfer))); continue }
-            var request = URLRequest(url: url)
-            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-            request.setValue(transfer.referer, forHTTPHeaderField: "Referer")
-            let task = session.downloadTask(with: request)
-            task.taskDescription = transfer.key
-            definitions[transfer.key] = transfer
-            tasks[transfer.key] = task
-            task.resume()
+        let waiting = Set(queued.map(\.key))
+        queued += transfers.filter { tasks[$0.key] == nil && !waiting.contains($0.key) }
+        if !draining { drainQueued() }
+    }
+
+    private func drainQueued() {
+        var started = 0
+        while started < Self.scheduleBatch, !queued.isEmpty {
+            let transfer = queued.removeFirst()
+            guard tasks[transfer.key] == nil else { continue }
+            start(transfer)
+            started += 1
         }
+        draining = !queued.isEmpty
+        if draining { DispatchQueue.main.async { [weak self] in self?.drainQueued() } }
+    }
+
+    private func start(_ transfer: NativeTransfer) {
+        guard validRelativePath(transfer.relativePath), let url = URL(string: transfer.url), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else {
+            onFinished?(transfer.key, .failure(DownloadCoreError.invalidTransfer)); return
+        }
+        if isComplete(transfer) { onFinished?(transfer.key, .success(fileSize(transfer))); return }
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(transfer.referer, forHTTPHeaderField: "Referer")
+        let task = session.downloadTask(with: request)
+        task.taskDescription = transfer.key
+        definitions[transfer.key] = transfer
+        tasks[transfer.key] = task
+        task.resume()
     }
 
     func cancel(jobId: String) {
+        queued.removeAll { $0.jobId == jobId }
         let cancelled = tasks.filter { definitions[$0.key]?.jobId == jobId }
         for (key, task) in cancelled {
             tasks.removeValue(forKey: key)
@@ -80,7 +102,10 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate {
         definitions = definitions.filter { $0.value.jobId != jobId }
     }
 
-    func invalidate() { session.invalidateAndCancel() }
+    func invalidate() {
+        queued.removeAll()
+        session.invalidateAndCancel()
+    }
 
     func fileURL(for transfer: NativeTransfer) -> URL { root.appendingPathComponent(transfer.relativePath) }
     private func fileSize(_ transfer: NativeTransfer) -> Int64 {

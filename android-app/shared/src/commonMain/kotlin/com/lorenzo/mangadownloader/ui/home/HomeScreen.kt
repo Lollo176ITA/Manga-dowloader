@@ -133,11 +133,11 @@ fun HomeScreen(
     val stats = remember(state.library, state.favorites, state.readingMemory) {
         computeHomeStats(state.library, state.favorites.size, state.readingMemory)
     }
-    val streak = remember(state.readingDiary) {
-        currentReadingStreak(state.readingDiary, todayLocalDate())
-    }
-    val lastWeek = remember(state.readingDiary) {
-        lastDiaryDays(state.readingDiary, days = 7, today = todayLocalDate())
+    // Un solo todayLocalDate(): su iOS leggere il fuso di sistema costa qualche millisecondo.
+    val (streak, lastWeek) = remember(state.readingDiary) {
+        val today = todayLocalDate()
+        currentReadingStreak(state.readingDiary, today) to
+            lastDiaryDays(state.readingDiary, days = 7, today = today)
     }
     val readingHistory = remember(state.library, state.readingMemory) {
         computeReadingHistory(state.readingMemory, state.library, limit = 10)

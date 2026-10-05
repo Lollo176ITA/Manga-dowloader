@@ -76,6 +76,40 @@ server.serve_forever()
         transport.invalidate()
     }
 
+    private func pages(_ count: Int, job: String = "job") -> [NativeTransfer] {
+        (0..<count).map { NativeTransfer(key: "\(job)/0/\($0)", jobId: job, chapterIndex: 0, url: baseURL + "/image", referer: "https://test/chapter", relativePath: "\(job)/0/\($0).jpg") }
+    }
+
+    func testTransfersBeyondOneBatchAreAllScheduled() {
+        let done = expectation(description: "all pages")
+        done.expectedFulfillmentCount = 20
+        let transport = BackgroundTransfers(root: root, configuration: .ephemeral)
+        transport.onFinished = { _, result in
+            XCTAssertEqual(try? result.get(), 10)
+            done.fulfill()
+        }
+        transport.schedule(pages(20))
+        wait(for: [done], timeout: 20)
+        transport.invalidate()
+    }
+
+    func testCancelDropsTransfersStillWaitingForTheirBatch() {
+        let kept = expectation(description: "other job completes")
+        kept.expectedFulfillmentCount = 3
+        let transport = BackgroundTransfers(root: root, configuration: .ephemeral)
+        var finished: [String] = []
+        transport.onFinished = { key, _ in
+            finished.append(key)
+            if key.hasPrefix("other/") { kept.fulfill() }
+        }
+        // Il primo blocco parte subito; il resto di "job" è ancora in coda quando arriva l'annullamento.
+        transport.schedule(pages(20) + pages(3, job: "other"))
+        transport.cancel(jobId: "job")
+        wait(for: [kept], timeout: 10)
+        XCTAssertTrue(finished.allSatisfy { $0.hasPrefix("other/") })
+        transport.invalidate()
+    }
+
     func testCancelledTransferCannotPublishALateCompletedFile() {
         let progressed = expectation(description: "began transfer")
         let noCompletion = expectation(description: "cancelled transfer stays cancelled")

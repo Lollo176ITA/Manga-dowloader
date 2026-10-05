@@ -21,6 +21,7 @@ final class NativeDownloadManager: NSObject, IosDownloadServices {
     private var lastProgressUpdate = Date.distantPast
     private var partialProgress: [String: (written: Int64, expected: Int64)] = [:]
     private var persistenceError: String?
+    private var persistPending = false
 
     init(root: URL) {
         store = DownloadQueueStore(root: root)
@@ -107,6 +108,7 @@ final class NativeDownloadManager: NSObject, IosDownloadServices {
 
     func enteredBackground() {
         foreground = false
+        if persistPending { persist() }
         ensureLease()
     }
 
@@ -222,7 +224,7 @@ final class NativeDownloadManager: NSObject, IosDownloadServices {
         case .success:
             jobs[index].completedPages.insert(key)
             jobs[index].message = "Pagine scaricate: \(jobs[index].completedPages.count)/\(jobs[index].transfers.count)"
-            if persist() { updateContinuedProgress(id); pump() }
+            if persistSoon() { updateContinuedProgress(id); pump() }
         case .failure(let error): fail(id, message: error.localizedDescription); pump()
         }
     }
@@ -234,7 +236,7 @@ final class NativeDownloadManager: NSObject, IosDownloadServices {
         guard Date().timeIntervalSince(lastProgressUpdate) > 0.75 else { return }
         lastProgressUpdate = Date()
         jobs[index].message = "Download pagine: \(jobs[index].completedPages.count)/\(jobs[index].transfers.count) · \(written / 1024) KB ricevuti"
-        if persist() { updateContinuedProgress(id) }
+        if persistSoon() { updateContinuedProgress(id) }
     }
 
     private func complete(_ id: String) {
@@ -326,7 +328,24 @@ final class NativeDownloadManager: NSObject, IosDownloadServices {
                 total: Int64(job.totalUnits) * 1000, title: job.manifest?.seriesTitle ?? job.request.seriesTitle ?? "Download manga", message: job.message)
         }
     }
+    /**
+     * Checkpoint di pagina, accorpati: ogni salvataggio ricodifica l'intera coda (sul main thread) e la UI
+     * Kotlin la ridecodifica. Perdere l'ultimo mezzo secondo è innocuo: alla riapertura completedPages
+     * si ricostruisce dai file presenti (vedi connect). I passaggi di fase restano su persist().
+     */
+    private func persistSoon() -> Bool {
+        guard persistenceError == nil else { publish(); return false }
+        if !persistPending {
+            persistPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                if self?.persistPending == true { self?.persist() }
+            }
+        }
+        return true
+    }
+
     @discardableResult private func persist() -> Bool {
+        persistPending = false
         guard persistenceError == nil else { publish(); return false }
         do { try store.save(jobs); publish(); return true }
         catch {

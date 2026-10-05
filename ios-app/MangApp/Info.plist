@@ -17,6 +17,10 @@
     <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>NSFaceIDUsageDescription</key><string>Sblocca il controllo genitori con Face ID.</string>
     <key>UILaunchScreen</key><dict/>
+    <key>UIBackgroundModes</key><array><string>processing</string></array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key><array>
+        <string>com.lorenzo.mangapp.downloads.continued.*</string>
+    </array>
     <key>UISupportedInterfaceOrientations</key><array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationLandscapeLeft</string>

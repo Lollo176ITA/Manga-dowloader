@@ -10,7 +10,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.ImageRequest
 import com.lorenzo.mangadownloader.data.anilist.AniListAuth
 import com.lorenzo.mangadownloader.data.anilist.AniListClient
-import com.lorenzo.mangadownloader.data.download.ChapterDownloader
+import com.lorenzo.mangadownloader.data.download.BackgroundChapterDownloader
 import com.lorenzo.mangadownloader.data.library.AppPaths
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
 import com.lorenzo.mangadownloader.data.library.StreamingReaderCacheRepository
@@ -61,10 +61,9 @@ class IosApp(private val services: IosPlatformServices, versionName: String, ver
     private val library = LibraryRepository(paths, prefs)
     private val sources = MangaSourceRegistry(prefs, network, library)
     private val aniList = AniListClient(httpClient)
-    private val scheduler = ForegroundDownloadScheduler(scope) { request, progress ->
-        ChapterDownloader(sources::resolve).download(request, isStopped = { false }, onStatus = progress)
-        library.invalidateCache()
-    }
+    private val scheduler = IosDownloadScheduler(services.downloads, IosDownloadEngine(
+        scope, BackgroundChapterDownloader(paths.libraryRoot, sources::resolve), library::invalidateCache,
+    ))
     private val updates = IosFavoriteUpdatesScheduling(scope, prefs, sources, aniList, services)
     private val host = IosPlatformHost(services)
     private val viewModel: MangaViewModel

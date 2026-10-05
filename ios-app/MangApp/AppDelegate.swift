@@ -30,6 +30,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         services.refreshNotificationPermission()
+        services.downloadManager.becameActive()
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        services.downloadManager.enteredBackground()
+    }
+
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        services.downloadManager.handleBackgroundEvents(identifier: identifier, completion: completionHandler)
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {

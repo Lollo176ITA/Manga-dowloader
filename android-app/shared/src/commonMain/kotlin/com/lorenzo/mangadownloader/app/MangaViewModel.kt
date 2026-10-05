@@ -2117,6 +2117,7 @@ class MangaViewModel(
                         sourceId = series.sourceId,
                         seriesTitle = series.title,
                         mangaUrl = mangaUrl,
+                        userInitiated = false,
                     )
                 }
             } catch (e: CancellationException) {
@@ -2156,9 +2157,10 @@ class MangaViewModel(
         seriesTitle: String? = null,
         mangaUrl: String? = null,
         coverUrl: String? = null,
+        userInitiated: Boolean = true,
     ) {
         container.downloadScheduler.enqueue(
-            ChapterDownloadRequest(firstUrl, lastUrl, sourceId, seriesTitle, mangaUrl, coverUrl),
+            ChapterDownloadRequest(firstUrl, lastUrl, sourceId, seriesTitle, mangaUrl, coverUrl, userInitiated),
         )
     }
 
@@ -3958,4 +3960,3 @@ internal fun PrefetchedStreamingChapter?.pagesFor(sourceId: String, chapterUrl: 
  */
 internal fun isNearChapterEnd(pageIndex: Int, pageCount: Int, triggerPages: Int): Boolean =
     pageCount - 1 - pageIndex <= triggerPages
-

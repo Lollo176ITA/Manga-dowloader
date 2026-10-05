@@ -7,6 +7,7 @@ import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
 import com.lorenzo.mangadownloader.data.update.AppUpdateInfo
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 
 /**
  * Tutto ciò che il [MangaViewModel] riceve dalla piattaforma: repository già costruiti sulle
@@ -42,6 +43,7 @@ data class AppBuildInfo(
 )
 
 /** Un intervallo di capitoli da scaricare, con quanto serve a mostrarlo nella coda. */
+@Serializable
 data class ChapterDownloadRequest(
     val firstUrl: String,
     val lastUrl: String? = null,
@@ -49,6 +51,8 @@ data class ChapterDownloadRequest(
     val seriesTitle: String? = null,
     val mangaUrl: String? = null,
     val coverUrl: String? = null,
+    /** Solo un gesto esplicito dell'utente può richiedere BGContinuedProcessingTask su iOS. */
+    val userInitiated: Boolean = true,
 )
 
 /** La coda dei download della piattaforma, che li porta a termine anche ad app chiusa. */

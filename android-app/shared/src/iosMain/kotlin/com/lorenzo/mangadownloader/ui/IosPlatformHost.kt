@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.lorenzo.mangadownloader.app.BackupDocument
+import com.lorenzo.mangadownloader.app.IosDownloadServices
 import com.lorenzo.mangadownloader.platform.systemFileSystem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -25,6 +26,7 @@ fun interface IosBiometricResult { fun complete(outcome: Int, message: String?) 
 interface IosPlatformServices {
     val documentsDirectory: String
     val cacheDirectory: String
+    val downloads: IosDownloadServices
     fun notificationsAllowed(): Boolean
     fun requestNotifications(result: IosBooleanResult)
     fun openNotificationSettings()

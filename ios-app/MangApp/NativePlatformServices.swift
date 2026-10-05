@@ -16,6 +16,9 @@ final class NativePlatformServices: NSObject, IosPlatformServices, UIDocumentPic
     private var fileResult: IosFileResult?
     private var exportResult: IosBooleanResult?
     private var authentication: LAContext?
+    lazy var downloadManager = NativeDownloadManager(root:
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Downloads"))
+    var downloads: IosDownloadServices { downloadManager }
 
     var documentsDirectory: String {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path

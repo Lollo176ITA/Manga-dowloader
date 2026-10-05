@@ -88,7 +88,7 @@ fun SettingsScreen(
                 currentMode = settings.themeMode,
                 onSelectMode = onSelectThemeMode,
                 useDynamicColor = settings.useDynamicColor,
-                onToggleDynamicColor = onToggleDynamicColor,
+                onToggleDynamicColor = onToggleDynamicColor.takeIf { LocalPlatformUi.current.supportsDynamicColor },
             )
             SettingsDivider()
             CardDensityContent(

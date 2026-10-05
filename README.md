@@ -66,6 +66,16 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./gradlew \
     :shared:compileCommonMainKotlinMetadata :shared:iosSimulatorArm64Test
 ```
 
+Test UI XCUITest delle impostazioni, dalla root del repository:
+
+```bash
+./scripts/ios-ui-tests.sh UUID_IPHONE
+```
+
+Il target `MangAppUITests` usa solo un iPhone e verifica scelte di aspetto, preferenze del lettore e persistenza, opzioni di download/pulizia, filtri/fonti, annullamento dei selettori backup, notifiche negate, PIN annullato e rotazione. I risultati `.xcresult`, con gli screenshot, sono in `ios-app/build/ui-tests/`. I test riusciti ripristinano le preferenze che modificano; il test notifiche rifiuta l'eventuale richiesta di autorizzazione iOS. Non accedono a un account AniList e non eliminano capitoli.
+
+I colori dinamici dallo sfondo compaiono solo su Android 12+: iOS usa la palette dell'app e offre i temi Auto, Chiaro e Scuro.
+
 L'host gestisce file in Documents/Caches, backup tramite File, permessi notifiche, Face ID, orientamento del lettore e callback AniList `mangapp://anilist-auth`. Download e controlli periodici dei preferiti funzionano mentre il processo resta attivo: iOS può sospenderli quando l'app passa in background. Widget Android, invio SMTP e aggiornamento APK restano specifici di Android.
 
 ### Segnalazioni in-app Android (facoltativo)

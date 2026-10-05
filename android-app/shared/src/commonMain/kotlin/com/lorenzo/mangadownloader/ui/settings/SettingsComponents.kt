@@ -218,7 +218,7 @@ fun ThemeModeContent(
     currentMode: ThemeMode,
     onSelectMode: (ThemeMode) -> Unit,
     useDynamicColor: Boolean,
-    onToggleDynamicColor: (Boolean) -> Unit,
+    onToggleDynamicColor: ((Boolean) -> Unit)?,
 ) {
     val options = listOf(
         Triple(ThemeMode.AUTO, Icons.Default.BrightnessAuto, "Auto"),
@@ -244,12 +244,14 @@ fun ThemeModeContent(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        SettingRow(
-            title = "Colori dinamici",
-            checked = useDynamicColor,
-            onCheckedChange = onToggleDynamicColor,
-        )
+        onToggleDynamicColor?.let { onToggle ->
+            Spacer(modifier = Modifier.height(16.dp))
+            SettingRow(
+                title = "Colori dinamici",
+                checked = useDynamicColor,
+                onCheckedChange = onToggle,
+            )
+        }
     }
 }
 

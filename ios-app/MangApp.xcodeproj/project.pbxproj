@@ -10,9 +10,9 @@
         A00000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePlatformServices.swift; sourceTree = "<group>"; };
         A00000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
         A00000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MangApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-        A00000000000000000000007 = {isa = PBXGroup; children = (A00000000000000000000008, A00000000000000000000009); sourceTree = "<group>"; };
+        A00000000000000000000007 = {isa = PBXGroup; children = (A00000000000000000000008, B00000000000000000000004, A00000000000000000000009); sourceTree = "<group>"; };
         A00000000000000000000008 = {isa = PBXGroup; children = (A00000000000000000000002, A00000000000000000000004, A00000000000000000000005); path = MangApp; sourceTree = "<group>"; };
-        A00000000000000000000009 = {isa = PBXGroup; children = (A00000000000000000000006); name = Products; sourceTree = "<group>"; };
+        A00000000000000000000009 = {isa = PBXGroup; children = (A00000000000000000000006, B00000000000000000000003); name = Products; sourceTree = "<group>"; };
         A00000000000000000000010 = {
             isa = PBXNativeTarget;
             buildConfigurationList = A00000000000000000000011;
@@ -44,7 +44,7 @@
             mainGroup = A00000000000000000000007;
             productRefGroup = A00000000000000000000009;
             projectDirPath = ""; projectRoot = "";
-            targets = (A00000000000000000000010);
+            targets = (A00000000000000000000010, B00000000000000000000010);
         };
         A00000000000000000000018 = {
             isa = XCBuildConfiguration;
@@ -105,6 +105,37 @@
         };
         A00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000020, A00000000000000000000021); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
         A00000000000000000000017 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000018, A00000000000000000000019); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+
+        B00000000000000000000001 = {isa = PBXBuildFile; fileRef = B00000000000000000000002; };
+        B00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsUITests.swift; sourceTree = "<group>"; };
+        B00000000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MangAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+        B00000000000000000000004 = {isa = PBXGroup; children = (B00000000000000000000002); path = MangAppUITests; sourceTree = "<group>"; };
+        B00000000000000000000010 = {isa = PBXNativeTarget; buildConfigurationList = B00000000000000000000011;
+            buildPhases = (B00000000000000000000012, B00000000000000000000013, B00000000000000000000014);
+            buildRules = (); dependencies = (B00000000000000000000016);
+            name = MangAppUITests; productName = MangAppUITests;
+            productReference = B00000000000000000000003; productType = "com.apple.product-type.bundle.ui-testing";
+        };
+        B00000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000020, B00000000000000000000021); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        B00000000000000000000012 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B00000000000000000000001); runOnlyForDeploymentPostprocessing = 0; };
+        B00000000000000000000013 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+        B00000000000000000000014 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+        B00000000000000000000015 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000016; proxyType = 1; remoteGlobalIDString = A00000000000000000000010; remoteInfo = MangApp; };
+        B00000000000000000000016 = {isa = PBXTargetDependency; target = A00000000000000000000010; targetProxy = B00000000000000000000015; };
+        B00000000000000000000020 = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES;
+            PRODUCT_BUNDLE_IDENTIFIER = com.lorenzo.mangapp.uitests; PRODUCT_NAME = "$(TARGET_NAME)";
+            TEST_TARGET_NAME = MangApp; TARGETED_DEVICE_FAMILY = 1;
+            SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+            LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks");
+        }; name = Debug; };
+        B00000000000000000000021 = {isa = XCBuildConfiguration; buildSettings = {
+            CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES;
+            PRODUCT_BUNDLE_IDENTIFIER = com.lorenzo.mangapp.uitests; PRODUCT_NAME = "$(TARGET_NAME)";
+            TEST_TARGET_NAME = MangApp; TARGETED_DEVICE_FAMILY = 1;
+            SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+            LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@loader_path/Frameworks");
+        }; name = Release; };
     };
     rootObject = A00000000000000000000016;
 }

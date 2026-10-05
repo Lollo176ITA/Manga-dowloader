@@ -18,6 +18,8 @@ class PlatformUi(
     val reportProblem: (@Composable (padding: PaddingValues, onResult: (sent: Boolean) -> Unit) -> Unit)? = null,
     /** La build ha le credenziali per inviare segnalazioni (altrimenti l'invio fallisce sempre). */
     val isFeedbackConfigured: Boolean = false,
+    /** Material You dal wallpaper, disponibile su Android 12+. */
+    val supportsDynamicColor: Boolean = false,
 )
 
 val LocalPlatformUi = staticCompositionLocalOf { PlatformUi() }

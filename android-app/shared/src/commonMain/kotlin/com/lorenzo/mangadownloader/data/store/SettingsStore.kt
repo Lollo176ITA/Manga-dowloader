@@ -52,9 +52,8 @@ class SettingsStore(private val prefs: Settings) {
      * passare sempre il risultato a [SettingsBackup.applyTo], unica normalizzazione condivisa.
      */
     private fun readLegacySettings(): SettingsBackup = SettingsBackup(
-        searchScope = prefs.getString(KEY_SEARCH_SCOPE, SearchScope.ITA.name) ?: SearchScope.ITA.name,
-        searchSourceId = prefs.getString(KEY_SEARCH_SOURCE_ID, MangaSourceIds.DEFAULT)
-            ?: MangaSourceIds.DEFAULT,
+        searchScope = prefs.getString(KEY_SEARCH_SCOPE, SearchScope.ITA.name),
+        searchSourceId = prefs.getString(KEY_SEARCH_SOURCE_ID, MangaSourceIds.DEFAULT),
         autoDownloadEnabled = prefs.getBoolean(KEY_AUTO_DOWNLOAD_ENABLED, false),
         autoDownloadTriggerChapters = prefs.getInt(KEY_AUTO_DOWNLOAD_TRIGGER, 3),
         autoDownloadBatchSize = prefs.getInt(KEY_AUTO_DOWNLOAD_BATCH, 3),
@@ -66,19 +65,16 @@ class SettingsStore(private val prefs: Settings) {
         downloadDevUpdates = prefs.getBoolean(KEY_DOWNLOAD_DEV_UPDATES, false),
         privacyBrightnessEnabled = prefs.getBoolean(KEY_PRIVACY_BRIGHTNESS_ENABLED, false),
         readerBrightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 1f),
-        readingMode = prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name)
-            ?: ReadingMode.VERTICAL.name,
+        readingMode = prefs.getString(KEY_READING_MODE, ReadingMode.VERTICAL.name),
         readerPageSpacingDp = prefs.getInt(KEY_READER_PAGE_SPACING, DEFAULT_READER_PAGE_SPACING_DP),
         doubleTapZoomEnabled = prefs.getBoolean(KEY_DOUBLE_TAP_ZOOM, false),
         keepScreenOnEnabled = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
         allowLandscapeRotation = prefs.getBoolean(KEY_ALLOW_LANDSCAPE_ROTATION, false),
-        themeMode = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name) ?: ThemeMode.AUTO.name,
+        themeMode = prefs.getString(KEY_THEME_MODE, ThemeMode.AUTO.name),
         useDynamicColor = prefs.getBoolean(KEY_USE_DYNAMIC_COLOR, false),
         favoriteNewChapterNotificationsEnabled = prefs.getBoolean(KEY_FAVORITE_NOTIFICATIONS, false),
-        favoriteSort = prefs.getString(KEY_FAVORITE_SORT, FavoriteSort.DATE_ADDED.name)
-            ?: FavoriteSort.DATE_ADDED.name,
-        librarySort = prefs.getString(KEY_LIBRARY_SORT, LibrarySort.TITLE_ASC.name)
-            ?: LibrarySort.TITLE_ASC.name,
+        favoriteSort = prefs.getString(KEY_FAVORITE_SORT, FavoriteSort.DATE_ADDED.name),
+        librarySort = prefs.getString(KEY_LIBRARY_SORT, LibrarySort.TITLE_ASC.name),
         homeBlockOrder = readLegacyHomeBlocks(KEY_HOME_BLOCK_ORDER).map { it.name },
         hiddenHomeBlocks = readLegacyHomeBlocks(KEY_HOME_HIDDEN_BLOCKS).map { it.name },
     )

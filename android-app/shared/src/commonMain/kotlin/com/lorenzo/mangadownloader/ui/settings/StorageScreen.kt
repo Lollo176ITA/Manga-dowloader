@@ -329,7 +329,7 @@ private fun StorageSeriesRow(
                 // Disambigua: i "letti" sono il progresso di lettura, la % è la quota di spazio.
                 Text(
                     text = "$readDownloaded/${series.chapters.size} letti · " +
-                        "${formatFixed(percent.toDouble(), 0)}% dello spazio",
+                        "${formatFixed(percent, 0)}% dello spazio",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

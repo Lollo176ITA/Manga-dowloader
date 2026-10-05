@@ -20,16 +20,13 @@ on:
       - '.github/workflows/ios-preview.yml'
   workflow_dispatch:
 
+# Test e IPA girano in parallelo su due runner: ognuno compila :shared per il proprio target
+# (simulatore / iPhone), quindi in sequenza il tempo si sommava. La release parte solo se
+# entrambi riescono.
 jobs:
-  build-ipa:
+  test:
     # BGContinuedProcessingTask richiede l'SDK di iOS 26: serve Xcode 26.
     runs-on: macos-26
-    env:
-      GH_TOKEN: ${{ github.token }}
-      # Unico tag riusato a ogni build: l'updater Android legge solo le ultime 20 release
-      # e /releases/latest, quindi l'IPA resta una pre-release che non le sposta.
-      RELEASE_TAG: ios-preview
-      IPA_NAME: MangApp.ipa
     steps:
       - uses: actions/checkout@v7
 
@@ -48,24 +45,20 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      # Di default setup-gradle scrive la cache solo sul branch principale: qui non la
+      # salverebbe mai e ogni giro riscaricherebbe tutte le dipendenze.
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
 
-      - name: Cache Kotlin/Native toolchain
-        uses: actions/cache@v6
+      - name: Restore Kotlin/Native toolchain
+        id: konan
+        uses: actions/cache/restore@v6
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ hashFiles('android-app/gradle/libs.versions.toml', 'android-app/**/*.gradle.kts') }}
+          key: konan-${{ runner.os }}-${{ hashFiles('android-app/*.gradle.kts', 'android-app/shared/build.gradle.kts') }}
           restore-keys: konan-${{ runner.os }}-
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x android-app/gradlew
-
-      # Il link Release del framework Kotlin/Native va in OutOfMemory con i 3 GB del progetto.
-      - name: Raise Gradle heap for Kotlin/Native release link
-        run: |
-          mkdir -p ~/.gradle
-          echo 'org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8' >> ~/.gradle/gradle.properties
 
       - name: Run shared tests on iOS simulator
         working-directory: android-app
@@ -75,44 +68,115 @@ jobs:
         working-directory: ios-app
         run: swift test
 
+      # Salvata anche se un test fallisce: il toolchain (~1 GB) non va riscaricato.
+      - name: Save Kotlin/Native toolchain
+        if: always() && steps.konan.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.konan
+          key: ${{ steps.konan.outputs.cache-primary-key }}
+
+  build-ipa:
+    runs-on: macos-26
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      - name: Restore Kotlin/Native toolchain
+        id: konan
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('android-app/*.gradle.kts', 'android-app/shared/build.gradle.kts') }}
+          restore-keys: konan-${{ runner.os }}-
+
+      # Il link Release del framework Kotlin/Native va in OutOfMemory con i 3 GB del progetto.
+      - name: Raise Gradle heap for Kotlin/Native release link
+        run: |
+          mkdir -p ~/.gradle
+          echo 'org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8' >> ~/.gradle/gradle.properties
+
       - name: Resolve version
+        id: version
         run: |
           MARKETING_VERSION="$(grep -m1 'MARKETING_VERSION = ' ios-app/MangApp.xcodeproj/project.pbxproj | sed -E 's/.*= ([^;]+);.*/\1/')"
           test -n "$MARKETING_VERSION" || { echo "Missing MARKETING_VERSION"; exit 1; }
-          echo "MARKETING_VERSION=$MARKETING_VERSION" >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "version=$MARKETING_VERSION ($GITHUB_RUN_NUMBER)" >> "$GITHUB_OUTPUT"
 
       # IPA non firmato: la firma la mette SideStore (o AltStore/Sideloadly) sul telefono.
+      # Il dSYM non finisce nell'IPA: saltarlo risparmia tempo e spazio.
       - name: Build unsigned IPA
         run: |
           xcodebuild -project ios-app/MangApp.xcodeproj -target MangApp \
             -configuration Release -sdk iphoneos ARCHS=arm64 \
             "CONFIGURATION_BUILD_DIR=$PWD/ios-app/build/device" \
-            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            DEBUG_INFORMATION_FORMAT=dwarf \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build
           test -x ios-app/build/device/MangApp.app/MangApp || { echo "MangApp binary missing"; exit 1; }
           rm -rf ios-app/build/ipa && mkdir -p ios-app/build/ipa/Payload
           cp -R ios-app/build/device/MangApp.app ios-app/build/ipa/Payload/
-          (cd ios-app/build/ipa && zip -qry "../$IPA_NAME" Payload)
-          test -s "ios-app/build/$IPA_NAME" || { echo "IPA is empty"; exit 1; }
-
-      - name: Publish GitHub pre-release
-        run: |
-          NOTES="IPA non firmato $MARKETING_VERSION ($BUILD_NUMBER) dal branch ios, commit ${GITHUB_SHA::7}. Installalo con SideStore."
-          # Ricrea la release così il tag punta al commit appena compilato.
-          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$RELEASE_TAG" "ios-app/build/$IPA_NAME#$IPA_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "iOS preview $MARKETING_VERSION ($BUILD_NUMBER)" \
-            --notes "$NOTES" \
-            --prerelease \
-            --latest=false
+          (cd ios-app/build/ipa && zip -qry ../MangApp.ipa Payload)
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
         with:
           name: mangapp-ios-preview
-          path: ios-app/build/${{ env.IPA_NAME }}
+          path: ios-app/build/MangApp.ipa
           if-no-files-found: error
+
+      - name: Save Kotlin/Native toolchain
+        if: always() && steps.konan.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.konan
+          key: ${{ steps.konan.outputs.cache-primary-key }}
+
+  publish:
+    needs: [test, build-ipa]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Unico tag riusato a ogni build: l'updater Android legge solo le ultime 20 release
+      # e /releases/latest, quindi l'IPA resta una pre-release che non le sposta.
+      RELEASE_TAG: ios-preview
+      VERSION: ${{ needs.build-ipa.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: mangapp-ios-preview
+
+      - name: Publish GitHub pre-release
+        run: |
+          test -s MangApp.ipa || { echo "IPA is empty"; exit 1; }
+          NOTES="IPA non firmato $VERSION dal branch ios, commit ${GITHUB_SHA::7}. Installalo con SideStore."
+          # Ricrea la release così il tag punta al commit appena compilato.
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$RELEASE_TAG" "MangApp.ipa#MangApp.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "iOS preview $VERSION" \
+            --notes "$NOTES" \
+            --prerelease \
+            --latest=false

@@ -13,12 +13,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.IOException
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class KtorMangaNetworkClientTest {
 
     private val requests = mutableListOf<io.ktor.client.request.HttpRequestData>()

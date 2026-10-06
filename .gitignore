@@ -31,3 +31,11 @@ docs/superpowers/
 .superpowers/
 RIUSO.md
 scripts/changelog.ps1
+
+# File locali Xcode e prodotti di build dell'host iOS.
+ios-app/build/
+# Prodotti di `swift test` del pacchetto DownloadCore.
+ios-app/.build/
+ios-app/.swiftpm/
+**/xcuserdata/
+*.xcuserstate

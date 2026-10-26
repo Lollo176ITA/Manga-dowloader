@@ -27,7 +27,10 @@ class AniListStoreMigrationTest {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val prefs = application.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        store = AniListStore(prefs)
+        store = AniListStore(
+            prefs,
+            application.getSharedPreferences("anilist_account_test", Context.MODE_PRIVATE),
+        )
     }
 
     @Test

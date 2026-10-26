@@ -58,6 +58,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lorenzo.mangadownloader.app.AppSystemEffects
 import com.lorenzo.mangadownloader.app.AppTab
+import com.lorenzo.mangadownloader.app.activeAdultKeys
+import com.lorenzo.mangadownloader.app.withoutRegisteredAdult
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.app.MangaViewModel
 import com.lorenzo.mangadownloader.app.Screen
@@ -134,7 +136,14 @@ class MainActivity : FragmentActivity() {
             .state.value.settings.animationLevel
         window.decorView.compositionContext = window.decorView
             .createLifecycleAwareWindowRecomposer(AppMotion.durationScale, lifecycle)
-        handleAniListRedirect(intent)
+        // Dopo un process death Android ricrea l'activity con l'intent originale: un redirect
+        // già consumato tornerebbe qui e, con lo `state` ormai usato, mostrerebbe un avviso
+        // fuori luogo. Un redirect nuovo in quel caso arriva da onNewIntent.
+        val relaunched = savedInstanceState != null ||
+            intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (!relaunched) {
+            handleAniListRedirect(intent)
+        }
         handleNotificationIntent(intent)
 
         setContent {
@@ -228,9 +237,30 @@ private fun MangaDownloaderApp(viewModel: MangaViewModel = viewModel()) {
                 LocalRippleConfiguration.current
             },
         ) {
-            MangaDownloaderAppContent(state = state, viewModel = viewModel)
+            MangaDownloaderAppContent(state = rememberAdultFilteredState(state), viewModel = viewModel)
         }
     }
+}
+
+/**
+ * Lo stato come lo vedono le schermate: col filtro adulti attivo, senza le serie del registro
+ * (vedi AdultSeriesVisibility.kt). Ogni lista si ricalcola solo quando cambia lei o il
+ * registro, così le `remember` a valle non ripartono a ogni emissione dello stato.
+ */
+@Composable
+private fun rememberAdultFilteredState(state: MangaUiState): MangaUiState {
+    val keys = state.activeAdultKeys()
+    val favorites = remember(state.favorites, keys) { state.favorites.withoutRegisteredAdult(keys) }
+    val library = remember(state.library, keys) { state.library.withoutRegisteredAdult(keys) }
+    val memory = remember(state.readingMemory, keys) { state.readingMemory.withoutRegisteredAdult(keys) }
+    val updates = remember(state.favoriteUpdates, keys) { state.favoriteUpdates.withoutRegisteredAdult(keys) }
+    if (keys.isEmpty()) return state
+    return state.copy(
+        favorites = favorites,
+        library = library,
+        readingMemory = memory,
+        favoriteUpdates = updates,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -429,6 +459,7 @@ private fun MangaDownloaderAppContent(
                     mangaUrl = details.mangaUrl,
                     coverUrl = details.coverUrl,
                 )
+                viewModel.onDownloadQueued(details)
                 scope.launch {
                     // Azione "Libreria": progresso, coda e stop vivono nella tab Libreria;
                     // un tap ci porta dove si monitora la coda appena creata (chiude il dettaglio).
@@ -846,7 +877,7 @@ private fun MangaDownloaderAppContent(
                             }
                             try {
                                 context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, AniListAuth.authorizationUrl().toUri()),
+                                    Intent(Intent.ACTION_VIEW, viewModel.beginAniListLogin().toUri()),
                                 )
                             } catch (_: ActivityNotFoundException) {
                                 snackbarHostState.showSnackbar("Nessun browser disponibile")

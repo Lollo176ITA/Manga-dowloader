@@ -14,35 +14,12 @@
   - Fatto il 2026-10-26: le segnalazioni passano dal Worker [`report-relay/`](report-relay/README.md), che crea la card con l'API di Trello. Jakarta Mail, le regole ProGuard e la configurazione SMTP sono stati tolti dall'app e dalla CI.
   - Resta da fare, a mano e **dopo** aver pubblicato una versione col relay: revocare la app password di `mangapp.reports@gmail.com` (le versioni vecchie smettono di inviare) e cancellare i secret GitHub `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO_EMAIL`.
 
-- [ ] **P1 · Redirect AniList accettato senza un login in corso** ✅ — Impatto Medio · Sforzo Basso
-  - Dove: [MainActivity.kt:168](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L168) e [MangaViewModel.kt:3649](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L3649). L'intent-filter è `BROWSABLE`: un link `mangapp://anilist-auth#access_token=<token altrui>` collega l'account dell'attaccante (`persistAccount` sovrascrive quello attuale), che da quel momento riceve progressi e preferiti.
-  - Fix: salvare un timestamp "login avviato" all'apertura di `authorizationUrl()` ([MainActivity.kt:849](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L849)) e rifiutare i redirect se manca o ha più di 10 minuti; va consumato al primo uso. Per `KEY_HANDLED_AUTH_TOKEN` salvare l'hash SHA-256, non il token in chiaro.
-  - Auth Tab / Custom Tab (`androidx.browser` 1.10.0) migliora solo la UX, alla sicurezza non serve.
+- [ ] **Da verificare sul telefono (fix del 2026-10-26)** ✅ — Impatto Alto · Sforzo Basso
+  - Login AniList: il redirect deve riportare lo `state` passato in `authorizationUrl()` ([AniListTracking.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/anilist/AniListTracking.kt)). Se AniList non lo restituisce, il collegamento si rompe per tutti: va provato prima della release.
+  - Blocco del PIN dopo un riavvio, filtro adulti su preferiti e download già presenti, fonti col nuovo User-Agent.
 
-- [ ] **P1 · Blocco del PIN aggirabile spostando l'orologio** ✅ — Impatto Medio · Sforzo Basso
-  - Dove: [ParentalControlController.kt:254](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/ParentalControlController.kt#L254) usa `System.currentTimeMillis()`.
-  - Attenzione al fix dell'audit: `SystemClock.elapsedRealtime()` da solo si azzera al riavvio, quindi basterebbe riavviare il telefono. Va salvato anche `elapsedRealtime` + `Settings.Global.BOOT_COUNT` a ogni errore. Nello stesso avvio vale `elapsedRealtime`; dopo un riavvio vale l'orologio, ma se l'ora è precedente all'ultimo errore il PIN resta bloccato.
-  - Limite da dichiarare all'utente: cancellare i dati o disinstallare l'app azzera comunque il controllo. È una barriera leggera; per garanzie vere serve Family Link. L'hash veloce è la voce in 🔒 Controllo genitori: priorità bassa, perché uno spazio di 10⁶ PIN resta piccolo anche con PBKDF2.
-
-- [ ] **P1 · Token AniList nel backup automatico di Android** ✅ — Impatto Basso · Sforzo Basso
-  - Dove: [AndroidManifest.xml:15](android-app/app/src/main/AndroidManifest.xml#L15) ha `allowBackup="true"` senza `dataExtractionRules`/`fullBackupContent`. Tutti gli store, token compreso, stanno nello stesso file `SettingsStore.PREFS_NAME`: escluderlo intero toglierebbe dal backup anche preferiti e impostazioni.
-  - Fix: spostare token e profilo AniList in un file di prefs a parte (con migrazione una tantum) ed escludere solo quello: `data_extraction_rules.xml` per API 31+, `fullBackupContent` per API 26-30.
-  - Tink / Keystore: scartato. Il token sta già nella sandbox e cifrarlo protegge solo da root e backup, già coperti qui sopra.
-
-- [ ] **P2 · Aggiornamenti tramite l'API GitHub senza autenticazione** ✅ — Impatto Medio · Sforzo Medio
-  - Dove: [AppUpdateManager.kt:81](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/update/AppUpdateManager.kt#L81) (anche :104 e :134) chiama `api.github.com`, che ha un limite di 60 richieste all'ora per IP. Con molti utenti dietro lo stesso IP (CGNAT degli operatori mobili) arriva un 403: lo stabile ripiega su `version.properties`, ma si perdono le note e le preview.
-  - Le note sono il messaggio del commit (:72): per questo nel popup è comparso "daje roma".
-  - Fix: il workflow pubblica un `update.json` statico (versione, URL dell'APK, note prese dalla sezione del `CHANGELOG.md`) su raw o Pages, e l'app legge solo quello. Risolve entrambi i problemi.
-  - Rischio da valutare: tutto il canale aggiornamenti dipende dal repo GitHub. Un'app di scraping molto diffusa può ricevere una segnalazione DMCA; se il repo sparisce, le app installate restano senza aggiornamenti. Far puntare `updateConfigUrl` a un dominio proprio lascia una via d'uscita.
-
-- [ ] **P2 · Filtro adulti assente su Preferiti, Libreria, Cronologia, Aggiornamenti, widget e notifiche** ✅ — Impatto Medio · Sforzo Medio
-  - Dove: `hidesAdultContent()` ([MangaViewModel.kt:297](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L297)) si usa solo in ricerca, Home/Scopri, consigliati e nelle fonti VyManga e WeebCentral. `FavoriteManga` (:277) non salva se la serie è per adulti, quindi oggi non c'è niente su cui filtrare.
-  - Subito: all'attivazione del controllo genitori, avvisare che preferiti e download già presenti restano visibili.
-  - Poi: salvare `isAdult` sul preferito quando lo si aggiunge (il dato c'è già nel risultato di ricerca e in AniList), ricavarlo in background per i preferiti vecchi e filtrare ovunque con lo stesso flag.
-
-- [ ] **P2 · User-Agent fisso su Chrome 124** ✅ — Impatto Medio · Sforzo Basso
-  - Dove: [MangaNetworkClient.kt:135](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/network/MangaNetworkClient.kt#L135) e AniListClient.kt:308. Uno UA vecchio di due anni è un segnale per Cloudflare, e con molti utenti i blocchi pesano di più.
-  - Fix: usare lo UA di `WebSettings.getDefaultUserAgent()`, che si aggiorna con la WebView del telefono, togliendo il marcatore `; wv`, con la costante come ripiego. Valutare anche un limite di richieste parallele per host.
+- [ ] **P2 · Canale aggiornamenti legato al repo GitHub** 🔎 — Impatto Medio · Sforzo Medio
+  - Il feed (`update-stable.json` / `update-preview.json`, asset della release `update-feed`) e gli APK stanno nel repo. Un'app di scraping molto diffusa può ricevere una segnalazione DMCA: se il repo sparisce, le app installate restano senza aggiornamenti. Far puntare l'URL del feed ([AppUpdateManager.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/update/AppUpdateManager.kt) `updateFeedUrl`) a un dominio proprio lascia una via d'uscita.
 
 - [ ] **P2 · Informativa privacy e consenso** 🔎 — Impatto Medio · Sforzo Basso
   - Dal telefono escono dati: segnalazioni (email facoltativa, vocali, screenshot), crash (percorsi e titoli) e AniList. Distribuendo a molti serve un'informativa breve (nel README, con un link nelle Impostazioni) e un consenso esplicito prima di inviare un crash.

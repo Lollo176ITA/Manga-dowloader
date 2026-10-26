@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.FavoriteManga
 import com.lorenzo.mangadownloader.data.model.ThemeMode
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
@@ -54,6 +55,7 @@ class BackupManagerTest {
         settingsStore = SettingsStore(prefs()),
         readingMemoryStore = ReadingMemoryStore(prefs()),
         readingDiaryStore = ReadingDiaryStore(prefs()),
+        adultSeriesStore = AdultSeriesStore(prefs()),
         appVersionName = "1.9.0",
     )
 
@@ -247,5 +249,20 @@ class BackupManagerTest {
         assertEquals(listOf("local"), result.favoriteShelves.shelves.map { it.id })
         assertEquals(setOf("local"), result.favoriteShelves.shelfIdsOf(favA))
         assertEquals(result.favoriteShelves, FavoriteShelvesStore(prefs()).read())
+    }
+
+    @Test
+    fun adultRegistry_roundTrip_andNeverShrinksOnReplace() {
+        AdultSeriesStore(prefs()).add(listOf("title:a"))
+        val out = ByteArrayOutputStream()
+        manager().export(out, nowMs = 1L)
+
+        // Sul telefono "nuovo" il registro ha già un'altra serie: anche in REPLACE resta.
+        prefs().edit().clear().commit()
+        AdultSeriesStore(prefs()).add(listOf("title:b"))
+        val result = manager().restore(out.toByteArray().inputStream(), BackupRestoreMode.REPLACE)!!
+
+        assertEquals(setOf("title:a", "title:b"), result.adultSeriesKeys)
+        assertEquals(setOf("title:a", "title:b"), AdultSeriesStore(prefs()).read())
     }
 }

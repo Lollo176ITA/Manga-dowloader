@@ -28,6 +28,9 @@ jobs:
         working-directory: android-app
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Tag precedenti: servono per le note del feed aggiornamenti.
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -146,6 +149,31 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             app/build/outputs/apk/release/app-release.apk#app-release.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      # L'app legge questo file invece dell'API GitHub (limite di 60 richieste/ora per IP).
+      - name: Publish update feed
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 ../.github/scripts/update_feed.py \
+            --version-name "$VERSION_NAME" \
+            --apk-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/app-release.apk" \
+            --tag-pattern 'android-v*' \
+            --current-tag "$RELEASE_TAG" \
+            --output "$RUNNER_TEMP/update-stable.json"
+          if ! gh release view update-feed --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create update-feed \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Feed aggiornamenti" \
+              --notes "File letti dall'app per controllare gli aggiornamenti: non è una versione da scaricare." \
+              --prerelease \
+              --latest=false
+          fi
+          gh release upload update-feed "$RUNNER_TEMP/update-stable.json" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 

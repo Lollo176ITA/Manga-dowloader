@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31). Tutto va nel backup tranne l'account AniList (token e profilo):
+  sul telefono nuovo si ricollega in due tocchi. Il nome del file è
+  AniListStore.ACCOUNT_PREFS_NAME. Per API 26-30 vale backup_rules.xml.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="anilist_account_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="anilist_account_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

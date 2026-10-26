@@ -68,6 +68,7 @@ import com.lorenzo.mangadownloader.data.sources.isSourceSkipped
 import com.lorenzo.mangadownloader.data.sources.recordSourceProbeFailure
 import com.lorenzo.mangadownloader.data.sources.recordSourceProbeSuccess
 import com.lorenzo.mangadownloader.data.sources.sourcesToQuery
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
@@ -88,6 +89,7 @@ import com.lorenzo.mangadownloader.data.store.SeriesLink
 import com.lorenzo.mangadownloader.data.store.SeriesLinksStore
 import com.lorenzo.mangadownloader.data.store.SeriesSourceBinding
 import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.data.store.deviceBootInstant
 import com.lorenzo.mangadownloader.data.store.favoriteSourceNotice
 import com.lorenzo.mangadownloader.data.store.initialBinding
 import com.lorenzo.mangadownloader.data.store.isHomeFeedFresh
@@ -97,6 +99,8 @@ import com.lorenzo.mangadownloader.data.update.AppUpdateInfo
 import com.lorenzo.mangadownloader.data.update.AppUpdateInstaller
 import com.lorenzo.mangadownloader.data.update.AppUpdateRepository
 import com.lorenzo.mangadownloader.domain.FilteredSearchResults
+import com.lorenzo.mangadownloader.domain.adultRegistryKeys
+import com.lorenzo.mangadownloader.domain.adultSearchRegistryKeys
 import com.lorenzo.mangadownloader.domain.filterAdultSearchResults
 import com.lorenzo.mangadownloader.domain.home.DEFAULT_HOME_BLOCK_ORDER
 import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
@@ -107,6 +111,7 @@ import com.lorenzo.mangadownloader.domain.home.normalizedRecommendationTitle
 import com.lorenzo.mangadownloader.domain.home.reconcileHomeBlocks
 import com.lorenzo.mangadownloader.domain.home.selectRecommendationSeeds
 import com.lorenzo.mangadownloader.domain.isAdultContent
+import com.lorenzo.mangadownloader.domain.looksLikeAdultTitle
 import com.lorenzo.mangadownloader.domain.reading.ReadChapterMemory
 import com.lorenzo.mangadownloader.domain.reading.ReadingDayStats
 import com.lorenzo.mangadownloader.domain.reading.ResumeTarget
@@ -457,6 +462,8 @@ data class MangaUiState(
     val showStats: Boolean = false,
     val aniList: AniListUiState = AniListUiState(),
     val favoriteUpdates: List<FavoriteUpdateEvent> = emptyList(),
+    /** Registro delle serie per adulti (vedi [AdultSeriesStore]); si applica solo a filtro attivo. */
+    val adultSeriesKeys: Set<String> = emptySet(),
     val settings: AppSettings = AppSettings(),
     val isBiometricAvailable: Boolean = false,
     val isParentalAuthInProgress: Boolean = false,
@@ -510,8 +517,17 @@ class MangaViewModel internal constructor(
     private val favoriteDescriptionsStore = FavoriteDescriptionsStore(prefs)
     private val favoriteUpdatesFeedStore = FavoriteUpdatesFeedStore(prefs)
     private val favoriteUpdatesStore = FavoriteUpdatesStore(prefs)
-    private val aniListStore = AniListStore(prefs)
+    private val aniListStore = AniListStore(
+        prefs,
+        application.getSharedPreferences(AniListStore.ACCOUNT_PREFS_NAME, Context.MODE_PRIVATE),
+    )
     private val aniListFavoritesSyncStore = AniListFavoritesSyncStore(prefs)
+    private val adultSeriesStore = AdultSeriesStore(prefs)
+
+    // Chiavi delle serie per adulti viste nelle ricerche di questa sessione: se una di queste
+    // finisce tra i preferiti o viene scaricata, entra nel registro.
+    private val adultSearchKeys = mutableSetOf<String>()
+    private var adultRegistryJob: Job? = null
     private val seriesLinksStore = SeriesLinksStore(prefs)
     private val favoriteSourceHealthStore = FavoriteSourceHealthStore(prefs)
     private val sourceHealthStore = SourceHealthStore(prefs)
@@ -528,6 +544,7 @@ class MangaViewModel internal constructor(
         settingsStore = settingsStore,
         readingMemoryStore = readingMemoryStore,
         readingDiaryStore = readingDiaryStore,
+        adultSeriesStore = adultSeriesStore,
         appVersionName = BuildConfig.VERSION_NAME,
     )
 
@@ -582,6 +599,7 @@ class MangaViewModel internal constructor(
                 .toMap(),
             sourceHealth = sourceHealthStore.read(),
             favoriteUpdates = favoriteUpdatesFeedStore.read(),
+            adultSeriesKeys = adultSeriesStore.read(),
             aniList = AniListUiState(
                 viewer = aniListStore.readViewer().takeIf { aniListStore.readToken() != null },
                 trackings = aniListStore.readTrackings(),
@@ -604,7 +622,7 @@ class MangaViewModel internal constructor(
     /** PIN, biometria e accesso protetto a Cerca: vedi [ParentalControlController]. */
     val parental = ParentalControlController(
         state = _state,
-        lockoutStore = ParentalLockoutStore(prefs),
+        lockoutStore = ParentalLockoutStore(prefs) { deviceBootInstant(application.contentResolver) },
         updateSettings = ::updateSettings,
     )
 
@@ -789,7 +807,11 @@ class MangaViewModel internal constructor(
      * effetto finché il parentale è attivo (vedi [hidesAdultContent]).
      */
     fun setHideAdultContent(enabled: Boolean) {
+        val wasHiding = _state.value.settings.hidesAdultContent()
         updateSettings { it.copy(hideAdultContent = enabled) }
+        if (enabled && !wasHiding) {
+            updateState { copy(errorMessage = ADULT_FILTER_ENABLED_NOTICE) }
+        }
         _state.value.query.trim().takeIf { it.isNotEmpty() && _state.value.results.isNotEmpty() }
             ?.let(::runAggregatedSearch)
     }
@@ -1042,6 +1064,7 @@ class MangaViewModel internal constructor(
                     settings = result.settings,
                     readingMemory = result.readingMemory,
                     readingDiary = result.readingDiary,
+                    adultSeriesKeys = result.adultSeriesKeys,
                     errorMessage = restoreMessage(result),
                 )
             }
@@ -1799,6 +1822,7 @@ class MangaViewModel internal constructor(
                 coverUrl = target.coverUrl,
                 binding = SeriesSourceBinding(target.sourceId, target.mangaUrl, now),
             )
+            rememberAdultSeries(target.title, target.sourceId, target.mangaUrl, targetSeriesKey)
         }
         favoritesStore.persist(current)
         updateState {
@@ -1814,6 +1838,9 @@ class MangaViewModel internal constructor(
                     favoriteDescriptionsStore.read() + (targetSeriesKey to description),
                 )
             }
+        }
+        if (existingIndex < 0) {
+            refreshAdultSeriesRegistry()
         }
         // La stella è appena cambiata: riallinea AniList. Il giro precedente viene annullato,
         // quindi una raffica di stelle toccate in fila produce una sola riconciliazione.
@@ -1870,6 +1897,7 @@ class MangaViewModel internal constructor(
                 val snapshot = scanLibrarySnapshot(forceRefresh)
                 updateState { withLibrarySnapshot(snapshot).copy(isLoadingLibrary = false) }
                 persistReadingMemoryIfChanged()
+                refreshAdultSeriesRegistry()
             } catch (e: CancellationException) {
                 throw e
             } catch (exc: Exception) {
@@ -1882,6 +1910,81 @@ class MangaViewModel internal constructor(
             }
         }
     }
+
+    /** Download appena accodato dal dettaglio: se la serie è per adulti, entra nel registro. */
+    fun onDownloadQueued(details: MangaDetails) {
+        rememberAdultSeries(details.title, details.sourceId, details.mangaUrl)
+    }
+
+    /**
+     * Mette nel registro adulti una serie appena salvata (preferito o download) se una ricerca
+     * di questa sessione l'ha vista segnalata per adulti, o se il titolo è esplicito.
+     */
+    private fun rememberAdultSeries(title: String, sourceId: String, mangaUrl: String, seriesKey: String? = null) {
+        val keys = adultRegistryKeys(title, sourceId, mangaUrl, seriesKey)
+        if (looksLikeAdultTitle(title) || keys.any { it in adultSearchKeys }) {
+            val updated = adultSeriesStore.add(keys)
+            updateState { copy(adultSeriesKeys = updated) }
+        }
+    }
+
+    /**
+     * Recupero del registro adulti per preferiti e download già presenti: titoli espliciti, poi
+     * AniList per le serie agganciate a un media non ancora controllato (ognuno una volta sola,
+     * a blocchi). Gira a prescindere dal filtro, così accendendolo è già tutto pronto. Il giro
+     * precedente si annulla: ogni blocco è salvato appena arriva, quindi non si perde nulla.
+     */
+    private fun refreshAdultSeriesRegistry() {
+        val favorites = _state.value.favorites
+        val library = _state.value.library
+        adultRegistryJob?.cancel()
+        adultRegistryJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { recoverAdultSeries(favorites, library) }
+            } finally {
+                val stored = adultSeriesStore.read()
+                if (stored != _state.value.adultSeriesKeys) {
+                    updateState { copy(adultSeriesKeys = stored) }
+                }
+            }
+        }
+    }
+
+    private fun recoverAdultSeries(favorites: List<FavoriteManga>, library: List<DownloadedSeries>) {
+        val candidates = favorites.map { favorite ->
+            AdultRecoveryCandidate(
+                title = favorite.title,
+                keys = adultRegistryKeys(favorite.title, favorite.sourceId, favorite.mangaUrl, favorite.seriesKey),
+                aniListId = SeriesIdentity.aniListIdFromKey(favorite.seriesKey)
+                    ?: seriesLinksStore.linkFor(favorite.seriesKey)?.aniListId,
+            )
+        } + library.map { series ->
+            val link = series.mangaUrl?.let { seriesLinksStore.linkForBinding(series.sourceId, it) }
+            AdultRecoveryCandidate(
+                title = series.title,
+                keys = adultRegistryKeys(series.title, series.sourceId, series.mangaUrl, link?.seriesKey),
+                aniListId = link?.aniListId,
+            )
+        }
+        adultSeriesStore.add(candidates.filter { looksLikeAdultTitle(it.title) }.flatMap { it.keys })
+
+        val checked = adultSeriesStore.readCheckedAniListIds()
+        val toCheck = candidates.mapNotNull { it.aniListId }.distinct().filterNot { it in checked }
+        for (batch in toCheck.chunked(AniListClient.ADULT_FLAGS_BATCH)) {
+            val adultIds = try {
+                aniListClient.fetchAdultFlags(batch).filterValues { it }.keys
+            } catch (_: Exception) {
+                return // Rete o AniList giù: i blocchi mancanti si riprovano al prossimo giro.
+            }
+            adultSeriesStore.add(
+                candidates.filter { it.aniListId in adultIds }
+                    .flatMap { it.keys + SeriesIdentity.keyForAniList(it.aniListId!!) },
+            )
+            adultSeriesStore.addCheckedAniListIds(batch)
+        }
+    }
+
+    private data class AdultRecoveryCandidate(val title: String, val keys: Set<String>, val aniListId: Int?)
 
     fun selectDownloadedSeries(series: DownloadedSeries) {
         updateState {
@@ -2886,6 +2989,7 @@ class MangaViewModel internal constructor(
                     ?.takeIf { failures == queried.size }
                     ?.let { userFacingErrorMessage(it, "Errore di ricerca") }
                 val grouped = SeriesGrouping.groupResults(interleaved, pinned + aniCandidates)
+                adultSearchKeys += adultSearchRegistryKeys(interleaved, grouped, pinned + aniCandidates)
                 // Filtro per adulti: il segnale arriva dai candidati AniList di questa stessa
                 // ricerca, quindi si riapplica a ogni pubblicazione (AniList può arrivare dopo).
                 val visible = if (_state.value.settings.hidesAdultContent()) {
@@ -3642,24 +3746,32 @@ class MangaViewModel internal constructor(
 
     // --- Tracking AniList: account, matching serie→media, push stato/progresso ---
 
+    /** Avvia il login AniList: ricorda lo `state` monouso e restituisce l'URL da aprire. */
+    fun beginAniListLogin(): String {
+        val loginState = AniListAuth.newLoginState()
+        aniListStore.savePendingLoginState(loginState)
+        return AniListAuth.authorizationUrl(loginState)
+    }
+
     /**
      * Redirect OAuth dal browser (`mangapp://anilist-auth#access_token=…`): valida il token
      * recuperando il profilo, persiste l'account e riprova eventuali progressi in sospeso.
      */
     fun onAniListAuthRedirect(fragment: String?) {
+        // Si accetta solo il redirect che riporta lo `state` dell'ultimo login avviato qui, e
+        // una volta sola. Uno `state` sbagliato non consuma quello in attesa: un link estraneo
+        // aperto durante un login vero non deve farlo fallire.
+        val pendingState = aniListStore.readPendingLoginState()
+        if (pendingState == null || AniListAuth.extractState(fragment) != pendingState) {
+            updateState { copy(errorMessage = "Collegamento AniList non richiesto dall'app: ignorato") }
+            return
+        }
+        aniListStore.clearPendingLoginState()
         val token = AniListAuth.extractAccessToken(fragment)
         if (token == null) {
             updateState { copy(errorMessage = "Accesso ad AniList annullato o non riuscito") }
             return
         }
-        // Redirect gia' consumato e riconsegnato da Android (ricreazione dell'activity dopo un
-        // process death): rifare il login significherebbe rigiocare un token vecchio e farsi
-        // scollegare dal 401 che ne segue. Basta riallineare lo stato a cio' che e' su disco.
-        if (token == aniListStore.readHandledAuthToken()) {
-            syncAniListAccountState()
-            return
-        }
-        aniListStore.markAuthTokenHandled(token)
         updateState { copy(aniList = aniList.copy(isConnecting = true)) }
         viewModelScope.launch {
             try {
@@ -3790,6 +3902,7 @@ class MangaViewModel internal constructor(
                         favoriteSeriesKeys = favoriteSeriesKeys(updated),
                     )
                 }
+                refreshAdultSeriesRegistry()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AniListAuthException) {

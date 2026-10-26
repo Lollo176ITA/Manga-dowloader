@@ -5,6 +5,7 @@ import androidx.core.content.edit
 import com.lorenzo.mangadownloader.data.store.readJson
 import com.lorenzo.mangadownloader.data.store.writeJson
 import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
+import java.security.SecureRandom
 import java.util.Locale
 import kotlinx.serialization.Serializable
 
@@ -117,59 +118,111 @@ object AniListAuth {
 
     fun isConfigured(): Boolean = CLIENT_ID.isNotBlank()
 
-    fun authorizationUrl(): String =
-        "https://anilist.co/api/v2/oauth/authorize?client_id=$CLIENT_ID&response_type=token"
+    /** [state] torna indietro nel redirect: vedi [newLoginState]. */
+    fun authorizationUrl(state: String): String =
+        "https://anilist.co/api/v2/oauth/authorize?client_id=$CLIENT_ID&response_type=token&state=$state"
+
+    /**
+     * Codice casuale e monouso che lega il redirect al login avviato dall'app. Il redirect è
+     * un link `mangapp://` che chiunque può aprire: senza questo codice un link costruito ad
+     * arte collegherebbe l'account di un altro, che da quel momento riceverebbe progressi e
+     * preferiti.
+     */
+    fun newLoginState(): String {
+        val bytes = ByteArray(16)
+        secureRandom.nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
 
     /**
      * Estrae l'`access_token` dal fragment del redirect (`access_token=…&token_type=Bearer&…`).
      * `null` se il fragment manca o non contiene il token (es. autorizzazione negata).
      */
-    fun extractAccessToken(fragment: String?): String? {
+    fun extractAccessToken(fragment: String?): String? = fragmentParam(fragment, "access_token")
+
+    /** Lo `state` riportato dal redirect, `null` se manca. */
+    fun extractState(fragment: String?): String? = fragmentParam(fragment, "state")
+
+    private fun fragmentParam(fragment: String?, name: String): String? {
         val raw = fragment?.trim()?.takeIf(String::isNotBlank) ?: return null
         return raw.split('&')
             .map { it.split('=', limit = 2) }
-            .firstOrNull { it.size == 2 && it[0] == "access_token" }
+            .firstOrNull { it.size == 2 && it[0] == name }
             ?.get(1)
             ?.takeIf(String::isNotBlank)
     }
+
+    private val secureRandom = SecureRandom()
 }
 
 /**
  * Persistenza dell'account AniList (token + profilo) e dei legami serie→media su
  * [SharedPreferences], nello stile degli altri store del progetto. Il token resta solo qui:
  * non finisce nei backup esportati.
+ *
+ * Token, profilo e login in corso stanno in [accountPrefs] ([ACCOUNT_PREFS_NAME]), un file a
+ * parte escluso dal backup di Android e dal trasferimento tra telefoni
+ * (`res/xml/data_extraction_rules.xml`, `res/xml/backup_rules.xml`). I legami serie→media
+ * restano in [prefs] e quindi nel backup: tornano utili al prossimo login.
  */
-class AniListStore(private val prefs: SharedPreferences) {
+class AniListStore(
+    private val prefs: SharedPreferences,
+    private val accountPrefs: SharedPreferences,
+) {
 
-    fun readToken(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
+    init {
+        // Le versioni precedenti tenevano qui in chiaro l'ultimo token del redirect, per non
+        // rielaborarlo dopo un process death: ora lo impedisce lo `state` monouso.
+        if (prefs.contains(KEY_LEGACY_HANDLED_AUTH_TOKEN)) {
+            prefs.edit { remove(KEY_LEGACY_HANDLED_AUTH_TOKEN) }
+        }
+        migrateAccountToOwnFile()
+    }
+
+    /** Una tantum: account salvato dalle versioni precedenti nel file comune, quindi nel backup. */
+    private fun migrateAccountToOwnFile() {
+        val legacy = prefs.all.filterKeys { it in ACCOUNT_KEYS }
+        if (legacy.isEmpty()) return
+        accountPrefs.edit(commit = true) {
+            legacy.forEach { (key, value) ->
+                when (value) {
+                    is String -> putString(key, value)
+                    is Int -> putInt(key, value)
+                }
+            }
+        }
+        prefs.edit { legacy.keys.forEach(::remove) }
+    }
+
+    fun readToken(): String? = accountPrefs.getString(KEY_TOKEN, null)?.takeIf(String::isNotBlank)
 
     /**
-     * Ultimo token estratto da un redirect OAuth **già elaborato**. Android riconsegna
-     * l'intent originale quando ricrea l'activity dopo un process death (riapertura dalle
-     * Recenti): senza ricordare quale redirect è già stato consumato, l'app ritenterebbe il
-     * login con quel token — anche molto tempo dopo, quando è ormai scaduto — e il 401 che
-     * ne segue scollegherebbe un account valido. Sopravvive a [clearAccount]: il punto è
-     * proprio non ri-elaborare un redirect vecchio dopo una disconnessione.
+     * `state` dell'ultimo login avviato e non ancora concluso (vedi [AniListAuth.newLoginState]).
+     * Sta su disco perché il sistema può chiudere l'app mentre l'utente è nel browser.
      */
-    fun readHandledAuthToken(): String? =
-        prefs.getString(KEY_HANDLED_AUTH_TOKEN, null)?.takeIf(String::isNotBlank)
+    fun readPendingLoginState(): String? =
+        accountPrefs.getString(KEY_PENDING_LOGIN_STATE, null)?.takeIf(String::isNotBlank)
 
-    fun markAuthTokenHandled(token: String) {
-        prefs.edit { putString(KEY_HANDLED_AUTH_TOKEN, token) }
+    fun savePendingLoginState(state: String) {
+        accountPrefs.edit { putString(KEY_PENDING_LOGIN_STATE, state) }
+    }
+
+    fun clearPendingLoginState() {
+        accountPrefs.edit { remove(KEY_PENDING_LOGIN_STATE) }
     }
 
     fun readViewer(): AniListViewer? {
-        val id = prefs.getInt(KEY_VIEWER_ID, -1).takeIf { it > 0 } ?: return null
-        val name = prefs.getString(KEY_VIEWER_NAME, null)?.takeIf(String::isNotBlank) ?: return null
+        val id = accountPrefs.getInt(KEY_VIEWER_ID, -1).takeIf { it > 0 } ?: return null
+        val name = accountPrefs.getString(KEY_VIEWER_NAME, null)?.takeIf(String::isNotBlank) ?: return null
         return AniListViewer(
             id = id,
             name = name,
-            scoreFormat = aniListScoreFormatFromText(prefs.getString(KEY_VIEWER_SCORE_FORMAT, null)),
+            scoreFormat = aniListScoreFormatFromText(accountPrefs.getString(KEY_VIEWER_SCORE_FORMAT, null)),
         )
     }
 
     fun persistAccount(token: String, viewer: AniListViewer) {
-        prefs.edit {
+        accountPrefs.edit {
             putString(KEY_TOKEN, token)
             putInt(KEY_VIEWER_ID, viewer.id)
             putString(KEY_VIEWER_NAME, viewer.name)
@@ -179,7 +232,7 @@ class AniListStore(private val prefs: SharedPreferences) {
 
     /** Scollega l'account. I legami serie→media restano: tornano utili al prossimo login. */
     fun clearAccount() {
-        prefs.edit {
+        accountPrefs.edit {
             remove(KEY_TOKEN)
             remove(KEY_VIEWER_ID)
             remove(KEY_VIEWER_NAME)
@@ -254,12 +307,18 @@ class AniListStore(private val prefs: SharedPreferences) {
         val pendingProgress: Int? = null,
     )
 
-    private companion object {
-        const val KEY_TOKEN = "anilist_token"
-        const val KEY_HANDLED_AUTH_TOKEN = "anilist_handled_auth_token"
-        const val KEY_VIEWER_ID = "anilist_viewer_id"
-        const val KEY_VIEWER_NAME = "anilist_viewer_name"
-        const val KEY_VIEWER_SCORE_FORMAT = "anilist_viewer_score_format"
-        const val KEY_TRACKINGS_JSON = "anilist_trackings_json"
+    companion object {
+        /** Va tenuto allineato con le esclusioni in data_extraction_rules.xml e backup_rules.xml. */
+        const val ACCOUNT_PREFS_NAME = "anilist_account_prefs"
+
+        private const val KEY_TOKEN = "anilist_token"
+        private const val KEY_LEGACY_HANDLED_AUTH_TOKEN = "anilist_handled_auth_token"
+        private const val KEY_PENDING_LOGIN_STATE = "anilist_pending_login_state"
+        private const val KEY_VIEWER_ID = "anilist_viewer_id"
+        private const val KEY_VIEWER_NAME = "anilist_viewer_name"
+        private const val KEY_VIEWER_SCORE_FORMAT = "anilist_viewer_score_format"
+        private const val KEY_TRACKINGS_JSON = "anilist_trackings_json"
+        private val ACCOUNT_KEYS =
+            setOf(KEY_TOKEN, KEY_VIEWER_ID, KEY_VIEWER_NAME, KEY_VIEWER_SCORE_FORMAT)
     }
 }

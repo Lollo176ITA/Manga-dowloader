@@ -53,7 +53,10 @@ import coil3.toBitmap
 import com.lorenzo.mangadownloader.MainActivity
 import com.lorenzo.mangadownloader.R
 import com.lorenzo.mangadownloader.app.AppSettings
+import com.lorenzo.mangadownloader.app.hidesAdultContent
+import com.lorenzo.mangadownloader.app.withoutRegisteredAdult
 import com.lorenzo.mangadownloader.data.model.ThemeMode
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.ReadingMemoryStore
 import com.lorenzo.mangadownloader.data.store.SettingsStore
 import com.lorenzo.mangadownloader.domain.reading.ResumeReadingItem
@@ -89,11 +92,15 @@ class ReadingWidget : GlanceAppWidget() {
 
     private fun loadData(context: Context): Pair<ResumeReadingItem?, AppSettings> {
         val prefs = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
+        val settings = SettingsStore(prefs).read()
+        val adultKeys = if (settings.hidesAdultContent()) AdultSeriesStore(prefs).read() else emptySet()
         val resume = readingWidgetResume(
-            library = runCatching { sharedLibraryRepository(context).scanLibrary() }.getOrDefault(emptyList()),
-            memory = ReadingMemoryStore(prefs).read(),
+            library = runCatching { sharedLibraryRepository(context).scanLibrary() }
+                .getOrDefault(emptyList())
+                .withoutRegisteredAdult(adultKeys),
+            memory = ReadingMemoryStore(prefs).read().withoutRegisteredAdult(adultKeys),
         )
-        return resume to SettingsStore(prefs).read()
+        return resume to settings
     }
 
     /** Copertina piccola e software (i bitmap hardware non passano nelle RemoteViews). */

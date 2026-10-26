@@ -164,6 +164,7 @@ class ParentalControlController(
             else -> {
                 val salt = generateParentalPinSalt()
                 val hash = hashParentalPin(setupState.pin, salt)
+                val wasHidingAdult = state.value.settings.hidesAdultContent()
                 updateSettings {
                     it.copy(
                         parentalControlEnabled = true,
@@ -189,6 +190,7 @@ class ParentalControlController(
                         },
                         parentalPinSetupState = null,
                         isParentalAuthInProgress = false,
+                        errorMessage = if (wasHidingAdult) errorMessage else ADULT_FILTER_ENABLED_NOTICE,
                     )
                 }
                 setupState.completionAction?.let(::completeAction)
@@ -251,14 +253,13 @@ class ParentalControlController(
             return
         }
 
-        val now = System.currentTimeMillis()
-        val lockedUntil = lockoutStore.lockedUntilMillis()
-        if (lockedUntil > now) {
+        val remainingLockout = lockoutStore.remainingLockoutMillis()
+        if (remainingLockout > 0) {
             updateState {
                 copy(
                     parentalPinEntryState = pinEntryState.copy(
                         pin = "",
-                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(lockedUntil - now)}",
+                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(remainingLockout)}",
                     ),
                 )
             }
@@ -269,7 +270,7 @@ class ParentalControlController(
         if (providedHash != expectedHash) {
             val attempts = lockoutStore.failedAttempts() + 1
             val lockout = parentalPinLockoutMillis(attempts)
-            lockoutStore.recordFailure(lockedUntilMillis = now + lockout)
+            lockoutStore.recordFailure(lockoutMillis = lockout)
             updateState {
                 copy(
                     parentalPinEntryState = pinEntryState.copy(

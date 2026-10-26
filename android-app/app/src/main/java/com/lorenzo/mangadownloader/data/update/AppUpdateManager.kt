@@ -20,7 +20,6 @@ import java.util.Properties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -54,45 +53,26 @@ open class AppUpdateRepository(
     private val httpClient: OkHttpClient = SharedHttpClient.get(context),
 ) {
 
+    /**
+     * Legge il feed statico che i workflow pubblicano come asset della release fissa
+     * [UPDATE_FEED_TAG]: è un download dalla CDN, non l'API GitHub, che concede 60 richieste
+     * l'ora per IP e dietro il CGNAT degli operatori mobili si esaurisce presto. Se il feed
+     * stabile non si legge resta `version.properties` su raw, senza note.
+     */
     open suspend fun checkForUpdate(includePreview: Boolean = false): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        val latestRelease = runCatching {
-            fetchLatestReleaseInfo()
-        }.getOrNull()
-
-        val stableInfo = latestRelease ?: fetchUpdateConfigInfo()
+        val stableInfo = runCatching { fetchUpdateFeedInfo(AppUpdateChannel.STABLE) }.getOrNull()
+            ?: fetchUpdateConfigInfo()
         val previewInfo = if (includePreview) {
-            runCatching { fetchLatestPreviewReleaseInfo() }.getOrNull()
+            runCatching { fetchUpdateFeedInfo(AppUpdateChannel.PREVIEW) }.getOrNull()
         } else {
             null
         }
         val info = listOfNotNull(stableInfo, previewInfo).maxBy { it.versionCode }
         if (info.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
-
-        val commitMessage = runCatching { fetchCommitMessage(info) }.getOrNull()
-        if (commitMessage != null) info.copy(releaseNotes = commitMessage) else info
+        info
     }
 
-    private fun fetchCommitMessage(info: AppUpdateInfo): String? {
-        val repoOwner = info.repoOwner.trim().ifBlank { return null }
-        val repoName = info.repoName.trim().ifBlank { return null }
-        val tag = info.releaseTag
-
-        val request = Request.Builder()
-            .url("https://api.github.com/repos/$repoOwner/$repoName/commits/$tag")
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("Cache-Control", "no-cache")
-            .build()
-
-        val raw = httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            response.body.string()
-        }
-
-        return parseCommitMessage(raw)
-    }
-
-    private fun fetchLatestReleaseInfo(): AppUpdateInfo {
+    private fun fetchUpdateFeedInfo(channel: AppUpdateChannel): AppUpdateInfo {
         val repoOwner = BuildConfig.UPDATE_REPO_OWNER.trim()
         val repoName = BuildConfig.UPDATE_REPO_NAME.trim()
         val assetName = BuildConfig.UPDATE_APK_ASSET_NAME.trim()
@@ -101,55 +81,24 @@ open class AppUpdateRepository(
         }
 
         val request = Request.Builder()
-            .url("https://api.github.com/repos/$repoOwner/$repoName/releases/latest")
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
+            .url(updateFeedUrl(repoOwner, repoName, channel))
             .header("Cache-Control", "no-cache")
             .build()
 
         val raw = httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("Impossibile leggere la latest release: HTTP ${response.code}")
+                throw IOException("Impossibile leggere il feed aggiornamenti: HTTP ${response.code}")
             }
             response.body.string()
         }
 
-        return parseLatestReleaseInfo(
+        return parseUpdateFeedInfo(
             raw = raw,
             repoOwner = repoOwner,
             repoName = repoName,
-            expectedAssetName = assetName,
-        ) ?: throw IOException("Latest release GitHub non valida")
-    }
-
-    private fun fetchLatestPreviewReleaseInfo(): AppUpdateInfo {
-        val repoOwner = BuildConfig.UPDATE_REPO_OWNER.trim()
-        val repoName = BuildConfig.UPDATE_REPO_NAME.trim()
-        val assetName = BuildConfig.UPDATE_APK_ASSET_NAME.trim()
-        if (repoOwner.isBlank() || repoName.isBlank() || assetName.isBlank()) {
-            throw IOException("Configurazione repository update incompleta")
-        }
-
-        val request = Request.Builder()
-            .url("https://api.github.com/repos/$repoOwner/$repoName/releases?per_page=20")
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("Cache-Control", "no-cache")
-            .build()
-
-        val raw = httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Impossibile leggere le preview GitHub: HTTP ${response.code}")
-            }
-            response.body.string()
-        }
-
-        return parseLatestPreviewReleaseInfo(
-            raw = raw,
-            repoOwner = repoOwner,
-            repoName = repoName,
-            expectedAssetName = assetName,
-        ) ?: throw IOException("Preview GitHub non valida")
+            apkAssetName = assetName,
+            channel = channel,
+        )
     }
 
     private fun fetchUpdateConfigInfo(): AppUpdateInfo {
@@ -226,133 +175,65 @@ internal fun parseUpdateConfigInfo(raw: String): AppUpdateInfo {
         }
 }
 
-internal fun parseLatestReleaseInfo(
+/** Release fissa che ospita i feed: i workflow ne ricaricano gli asset a ogni build. */
+internal const val UPDATE_FEED_TAG = "update-feed"
+
+internal fun updateFeedUrl(repoOwner: String, repoName: String, channel: AppUpdateChannel): String {
+    val fileName = when (channel) {
+        AppUpdateChannel.STABLE -> "update-stable.json"
+        AppUpdateChannel.PREVIEW -> "update-preview.json"
+    }
+    return "https://github.com/$repoOwner/$repoName/releases/download/$UPDATE_FEED_TAG/$fileName"
+}
+
+/**
+ * Feed scritto da `.github/scripts/update_feed.py`:
+ * `{"versionName": "1.16.7", "apkUrl": "https://…", "notes": ["…", "…"]}`.
+ * Il versionCode si ricava dal nome, come fa Gradle.
+ */
+internal fun parseUpdateFeedInfo(
     raw: String,
     repoOwner: String,
     repoName: String,
-    expectedAssetName: String,
-): AppUpdateInfo? {
+    apkAssetName: String,
+    channel: AppUpdateChannel,
+): AppUpdateInfo {
     val root = Json.parseToJsonElement(raw).jsonObject
-    val versionName = extractVersionNameFromRelease(
-        tagName = root["tag_name"]?.jsonPrimitive?.contentOrNull,
-        releaseName = root["name"]?.jsonPrimitive?.contentOrNull,
-    ) ?: return null
-
-    val assets = root["assets"]?.jsonArray.orEmpty()
-    val selectedAsset = assets.firstOrNull { asset ->
-        asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull == expectedAssetName
-    } ?: assets.firstOrNull { asset ->
-        asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk", ignoreCase = true) == true
-    } ?: return null
-
-    val apkAssetName = selectedAsset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-    val apkDownloadUrl = selectedAsset.jsonObject["browser_download_url"]
-        ?.jsonPrimitive
-        ?.contentOrNull
-        ?.trim()
-        ?.takeIf(String::isNotBlank)
-        ?: return null
+    val versionName = root["versionName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+    val versionCode = when (channel) {
+        AppUpdateChannel.STABLE -> {
+            if (!isSupportedVersionName(versionName)) {
+                throw IOException("Versione stabile nel feed non valida: $versionName")
+            }
+            stableVersionCodeFromVersionName(versionName)
+        }
+        AppUpdateChannel.PREVIEW -> {
+            if (!isSupportedPreviewVersionName(versionName)) {
+                throw IOException("Versione preview nel feed non valida: $versionName")
+            }
+            previewVersionCodeFromVersionName(versionName)
+        }
+    }
+    val apkUrl = root["apkUrl"]?.jsonPrimitive?.contentOrNull?.trim()
+        ?.takeIf { it.startsWith("https://") }
+        ?: throw IOException("URL dell'APK mancante nel feed")
+    val notes = root["notes"]?.jsonArray.orEmpty()
+        .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
 
     return AppUpdateInfo(
-        versionCode = stableVersionCodeFromVersionName(versionName),
+        versionCode = versionCode,
         versionName = versionName,
         repoOwner = repoOwner,
         repoName = repoName,
         apkAssetName = apkAssetName,
-        apkDownloadUrl = apkDownloadUrl,
-        channel = AppUpdateChannel.STABLE,
-        releaseTag = buildReleaseTag(versionName, AppUpdateChannel.STABLE),
+        releaseNotes = notes.joinToString("\n").takeIf(String::isNotBlank),
+        apkDownloadUrl = apkUrl,
+        channel = channel,
     )
-}
-
-internal fun parseLatestPreviewReleaseInfo(
-    raw: String,
-    repoOwner: String,
-    repoName: String,
-    expectedAssetName: String,
-): AppUpdateInfo? {
-    return Json.parseToJsonElement(raw)
-        .jsonArray
-        .mapNotNull { release ->
-            val root = release.jsonObject
-            val isDraft = root["draft"]?.jsonPrimitive?.booleanOrNull ?: false
-            val isPrerelease = root["prerelease"]?.jsonPrimitive?.booleanOrNull ?: false
-            if (isDraft || !isPrerelease) return@mapNotNull null
-
-            val tagName = root["tag_name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            val versionName = extractPreviewVersionNameFromTag(tagName) ?: return@mapNotNull null
-            val assets = root["assets"]?.jsonArray.orEmpty()
-            val selectedAsset = assets.firstOrNull { asset ->
-                asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull == expectedAssetName
-            } ?: assets.firstOrNull { asset ->
-                asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk", ignoreCase = true) == true
-            } ?: return@mapNotNull null
-
-            val apkAssetName = selectedAsset.jsonObject["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            val apkDownloadUrl = selectedAsset.jsonObject["browser_download_url"]
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?: return@mapNotNull null
-
-            AppUpdateInfo(
-                versionCode = previewVersionCodeFromVersionName(versionName),
-                versionName = versionName,
-                repoOwner = repoOwner,
-                repoName = repoName,
-                apkAssetName = apkAssetName,
-                apkDownloadUrl = apkDownloadUrl,
-                channel = AppUpdateChannel.PREVIEW,
-                releaseTag = tagName,
-            )
-        }
-        .maxByOrNull { it.versionCode }
-}
-
-internal fun parseCommitMessage(raw: String): String? {
-    val message = Json.parseToJsonElement(raw).jsonObject["commit"]
-        ?.jsonObject
-        ?.get("message")
-        ?.jsonPrimitive
-        ?.contentOrNull
-        ?.trim()
-    return message
-        ?.lines()
-        ?.map { it.trim().removeConventionalCommitPrefix() }
-        ?.filter { it.isNotBlank() }
-        ?.joinToString("\n")
-        ?.takeIf(String::isNotBlank)
-}
-
-private fun String.removeConventionalCommitPrefix(): String {
-    val withoutBullet = removePrefix("-").trim()
-    return withoutBullet.replace(
-        Regex("""^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(?:\([^)]+\))?!?:\s*"""),
-        "",
-    ).trim()
-}
-
-private fun extractVersionNameFromRelease(
-    tagName: String?,
-    releaseName: String?,
-): String? {
-    val candidates = listOfNotNull(
-        tagName?.trim()?.removePrefix("android-v"),
-        releaseName?.trim()?.substringAfterLast(' '),
-    )
-    return candidates.firstOrNull(::isSupportedVersionName)
 }
 
 private fun isSupportedVersionName(value: String): Boolean {
     return value.matches(Regex("""\d+(?:\.\d+){0,2}"""))
-}
-
-private fun extractPreviewVersionNameFromTag(tagName: String): String? {
-    return tagName
-        .removePrefix("android-preview-v")
-        .takeIf { it != tagName }
-        ?.takeIf(::isSupportedPreviewVersionName)
 }
 
 private fun isSupportedPreviewVersionName(value: String): Boolean {

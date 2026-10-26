@@ -7,6 +7,7 @@ import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.transitionFactory
 import com.lorenzo.mangadownloader.data.library.LibraryRepository
+import com.lorenzo.mangadownloader.data.network.BrowserUserAgent
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
 import com.lorenzo.mangadownloader.data.report.CrashReporter
 import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
@@ -25,6 +26,7 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        BrowserUserAgent.install(this)
     }
 
     override fun newImageLoader(context: Context): ImageLoader {
@@ -34,7 +36,9 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
             .addInterceptor { chain ->
                 val original = chain.request()
                 val builder = original.newBuilder()
-                    .header("User-Agent", COIL_USER_AGENT)
+                    // Stesso UA di pagine e download: un sito che vede due browser diversi
+                    // dallo stesso IP ha un segnale in più per bloccare.
+                    .header("User-Agent", BrowserUserAgent.value)
                     .header("Accept", "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8")
                 // Non sovrascrivere un Referer già impostato per-immagine (es. le pagine
                 // del reader in streaming, che usano l'URL della loro fonte). Solo come
@@ -52,12 +56,6 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
             }
             .transitionFactory(AppMotion.imageTransitionFactory)
             .build()
-    }
-
-    companion object {
-        private const val COIL_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 13; Pixel) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     }
 }
 

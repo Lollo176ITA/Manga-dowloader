@@ -73,7 +73,7 @@ class MangaNetworkClient(
         headers: Map<String, String> = emptyMap(),
     ): Request = Request.Builder()
         .url(url)
-        .header("User-Agent", USER_AGENT)
+        .header("User-Agent", BrowserUserAgent.value)
         .apply {
             referer?.trim()
                 ?.takeIf(String::isNotBlank)
@@ -129,9 +129,5 @@ class MangaNetworkClient(
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language" to "it,en;q=0.8",
         )
-
-        private const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     }
 }

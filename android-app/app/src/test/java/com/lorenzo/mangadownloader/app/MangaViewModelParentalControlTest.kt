@@ -266,7 +266,7 @@ class MangaViewModelParentalControlTest {
 
         // Blocco scaduto: il PIN giusto apre e azzera il conto.
         application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putLong("parental_pin_locked_until", 0L).commit()
+            .remove("parental_pin_lockout_duration").commit()
         restarted.parental.onPinEntryChange(TEST_PIN)
         restarted.parental.confirmPinEntry()
         assertEquals(AppTab.SEARCH, restarted.state.value.currentTab)

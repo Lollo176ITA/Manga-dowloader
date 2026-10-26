@@ -60,6 +60,8 @@ data class MangaBackup(
     val readingDiary: Map<String, ReadingDiaryBackupEntry> = emptyMap(),
     /** Campo additivo: i backup precedenti non l'hanno e restano validi. */
     val favoriteShelves: FavoriteShelves = FavoriteShelves(),
+    /** Registro delle serie per adulti (`AdultSeriesStore`). Additivo come gli scaffali. */
+    val adultSeriesKeys: Set<String> = emptySet(),
 )
 
 /** Forma nel backup di un record della memoria di lettura; combacia con `ReadingMemoryStore`. */

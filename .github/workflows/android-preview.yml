@@ -157,6 +157,28 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+      # L'app legge questo file invece dell'API GitHub (limite di 60 richieste/ora per IP).
+      - name: Publish update feed
+        run: |
+          python3 ../.github/scripts/update_feed.py \
+            --version-name "$VERSION_NAME" \
+            --apk-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/app-release.apk" \
+            --tag-pattern 'android-preview-v*' \
+            --current-tag "$RELEASE_TAG" \
+            --output "$RUNNER_TEMP/update-preview.json"
+          if ! gh release view update-feed --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create update-feed \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Feed aggiornamenti" \
+              --notes "File letti dall'app per controllare gli aggiornamenti: non è una versione da scaricare." \
+              --prerelease \
+              --latest=false
+          fi
+          gh release upload update-feed "$RUNNER_TEMP/update-preview.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:

@@ -298,4 +298,20 @@ class AniListClientTest {
         assertTrue(AniListClient.parseToggleFavouriteResponse(added, mediaId = 30002))
         assertEquals(false, AniListClient.parseToggleFavouriteResponse(removed, mediaId = 30002))
     }
+
+    @Test
+    fun parseAdultFlagsResponse_usesFlagAndAdultGenres() {
+        val flags = AniListClient.parseAdultFlagsResponse(
+            """
+            {"data": {"Page": {"media": [
+              {"id": 1, "isAdult": true, "genres": ["Romance"]},
+              {"id": 2, "isAdult": false, "genres": ["Comedy", "Ecchi"]},
+              {"id": 3, "isAdult": false, "genres": ["Action"]}
+            ]}}}
+            """.trimIndent(),
+        )
+
+        assertEquals(mapOf(1 to true, 2 to true, 3 to false), flags)
+        assertEquals(emptyMap<Int, Boolean>(), AniListClient.parseAdultFlagsResponse("""{"errors": []}"""))
+    }
 }

@@ -128,7 +128,7 @@ class JsonStoresPersistenceTest {
 
     @Test
     fun aniListTrackings_roundTripKeepsDomainMapping() {
-        val store = AniListStore(prefs())
+        val store = AniListStore(prefs(), accountPrefs())
         val tracking = AniListTracking(
             mediaId = 2,
             title = "Berserk",
@@ -165,7 +165,7 @@ class JsonStoresPersistenceTest {
             """.trimIndent(),
         ).commit()
 
-        val trackings = AniListStore(prefs()).readTrackings()
+        val trackings = AniListStore(prefs(), accountPrefs()).readTrackings()
 
         // La chiave non canonica viene migrata alla SeriesKey del media in lettura.
         assertEquals(setOf("anilist:7"), trackings.keys)
@@ -174,4 +174,7 @@ class JsonStoresPersistenceTest {
 
     private fun prefs() =
         application.getSharedPreferences("json_stores_test", Context.MODE_PRIVATE)
+
+    private fun accountPrefs() =
+        application.getSharedPreferences("json_stores_test_account", Context.MODE_PRIVATE)
 }

@@ -22,6 +22,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.app.hidesAdultContent
+import com.lorenzo.mangadownloader.app.withoutRegisteredAdult
 import com.lorenzo.mangadownloader.data.anilist.AniListAuthException
 import com.lorenzo.mangadownloader.data.anilist.AniListClient
 import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSyncStore
@@ -37,6 +39,7 @@ import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
 import com.lorenzo.mangadownloader.data.sources.SourceHealthStore
 import com.lorenzo.mangadownloader.data.sources.isSourceSkipped
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSourceHealthStore
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
@@ -50,6 +53,7 @@ import com.lorenzo.mangadownloader.data.store.computeFavoriteUpdate
 import com.lorenzo.mangadownloader.data.store.recordSourceFailure
 import com.lorenzo.mangadownloader.data.store.recordSourceSuccess
 import com.lorenzo.mangadownloader.data.store.shouldPollFavorite
+import com.lorenzo.mangadownloader.domain.isRegisteredAdult
 import com.lorenzo.mangadownloader.domain.series.FavoriteIdentityResolver
 import com.lorenzo.mangadownloader.domain.series.FavoritesSeriesMigration
 import com.lorenzo.mangadownloader.domain.series.favoriteSourceCandidates
@@ -89,6 +93,10 @@ class FavoriteUpdatesWorker(
         val feedStore = FavoriteUpdatesFeedStore(prefs)
         val seriesLinksStore = SeriesLinksStore(prefs)
         val healthStore = FavoriteSourceHealthStore(prefs)
+        // Col filtro adulti attivo le serie del registro si controllano lo stesso (spegnendo il
+        // filtro lo stato è in pari), ma non si notificano: finiscono solo nel feed, che le
+        // nasconde finché il filtro resta acceso.
+        val adultKeys = if (settings.hidesAdultContent()) AdultSeriesStore(prefs).read() else emptySet()
         // Fonti che l'app sta saltando perché non rispondono (vedi [SourceHealth]): il worker
         // gira in background su rete mobile, ed è l'ultimo posto dove ha senso restare venti
         // secondi appesi a un sito giù per ogni preferito da controllare.
@@ -134,7 +142,10 @@ class FavoriteUpdatesWorker(
             favoritesStore = favoritesStore,
             seriesLinksStore = seriesLinksStore,
             syncStore = AniListFavoritesSyncStore(prefs),
-            aniListStore = AniListStore(prefs),
+            aniListStore = AniListStore(
+                prefs,
+                context.getSharedPreferences(AniListStore.ACCOUNT_PREFS_NAME, Context.MODE_PRIVATE),
+            ),
             aniListClient = aniListClient,
             registry = registry,
             unavailableSourceIds = unavailableSourceIds,
@@ -231,8 +242,11 @@ class FavoriteUpdatesWorker(
                             ),
                         )
                     }
-                    notifier.notifyNewChapter(updatedFavorites[index], key, label)
-                    notifiedCount++
+                    val notified = updatedFavorites[index]
+                    if (!isRegisteredAdult(adultKeys, notified.title, notified.sourceId, notified.mangaUrl, key)) {
+                        notifier.notifyNewChapter(notified, key, label)
+                        notifiedCount++
+                    }
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -243,7 +257,7 @@ class FavoriteUpdatesWorker(
         // Riepilogo del gruppo: con 2+ capitoli non visti il pannello resta compatto
         // (una voce sola che espande le singole) invece di N notifiche sparse.
         if (notifiedCount > 0) {
-            notifier.notifySummary(feedStore.read().filter { !it.seen })
+            notifier.notifySummary(feedStore.read().filter { !it.seen }.withoutRegisteredAdult(adultKeys))
         }
         } finally {
             // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà

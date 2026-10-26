@@ -1,8 +1,10 @@
 package com.lorenzo.mangadownloader.data.anilist
 
+import com.lorenzo.mangadownloader.BuildConfig
 import com.lorenzo.mangadownloader.data.model.MangaPublicationStatus
 import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.sources.firstNonBlankTrimmed
+import com.lorenzo.mangadownloader.domain.isAdultGenre
 import java.io.IOException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -187,6 +189,24 @@ class AniListClient(
     }
 
     /**
+     * Quali tra [mediaIds] sono per adulti (flag `isAdult` o generi, come `isAdultContent`):
+     * serve al recupero del registro adulti su preferiti e download già presenti. Gli id che
+     * AniList non restituisce mancano dalla mappa.
+     */
+    fun fetchAdultFlags(mediaIds: List<Int>): Map<Int, Boolean> {
+        if (mediaIds.isEmpty()) return emptyMap()
+        val variables = buildJsonObject {
+            putJsonArray("ids") { mediaIds.forEach { add(it) } }
+            put("perPage", mediaIds.size)
+        }
+        val payload = buildJsonObject {
+            put("query", ADULT_FLAGS_QUERY)
+            put("variables", variables)
+        }.toString()
+        return parseAdultFlagsResponse(post(payload))
+    }
+
+    /**
      * I manga tra i **preferiti** ("favourites") dell'utente. Sono una cosa diversa dalla lista
      * di lettura: su AniList un titolo può stare in lista senza essere un preferito e viceversa.
      * Paginata di suo, qui la si scorre tutta: l'elenco è tipicamente di poche decine di voci.
@@ -303,9 +323,8 @@ class AniListClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val json = Json { ignoreUnknownKeys = true }
 
-        private const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        // API ufficiale: meglio un client identificabile che un finto browser.
+        private val USER_AGENT = "MangApp/${BuildConfig.VERSION_NAME} (Android)"
 
         // `sort` è [MediaSort] e `genre` String: una sola query serve tutte le sezioni.
         // isAdult:false tiene fuori i contenuti per adulti dalla vetrina (la Scopri è libera).
@@ -320,6 +339,21 @@ class AniListClient(
                   averageScore
                   description(asHtml: false)
                   status
+                }
+              }
+            }
+        """.trimIndent()
+
+        /** Massimo di id per [fetchAdultFlags]: è il tetto di `perPage` di AniList. */
+        const val ADULT_FLAGS_BATCH = 50
+
+        private val ADULT_FLAGS_QUERY = """
+            query (${'$'}ids: [Int], ${'$'}perPage: Int) {
+              Page(page: 1, perPage: ${'$'}perPage) {
+                media(id_in: ${'$'}ids, type: MANGA) {
+                  id
+                  isAdult
+                  genres
                 }
               }
             }
@@ -452,6 +486,21 @@ class AniListClient(
                 ?: return emptyList()
 
             return media.mapNotNull { element -> parseMangaObject(element.jsonObject) }
+        }
+
+        internal fun parseAdultFlagsResponse(jsonText: String): Map<Int, Boolean> {
+            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
+                ?.jsonObject?.get("Page")
+                ?.jsonObject?.get("media")
+                ?.jsonArray
+                ?: return emptyMap()
+            return media.mapNotNull { element ->
+                val obj = element.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                val isAdult = obj["isAdult"]?.jsonPrimitive?.booleanOrNull == true
+                val genres = obj["genres"]?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull }
+                id to (isAdult || genres.any(::isAdultGenre))
+            }.toMap()
         }
 
         /** Un singolo oggetto media GraphQL → [AniListManga]; `null` se manca id o titolo. */

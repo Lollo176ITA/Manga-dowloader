@@ -476,44 +476,20 @@ private fun VerticalReader(
             }
     }
 
-    fun clampOffsets(
-        scale: Float,
-        offsetX: Float,
-        offsetY: Float,
-    ): Pair<Float, Float> {
-        val maxX = ((viewportSize.width * (scale - 1f)) / 2f).coerceAtLeast(0f)
-        val maxY = ((viewportSize.height * (scale - 1f)) / 2f).coerceAtLeast(0f)
-        return offsetX.coerceIn(-maxX, maxX) to offsetY.coerceIn(-maxY, maxY)
-    }
-
-    fun applyZoomedOffset(
-        scale: Float,
-        offsetX: Float,
-        offsetY: Float,
-    ) {
-        val (clampedX, clampedY) = clampOffsets(
-            scale = scale,
-            offsetX = offsetX,
-            offsetY = offsetY,
-        )
-        readerOffsetX = clampedX
-        readerOffsetY = clampedY
+    fun applyZoomedOffset(scale: Float, offset: Offset) {
+        val clamped = clampZoomOffset(offset, scale, viewportSize)
+        readerOffsetX = clamped.x
+        readerOffsetY = clamped.y
     }
 
     fun applyZoomPanDelta(scale: Float, panChange: Offset) {
         if (panChange == Offset.Zero) return
         hasReaderMovedAfterRestore = true
         val previousOffsetY = readerOffsetY
-        val (clampedX, clampedY) = clampOffsets(
-            scale = scale,
-            offsetX = readerOffsetX + panChange.x,
-            offsetY = readerOffsetY + panChange.y,
-        )
-        readerOffsetX = clampedX
-        readerOffsetY = clampedY
+        applyZoomedOffset(scale, Offset(readerOffsetX, readerOffsetY) + panChange)
 
         if (panChange.y != 0f) {
-            val consumedByViewportPan = clampedY - previousOffsetY
+            val consumedByViewportPan = readerOffsetY - previousOffsetY
             val remainingPanY = panChange.y - consumedByViewportPan
             if (remainingPanY != 0f) {
                 listState.dispatchRawDelta(-remainingPanY / scale)
@@ -604,30 +580,17 @@ private fun VerticalReader(
                             if (zoomChange != 1f || panChange != Offset.Zero) {
                                 val nextScale = (readerScale * zoomChange)
                                     .coerceIn(minScale, maxScale)
-                                val effectiveZoomChange = nextScale / readerScale
-                                val centroid = event.calculateCentroid()
-                                val viewportCenter = Offset(
-                                    x = viewportSize.width / 2f,
-                                    y = viewportSize.height / 2f,
+                                val target = zoomedOffset(
+                                    offset = Offset(readerOffsetX, readerOffsetY),
+                                    zoomChange = nextScale / readerScale,
+                                    focus = viewportSize.focusOf(event.calculateCentroid()),
+                                    pan = panChange,
                                 )
-                                val zoomFocus = centroid - viewportCenter
-                                val targetOffsetX =
-                                    readerOffsetX * effectiveZoomChange +
-                                        zoomFocus.x * (1f - effectiveZoomChange) +
-                                        panChange.x
-                                val targetOffsetY =
-                                    readerOffsetY * effectiveZoomChange +
-                                        zoomFocus.y * (1f - effectiveZoomChange) +
-                                        panChange.y
                                 if (nextScale <= minScale) {
-                                    settleToMinScale(targetOffsetY)
+                                    settleToMinScale(target.y)
                                 } else {
                                     readerScale = nextScale
-                                    applyZoomedOffset(
-                                        scale = nextScale,
-                                        offsetX = targetOffsetX,
-                                        offsetY = targetOffsetY,
-                                    )
+                                    applyZoomedOffset(nextScale, target)
                                 }
                                 event.changes.forEach { it.consume() }
                             }
@@ -674,24 +637,13 @@ private fun VerticalReader(
                                 readerOffsetY = 0f
                             } else {
                                 val nextScale = 2f
-                                val zoomChange = nextScale / readerScale
-                                val viewportCenter = Offset(
-                                    x = viewportSize.width / 2f,
-                                    y = viewportSize.height / 2f,
+                                val target = zoomedOffset(
+                                    offset = Offset(readerOffsetX, readerOffsetY),
+                                    zoomChange = nextScale / readerScale,
+                                    focus = viewportSize.focusOf(tapOffset),
                                 )
-                                val zoomFocus = tapOffset - viewportCenter
-                                val targetOffsetX =
-                                    readerOffsetX * zoomChange +
-                                        zoomFocus.x * (1f - zoomChange)
-                                val targetOffsetY =
-                                    readerOffsetY * zoomChange +
-                                        zoomFocus.y * (1f - zoomChange)
                                 readerScale = nextScale
-                                applyZoomedOffset(
-                                    scale = nextScale,
-                                    offsetX = targetOffsetX,
-                                    offsetY = targetOffsetY,
-                                )
+                                applyZoomedOffset(nextScale, target)
                             }
                         }
                     },
@@ -699,13 +651,7 @@ private fun VerticalReader(
             }
             .onSizeChanged { size ->
                 viewportSize = size
-                val (clampedX, clampedY) = clampOffsets(
-                    scale = readerScale,
-                    offsetX = readerOffsetX,
-                    offsetY = readerOffsetY,
-                )
-                readerOffsetX = clampedX
-                readerOffsetY = clampedY
+                applyZoomedOffset(readerScale, Offset(readerOffsetX, readerOffsetY))
             },
     ) {
         LazyColumn(
@@ -978,16 +924,8 @@ private fun ZoomablePage(
     val minScale = 1f
     val maxScale = 4f
     var scale by remember(page.stableKey) { mutableFloatStateOf(minScale) }
-    var offsetX by remember(page.stableKey) { mutableFloatStateOf(0f) }
-    var offsetY by remember(page.stableKey) { mutableFloatStateOf(0f) }
+    var offset by remember(page.stableKey) { mutableStateOf(Offset.Zero) }
     var viewportSize by remember(page.stableKey) { mutableStateOf(IntSize.Zero) }
-
-    fun clamp() {
-        val maxX = ((viewportSize.width * (scale - 1f)) / 2f).coerceAtLeast(0f)
-        val maxY = ((viewportSize.height * (scale - 1f)) / 2f).coerceAtLeast(0f)
-        offsetX = offsetX.coerceIn(-maxX, maxX)
-        offsetY = offsetY.coerceIn(-maxY, maxY)
-    }
 
     Box(
         modifier = Modifier
@@ -1011,17 +949,18 @@ private fun ZoomablePage(
                             panStarted = true
                             if (zoomChange != 1f || panChange != Offset.Zero) {
                                 val nextScale = (scale * zoomChange).coerceIn(minScale, maxScale)
-                                val effective = nextScale / scale
-                                val center = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
-                                val focus = event.calculateCentroid() - center
-                                offsetX = offsetX * effective + focus.x * (1f - effective) + panChange.x
-                                offsetY = offsetY * effective + focus.y * (1f - effective) + panChange.y
-                                scale = nextScale
-                                if (scale <= minScale) {
-                                    offsetX = 0f
-                                    offsetY = 0f
+                                offset = if (nextScale <= minScale) {
+                                    Offset.Zero
+                                } else {
+                                    val target = zoomedOffset(
+                                        offset = offset,
+                                        zoomChange = nextScale / scale,
+                                        focus = viewportSize.focusOf(event.calculateCentroid()),
+                                        pan = panChange,
+                                    )
+                                    clampZoomOffset(target, nextScale, viewportSize)
                                 }
-                                clamp()
+                                scale = nextScale
                                 event.changes.forEach { it.consume() }
                             }
                         } else if (scale > minScale && pressedChanges.size == 1) {
@@ -1033,9 +972,7 @@ private fun ZoomablePage(
                                 panStarted = slopDistance.getDistance() > touchSlop
                             }
                             if (panStarted && panChange != Offset.Zero) {
-                                offsetX += panChange.x
-                                offsetY += panChange.y
-                                clamp()
+                                offset = clampZoomOffset(offset + panChange, scale, viewportSize)
                                 change.consume()
                             }
                         }
@@ -1054,15 +991,16 @@ private fun ZoomablePage(
                         { tapOffset ->
                             if (scale > minScale) {
                                 scale = minScale
-                                offsetX = 0f
-                                offsetY = 0f
+                                offset = Offset.Zero
                             } else {
-                                scale = 2f
-                                val center = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
-                                val focus = tapOffset - center
-                                offsetX = -focus.x
-                                offsetY = -focus.y
-                                clamp()
+                                val nextScale = 2f
+                                val target = zoomedOffset(
+                                    offset = offset,
+                                    zoomChange = nextScale / scale,
+                                    focus = viewportSize.focusOf(tapOffset),
+                                )
+                                offset = clampZoomOffset(target, nextScale, viewportSize)
+                                scale = nextScale
                             }
                         }
                     },
@@ -1080,8 +1018,8 @@ private fun ZoomablePage(
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
+                    translationX = offset.x
+                    translationY = offset.y
                 },
         )
     }

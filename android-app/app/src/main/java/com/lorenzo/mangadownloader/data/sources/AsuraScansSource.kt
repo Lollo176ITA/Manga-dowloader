@@ -43,12 +43,7 @@ class AsuraScansSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.ASURA_SCANS,
-        displayName = "Asura Scans",
-        shortName = "AS",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo Asura Scans non valido"
@@ -98,7 +93,20 @@ class AsuraScansSource(
         "Origin" to BASE_URL,
     )
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.ASURA_SCANS,
+            displayName = "Asura Scans",
+            shortName = "AS",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = AsuraScansSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://asurascans.com"
         private const val API_URL = "https://api.asurascans.com"
         private val json = Json { ignoreUnknownKeys = true }
@@ -116,9 +124,9 @@ class AsuraScansSource(
         /** Riferimento a un capitolo: slug serie (pulito) + numero capitolo. */
         data class ChapterRef(val slug: String, val number: String)
 
-        fun handlesUrl(url: String): Boolean = seriesRegex.containsMatchIn(url.trim())
+        override fun handlesUrl(url: String): Boolean = seriesRegex.containsMatchIn(url.trim())
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val match = seriesRegex.find(url.trim()) ?: return null
             val slug = stripHash(match.groupValues[1])
             if (slug.isBlank()) {

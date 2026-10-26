@@ -46,12 +46,7 @@ class TcbScansSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.TCB_SCANS,
-        displayName = "TCB Scans",
-        shortName = "TC",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo TCB Scans non valido"
@@ -77,7 +72,20 @@ class TcbScansSource(
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.TCB_SCANS,
+            displayName = "TCB Scans",
+            shortName = "TC",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = TcbScansSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://tcbonepiecechapters.com"
         private const val PROJECTS_URL = "$BASE_URL/projects"
 
@@ -100,9 +108,9 @@ class TcbScansSource(
             val chapterSlug: String,
         )
 
-        fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
+        override fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val match = seriesRegex.find(url.trim()) ?: return null
             return "$BASE_URL/mangas/${match.groupValues[1]}/${match.groupValues[2]}"
         }

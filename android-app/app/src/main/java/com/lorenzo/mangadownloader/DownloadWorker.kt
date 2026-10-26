@@ -229,8 +229,13 @@ class DownloadWorker(
                 ),
             )
         } catch (ioe: IOException) {
-            // Ritenta solo questa serie: con una catena per serie le altre non aspettano.
-            Result.retry()
+            // Ritenta solo questa serie: con una catena per serie le altre non aspettano. Con
+            // un limite: una fonte morta terrebbe ferma per sempre la catena di questa serie.
+            if (runAttemptCount < MAX_DOWNLOAD_ATTEMPTS - 1) {
+                Result.retry()
+            } else {
+                failedResult(ioe, firstUrl, lastUrl, inputSourceId ?: taggedSourceId, taggedSeriesTitle, taggedMangaUrl)
+            }
         } catch (cancelled: DownloadStoppedException) {
             Result.success(
                 workDataOf(
@@ -244,24 +249,37 @@ class DownloadWorker(
             // Stop mentre si aspetta la rete: non è un errore, niente notifica "non riuscito".
             throw cancelled
         } catch (exc: Exception) {
-            // first/last URL nell'output così la UI può proporre "Riprova" ri-accodando lo
-            // stesso intervallo (il ramo failure prima non li conservava).
-            postResultNotification(
-                key = notificationKey(inputSourceId ?: taggedSourceId, taggedMangaUrl, taggedSeriesTitle),
-                title = taggedSeriesTitle,
-                text = "Download non riuscito: ${exc.message ?: "errore sconosciuto"}",
-            )
-            Result.failure(
-                workDataOf(
-                    PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto"),
-                    PROGRESS_SOURCE_ID to (inputSourceId ?: taggedSourceId),
-                    PROGRESS_SERIES_TITLE to taggedSeriesTitle,
-                    PROGRESS_MANGA_URL to taggedMangaUrl,
-                    PROGRESS_FIRST_URL to firstUrl,
-                    PROGRESS_LAST_URL to lastUrl,
-                ),
-            )
+            failedResult(exc, firstUrl, lastUrl, inputSourceId ?: taggedSourceId, taggedSeriesTitle, taggedMangaUrl)
         }
+    }
+
+    /**
+     * Notifica "non riuscito" e risultato di failure. first/last URL nell'output così la UI
+     * può proporre "Riprova" ri-accodando lo stesso intervallo.
+     */
+    private fun failedResult(
+        exc: Exception,
+        firstUrl: String,
+        lastUrl: String?,
+        sourceId: String?,
+        seriesTitle: String?,
+        mangaUrl: String?,
+    ): Result {
+        postResultNotification(
+            key = notificationKey(sourceId, mangaUrl, seriesTitle),
+            title = seriesTitle,
+            text = "Download non riuscito: ${exc.message ?: "errore sconosciuto"}",
+        )
+        return Result.failure(
+            workDataOf(
+                PROGRESS_MESSAGE to (exc.message ?: "Errore sconosciuto"),
+                PROGRESS_SOURCE_ID to sourceId,
+                PROGRESS_SERIES_TITLE to seriesTitle,
+                PROGRESS_MANGA_URL to mangaUrl,
+                PROGRESS_FIRST_URL to firstUrl,
+                PROGRESS_LAST_URL to lastUrl,
+            ),
+        )
     }
 
     private suspend fun emitStatus(
@@ -442,6 +460,8 @@ class DownloadWorker(
         private const val NOTIFICATION_ID = 1001
         // Le notifiche finali (per-serie) vivono in un range separato dall'id ongoing (1001).
         private const val COMPLETION_ID_BASE = 2000
+        /** Tentativi per errore di rete (backoff 30s che raddoppia: circa 15 minuti in tutto). */
+        private const val MAX_DOWNLOAD_ATTEMPTS = 5
         private const val CHAPTER_CONCURRENCY = 2
         private const val PAGE_CONCURRENCY = 4
         private const val PAGE_PROGRESS_STRIDE = 5

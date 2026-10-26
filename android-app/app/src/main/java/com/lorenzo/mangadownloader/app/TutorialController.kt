@@ -164,12 +164,11 @@ class TutorialController(
 
     private fun cleanupSample(sample: TutorialSample) {
         val targetKey = MangaSourceCatalog.identityKey(sample.sourceId, sample.mangaUrl)
-        val current = state.value.favorites.toMutableList()
-        val removed = current.removeAll {
-            MangaSourceCatalog.identityKey(it.sourceId, it.mangaUrl) == targetKey
+        val isSample = { favorite: FavoriteManga ->
+            MangaSourceCatalog.identityKey(favorite.sourceId, favorite.mangaUrl) == targetKey
         }
-        if (removed) {
-            favoritesStore.persist(current)
+        if (state.value.favorites.any(isSample)) {
+            val current = favoritesStore.update { stored -> stored.filterNot(isSample) }
             updateState {
                 copy(
                     favorites = current,

@@ -179,7 +179,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.AwaitingSearchBar -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_BAR,
             title = "La ricerca",
-            description = "Qui cerchi i manga sui server supportati. Per il tutorial ho gia preparato One Piece.",
+            description = "Qui cerchi i manga sui server supportati. Per il tutorial ho già preparato One Piece.",
             ctaText = "Continua",
             shape = CutoutShape.RoundedRect(cornerRadius = 16.dp, padding = 8.dp),
             targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
@@ -198,7 +198,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.AwaitingFavorite -> TutorialTargetContent(
             anchor = TutorialAnchor.DETAIL_FAVORITE,
             title = "Salvalo nei preferiti",
-            description = "Aggiungilo alla tua lista, cosi lo ritrovi subito dopo.",
+            description = "Aggiungilo alla tua lista, così lo ritrovi subito dopo.",
             ctaText = "Aggiungi",
             shape = CutoutShape.Circle(radiusPadding = 10.dp),
             targetTapBehavior = TargetTapBehavior.BOTH,
@@ -207,7 +207,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.AwaitingDownload -> TutorialTargetContent(
             anchor = TutorialAnchor.DETAIL_DOWNLOAD,
             title = "Download",
-            description = "Da questo pulsante scegli se scaricare tutto o solo un range di capitoli. Il primo capitolo demo e gia in preparazione.",
+            description = "Da questo pulsante scegli se scaricare tutto o solo un range di capitoli. Il primo capitolo demo è già in preparazione.",
             ctaText = "Ho capito",
             shape = CutoutShape.Circle(radiusPadding = 12.dp),
             targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
@@ -272,7 +272,7 @@ private fun activeInteractiveTarget(phase: TutorialPhase): TutorialTargetContent
         TutorialPhase.FallbackShowcase -> TutorialTargetContent(
             anchor = TutorialAnchor.SEARCH_TAB,
             title = "Tour rapido",
-            description = "La rete non e disponibile. Le sezioni principali sono Cerca, Preferiti e Libreria.",
+            description = "La rete non è disponibile. Le sezioni principali sono Cerca, Preferiti e Libreria.",
             ctaText = "Chiudi",
             shape = CutoutShape.RoundedRect(cornerRadius = 18.dp, padding = 6.dp),
             targetTapBehavior = TargetTapBehavior.PASS_THROUGH,
@@ -450,7 +450,7 @@ private fun FallbackClosingTutorialDialog(onDismiss: () -> Unit) {
         text = {
             Column {
                 Text(
-                    "Quando la rete sara disponibile potrai cercare manga, salvarli nei preferiti e scaricare capitoli.",
+                    "Quando la rete sarà disponibile potrai cercare manga, salvarli nei preferiti e scaricare capitoli.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(12.dp))

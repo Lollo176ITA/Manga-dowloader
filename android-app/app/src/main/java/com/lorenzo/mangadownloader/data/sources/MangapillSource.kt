@@ -20,12 +20,7 @@ class MangapillSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.MANGAPILL,
-        displayName = "Mangapill",
-        shortName = "MP",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo Mangapill non valido"
@@ -58,7 +53,20 @@ class MangapillSource(
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.MANGAPILL,
+            displayName = "Mangapill",
+            shortName = "MP",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = MangapillSource(context, networkClient, libraryRepository)
+
         private val mangaRegex =
             Regex("""^https?://mangapill\.com/manga/([^/?#]+)(?:/([^/?#]+))?""", RegexOption.IGNORE_CASE)
         private val chapterRegex =
@@ -68,11 +76,11 @@ class MangapillSource(
         private val chapterNumberInUrl =
             Regex("""chapter-(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
 
-        fun handlesUrl(url: String): Boolean {
+        override fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null
         }
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val normalized = url.trim()
             val mangaMatch = mangaRegex.find(normalized)
             if (mangaMatch != null) {

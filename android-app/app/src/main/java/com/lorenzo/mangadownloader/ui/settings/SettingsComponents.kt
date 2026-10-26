@@ -31,7 +31,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -44,8 +43,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
@@ -123,7 +121,7 @@ private fun SettingsSubheader(text: String) {
  * è opzionale, così le impostazioni che si spiegano da sole restano su una riga sola.
  */
 @Composable
-private fun SettingRow(
+internal fun SettingRow(
     title: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
@@ -220,9 +218,58 @@ private fun SettingsActionRow(
     }
 }
 
+/**
+ * Selettore a segmenti con sottotitolo e, quando serve, una nota sotto: lo schema comune a tema,
+ * densità, animazioni, modalità di lettura, pagine doppie e spazio tra le pagine. Senza [icon]
+ * il segmento scelto mostra la spunta standard di Material.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SegmentedSetting(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    icon: ((T) -> ImageVector)? = null,
+    footer: String? = null,
+) {
+    Column {
+        SettingsSubheader(title)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    icon = {
+                        if (icon != null) {
+                            Icon(
+                                imageVector = icon(option),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            SegmentedButtonDefaults.Icon(active = option == selected)
+                        }
+                    },
+                    label = { Text(label(option)) },
+                )
+            }
+        }
+        if (footer != null) {
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
 // --- Contenuti (senza card): le card sono composte in SettingsScreen raggruppando per tema. ---
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThemeModeContent(
     currentMode: ThemeMode,
@@ -230,30 +277,27 @@ fun ThemeModeContent(
     useDynamicColor: Boolean,
     onToggleDynamicColor: (Boolean) -> Unit,
 ) {
-    val options = listOf(
-        Triple(ThemeMode.AUTO, Icons.Default.BrightnessAuto, "Auto"),
-        Triple(ThemeMode.LIGHT, Icons.Default.LightMode, "Chiaro"),
-        Triple(ThemeMode.DARK, Icons.Default.DarkMode, "Scuro"),
-    )
     Column {
-        SettingsSubheader("Tema")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            options.forEachIndexed { index, (mode, icon, label) ->
-                SegmentedButton(
-                    selected = currentMode == mode,
-                    onClick = { onSelectMode(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                    icon = {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                    label = { Text(label) },
-                )
-            }
-        }
+        SegmentedSetting(
+            title = "Tema",
+            options = listOf(ThemeMode.AUTO, ThemeMode.LIGHT, ThemeMode.DARK),
+            selected = currentMode,
+            label = { mode ->
+                when (mode) {
+                    ThemeMode.AUTO -> "Auto"
+                    ThemeMode.LIGHT -> "Chiaro"
+                    ThemeMode.DARK -> "Scuro"
+                }
+            },
+            icon = { mode ->
+                when (mode) {
+                    ThemeMode.AUTO -> Icons.Default.BrightnessAuto
+                    ThemeMode.LIGHT -> Icons.Default.LightMode
+                    ThemeMode.DARK -> Icons.Default.DarkMode
+                }
+            },
+            onSelect = onSelectMode,
+        )
         Spacer(modifier = Modifier.height(16.dp))
         SettingRow(
             title = "Colori dinamici",
@@ -264,83 +308,52 @@ fun ThemeModeContent(
 }
 
 /** Densità globale delle card (poster e righe manga in tutta l'app), stile selettore tema. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardDensityContent(
     currentDensity: CardDensity,
     onSelectDensity: (CardDensity) -> Unit,
 ) {
-    Column {
-        SettingsSubheader("Dimensione card home")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            CardDensity.entries.forEachIndexed { index, density ->
-                SegmentedButton(
-                    selected = currentDensity == density,
-                    onClick = { onSelectDensity(density) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = CardDensity.entries.size),
-                    label = { Text(density.label) },
-                )
-            }
-        }
-    }
+    SegmentedSetting(
+        title = "Dimensione card home",
+        options = CardDensity.entries,
+        selected = currentDensity,
+        label = { it.label },
+        onSelect = onSelectDensity,
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnimationLevelContent(
     currentLevel: AnimationLevel,
     onSelectLevel: (AnimationLevel) -> Unit,
 ) {
-    Column {
-        SettingsSubheader("Animazioni")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            AnimationLevel.entries.forEachIndexed { index, level ->
-                SegmentedButton(
-                    selected = currentLevel == level,
-                    onClick = { onSelectLevel(level) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = AnimationLevel.entries.size),
-                    label = { Text(level.label) },
-                )
-            }
-        }
-        Text(
-            text = when (currentLevel) {
-                AnimationLevel.FULL -> "Se su Android hai attivato \"Rimuovi animazioni\", vale quella."
-                AnimationLevel.REDUCED -> "Movimenti senza rimbalzo, capitoli e immagini senza scivolamenti né dissolvenze."
-                AnimationLevel.NONE -> "Tutto istantaneo: tab, capitoli e menu cambiano di colpo, i caricamenti restano fermi."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
+    SegmentedSetting(
+        title = "Animazioni",
+        options = AnimationLevel.entries,
+        selected = currentLevel,
+        label = { it.label },
+        onSelect = onSelectLevel,
+        footer = when (currentLevel) {
+            AnimationLevel.FULL -> "Se su Android hai attivato \"Rimuovi animazioni\", vale quella."
+            AnimationLevel.REDUCED -> "Movimenti senza rimbalzo, capitoli e immagini senza scivolamenti né dissolvenze."
+            AnimationLevel.NONE -> "Tutto istantaneo: tab, capitoli e menu cambiano di colpo, i caricamenti restano fermi."
+        },
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReadingModeContent(
     currentMode: ReadingMode,
     onSelectMode: (ReadingMode) -> Unit,
 ) {
-    Column {
-        SettingsSubheader("Modalità di lettura")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            ReadingMode.entries.forEachIndexed { index, mode ->
-                SegmentedButton(
-                    selected = currentMode == mode,
-                    onClick = { onSelectMode(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = ReadingMode.entries.size),
-                    label = { Text(mode.shortLabel) },
-                )
-            }
-        }
-        Text(
-            text = "Vale per i nuovi manga. Puoi cambiarla per la singola serie dal lettore.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
+    SegmentedSetting(
+        title = "Modalità di lettura",
+        options = ReadingMode.entries,
+        selected = currentMode,
+        label = { it.shortLabel },
+        onSelect = onSelectMode,
+        footer = "Vale per i nuovi manga. Puoi cambiarla per la singola serie dal lettore.",
+    )
 }
 
 /**
@@ -348,104 +361,46 @@ fun ReadingModeContent(
  * quella che dipende l'ordine delle due metà: nella modalità occidentale si legge prima la
  * sinistra, altrove prima la destra.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpreadPageModeContent(
     currentMode: SpreadPageMode,
     onSelectMode: (SpreadPageMode) -> Unit,
 ) {
-    Column {
-        SettingsSubheader("Pagine doppie")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            SpreadPageMode.entries.forEachIndexed { index, mode ->
-                SegmentedButton(
-                    selected = currentMode == mode,
-                    onClick = { onSelectMode(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index,
-                        count = SpreadPageMode.entries.size,
-                    ),
-                    label = { Text(mode.shortLabel) },
-                )
-            }
-        }
-        Text(
-            text = when (currentMode) {
-                SpreadPageMode.FIT ->
-                    "Le facciate affiancate restano in un'unica immagine, rimpicciolita per starci."
-                SpreadPageMode.SPLIT ->
-                    "Le facciate affiancate diventano due pagine, nell'ordine di lettura giusto."
-                SpreadPageMode.ROTATE ->
-                    "Le facciate affiancate vengono ruotate: si leggono girando il telefono, " +
-                        "che resta bloccato in verticale."
-            } + " Puoi cambiarla per la singola serie dal lettore.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    }
+    SegmentedSetting(
+        title = "Pagine doppie",
+        options = SpreadPageMode.entries,
+        selected = currentMode,
+        label = { it.shortLabel },
+        onSelect = onSelectMode,
+        footer = when (currentMode) {
+            SpreadPageMode.FIT ->
+                "Le facciate affiancate restano in un'unica immagine, rimpicciolita per starci."
+            SpreadPageMode.SPLIT ->
+                "Le facciate affiancate diventano due pagine, nell'ordine di lettura giusto."
+            SpreadPageMode.ROTATE ->
+                "Le facciate affiancate vengono ruotate: si leggono girando il telefono, " +
+                    "che resta bloccato in verticale."
+        } + " Puoi cambiarla per la singola serie dal lettore.",
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderPageSpacingContent(
     currentDp: Int,
     onSelect: (Int) -> Unit,
 ) {
-    val options = listOf(
+    val labels = mapOf(
         0 to "Zero",
         4 to "Poco",
         DEFAULT_READER_PAGE_SPACING_DP to "Medio",
         16 to "Tanto",
     )
-    Column {
-        SettingsSubheader("Spazio tra le pagine")
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            options.forEachIndexed { index, (dp, label) ->
-                SegmentedButton(
-                    selected = currentDp == dp,
-                    onClick = { onSelect(dp) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                    label = { Text(label) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun DoubleTapZoomContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Doppio tap per zoomare",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
-}
-
-@Composable
-fun KeepScreenOnContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Mantieni schermo acceso",
-        checked = enabled,
-        onCheckedChange = onToggle,
-    )
-}
-
-@Composable
-fun ShowHomeTabContent(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    SettingRow(
-        title = "Mostra la tab Home",
-        checked = enabled,
-        onCheckedChange = onToggle,
+    SegmentedSetting(
+        title = "Spazio tra le pagine",
+        options = labels.keys.toList(),
+        selected = currentDp,
+        label = { labels.getValue(it) },
+        onSelect = onSelect,
     )
 }
 
@@ -567,7 +522,6 @@ fun ReportProblemContent(
     )
 }
 
-/** Riga azione "Rivedi il tutorial": rilancia il tour guidato di benvenuto. */
 /**
  * Widget "Continua a leggere": chi non sa che esiste non lo va a cercare tra i widget del
  * telefono, quindi si offre da qui. Lo stato ("già nella Home") si rilegge a ogni ritorno
@@ -576,15 +530,8 @@ fun ReportProblemContent(
 @Composable
 fun ReadingWidgetSettingsContent() {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     var refreshTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refreshTick++ }
     val placed = remember(refreshTick) { ReadingWidgetPinning.isPlaced(context) }
     val canPin = remember { ReadingWidgetPinning.canRequestPin(context) }
     val description = when {

@@ -48,12 +48,7 @@ class VyMangaSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.VYMANGA,
-        displayName = "VyManga",
-        shortName = "VY",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo VyManga non valido"
@@ -114,7 +109,20 @@ class VyMangaSource(
             ?: super.normalizeChapterUrlForComparison(url)
     }
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.VYMANGA,
+            displayName = "VyManga",
+            shortName = "VY",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = VyMangaSource(context, networkClient, libraryRepository)
+
         /** Base degli URL **identità** (chiavi salvate): non cambia coi traslochi del sito. */
         private const val IDENTITY_BASE = "https://vymanga.com"
 
@@ -157,9 +165,9 @@ class VyMangaSource(
         /** Riferimento stabile a un capitolo: serie canonica + id `chapter-<n>`. */
         data class ChapterRef(val mangaUrl: String, val chapterId: String)
 
-        fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
+        override fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val match = mangaRegex.find(url.trim()) ?: return null
             return "$IDENTITY_BASE/manga/${match.groupValues[1]}"
         }

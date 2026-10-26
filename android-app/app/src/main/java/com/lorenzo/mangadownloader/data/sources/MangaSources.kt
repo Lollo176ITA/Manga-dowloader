@@ -54,6 +54,27 @@ data class MangaSourceDescriptor(
 )
 
 /**
+ * Ciò che il catalogo sa di una fonte senza costruirla: la implementa il companion di ogni
+ * fonte. Aggiungere una fonte = il suo id in [MangaSourceIds] e il companion in
+ * [MangaSourceCatalog.specs]; descrittori, riconoscimento degli URL e registry ne derivano.
+ */
+interface MangaSourceSpec {
+    val descriptor: MangaSourceDescriptor
+
+    /** `true` se [url] è una serie o un capitolo di questa fonte. */
+    fun handlesUrl(url: String): Boolean
+
+    /** URL serie nella forma con cui la fonte identifica la serie; `null` se non è suo. */
+    fun canonicalSeriesUrl(url: String): String?
+
+    fun create(
+        context: Context,
+        networkClient: MangaNetworkClient,
+        libraryRepository: LibraryRepository,
+    ): MangaSource
+}
+
+/**
  * Ambito della ricerca nella tab Cerca. L'utente ragiona per lingua ("lo voglio in italiano
  * o in inglese?"), non per server: lo scope [SOURCE] (fonte singola) non è più selezionabile
  * dalla UI e i valori persistiti da versioni precedenti vengono riportati alla lingua della
@@ -101,16 +122,19 @@ object MangaSourceIds {
 }
 
 object MangaSourceCatalog {
-    val descriptors = listOf(
-        MangaSourceDescriptor(MangaSourceIds.MANGAPILL, "Mangapill", "MP", MangaSourceLanguage.ENG),
-        MangaSourceDescriptor(MangaSourceIds.HASTA_TEAM, "Hasta Team", "HT", MangaSourceLanguage.ITA),
-        MangaSourceDescriptor(MangaSourceIds.MANGA_WORLD, "MangaWorld", "MW", MangaSourceLanguage.ITA),
-        MangaSourceDescriptor(MangaSourceIds.VYMANGA, "VyManga", "VY", MangaSourceLanguage.ENG),
-        MangaSourceDescriptor(MangaSourceIds.ASURA_SCANS, "Asura Scans", "AS", MangaSourceLanguage.ENG),
-        MangaSourceDescriptor(MangaSourceIds.DEMONIC_SCANS, "DemonicScans", "DS", MangaSourceLanguage.ENG),
-        MangaSourceDescriptor(MangaSourceIds.TCB_SCANS, "TCB Scans", "TC", MangaSourceLanguage.ENG),
-        MangaSourceDescriptor(MangaSourceIds.WEEB_CENTRAL, "Weeb Central", "WC", MangaSourceLanguage.ENG),
+    /** Tutte le fonti, nell'ordine in cui compaiono in impostazioni e ricerca. */
+    val specs: List<MangaSourceSpec> = listOf(
+        MangapillSource,
+        HastaTeamSource,
+        MangaWorldSource,
+        VyMangaSource,
+        AsuraScansSource,
+        DemonicScansSource,
+        TcbScansSource,
+        WeebCentralSource,
     )
+
+    val descriptors = specs.map { it.descriptor }
 
     /**
      * Fonti senza un segnale "adulti" nella risposta di ricerca: niente generi né flag, e
@@ -219,17 +243,7 @@ object MangaSourceCatalog {
         if (normalizedUrl.isBlank()) {
             return null
         }
-        return when {
-            MangapillSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGAPILL
-            HastaTeamSource.handlesUrl(normalizedUrl) -> MangaSourceIds.HASTA_TEAM
-            MangaWorldSource.handlesUrl(normalizedUrl) -> MangaSourceIds.MANGA_WORLD
-            VyMangaSource.handlesUrl(normalizedUrl) -> MangaSourceIds.VYMANGA
-            AsuraScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.ASURA_SCANS
-            DemonicScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.DEMONIC_SCANS
-            TcbScansSource.handlesUrl(normalizedUrl) -> MangaSourceIds.TCB_SCANS
-            WeebCentralSource.handlesUrl(normalizedUrl) -> MangaSourceIds.WEEB_CENTRAL
-            else -> null
-        }
+        return specs.firstOrNull { it.handlesUrl(normalizedUrl) }?.descriptor?.id
     }
 
     fun displayName(sourceId: String): String {
@@ -273,17 +287,10 @@ object MangaSourceCatalog {
         if (normalizedUrl.isBlank()) {
             return null
         }
-        return when (resolveSourceId(sourceId, normalizedUrl)) {
-            MangaSourceIds.MANGAPILL -> MangapillSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.HASTA_TEAM -> HastaTeamSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.MANGA_WORLD -> MangaWorldSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.VYMANGA -> VyMangaSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.ASURA_SCANS -> AsuraScansSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.DEMONIC_SCANS -> DemonicScansSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.TCB_SCANS -> TcbScansSource.canonicalSeriesUrl(normalizedUrl)
-            MangaSourceIds.WEEB_CENTRAL -> WeebCentralSource.canonicalSeriesUrl(normalizedUrl)
-            else -> normalizedUrl
-        } ?: normalizedUrl
+        val resolved = resolveSourceId(sourceId, normalizedUrl)
+        return specs.firstOrNull { it.descriptor.id == resolved }
+            ?.canonicalSeriesUrl(normalizedUrl)
+            ?: normalizedUrl
     }
 
 }
@@ -317,16 +324,9 @@ class MangaSourceRegistry(
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) {
     private val networkClient = MangaNetworkClient(SharedHttpClient.get(context))
-    private val sources = mapOf(
-        MangaSourceIds.MANGAPILL to MangapillSource(context, networkClient, libraryRepository),
-        MangaSourceIds.HASTA_TEAM to HastaTeamSource(context, networkClient, libraryRepository),
-        MangaSourceIds.MANGA_WORLD to MangaWorldSource(context, networkClient, libraryRepository),
-        MangaSourceIds.VYMANGA to VyMangaSource(context, networkClient, libraryRepository),
-        MangaSourceIds.ASURA_SCANS to AsuraScansSource(context, networkClient, libraryRepository),
-        MangaSourceIds.DEMONIC_SCANS to DemonicScansSource(context, networkClient, libraryRepository),
-        MangaSourceIds.TCB_SCANS to TcbScansSource(context, networkClient, libraryRepository),
-        MangaSourceIds.WEEB_CENTRAL to WeebCentralSource(context, networkClient, libraryRepository),
-    )
+    private val sources = MangaSourceCatalog.specs.associate { spec ->
+        spec.descriptor.id to spec.create(context, networkClient, libraryRepository)
+    }
 
     val descriptors: List<MangaSourceDescriptor>
         get() = MangaSourceCatalog.descriptors

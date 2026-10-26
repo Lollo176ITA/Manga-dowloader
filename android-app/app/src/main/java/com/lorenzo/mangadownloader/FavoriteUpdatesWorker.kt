@@ -156,8 +156,10 @@ class FavoriteUpdatesWorker(
         val healthMap = healthStore.read().toMutableMap()
         val notifier = FavoriteUpdateNotifier(context)
         var notifiedCount = 0
-        var favoritesChanged = false
         val updatedFavorites = favorites.toMutableList()
+        // Cambi di mirror di questo giro, per chiave di serie: a fine giro si applicano SOLO
+        // questi ai preferiti di quel momento, non la copia presa minuti fa (vedi [FavoritesStore.update]).
+        val sourceSwitches = mutableMapOf<String, FavoriteManga>()
 
         try {
         for ((index, favorite) in favorites.withIndex()) {
@@ -199,7 +201,7 @@ class FavoriteUpdatesWorker(
                         sourceId = usedBinding.sourceId,
                         mangaUrl = usedBinding.mangaUrl,
                     )
-                    favoritesChanged = true
+                    sourceSwitches[key] = updatedFavorites[index]
                 }
                 // La trama dei preferiti viene scaricata comunque qui: salvala così il
                 // pulsante info è pronto anche dopo il riavvio dell'app (è solo testo).
@@ -267,8 +269,14 @@ class FavoriteUpdatesWorker(
             store.write(seenMap)
             descriptionsStore.write(descriptions)
             healthStore.write(healthMap)
-            if (favoritesChanged) {
-                favoritesStore.persist(updatedFavorites)
+            if (sourceSwitches.isNotEmpty()) {
+                favoritesStore.update { stored ->
+                    stored.map { favorite ->
+                        sourceSwitches[favorite.canonicalKey()]?.let { switched ->
+                            favorite.copy(sourceId = switched.sourceId, mangaUrl = switched.mangaUrl)
+                        } ?: favorite
+                    }
+                }
             }
         }
         return Result.success()
@@ -305,13 +313,12 @@ class FavoriteUpdatesWorker(
                 disabledSourceIds = { settings.disabledSourceIds },
                 unavailableSourceIds = { unavailableSourceIds },
             ).sync(favorites)
-            val fresh = newAniListFavorites(imported, favorites)
-            if (fresh.isEmpty()) {
+            if (newAniListFavorites(imported, favorites).isEmpty()) {
                 favorites
             } else {
-                val updated = fresh + favorites
-                favoritesStore.persist(updated)
-                updated
+                // Confronto con i preferiti di ADESSO: la sync dura quanto una ricerca su
+                // tutte le fonti e l'utente può averne aggiunti o tolti nel frattempo.
+                favoritesStore.update { stored -> newAniListFavorites(imported, stored) + stored }
             }
         } catch (e: CancellationException) {
             throw e

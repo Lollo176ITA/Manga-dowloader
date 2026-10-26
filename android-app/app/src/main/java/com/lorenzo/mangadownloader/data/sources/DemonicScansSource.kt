@@ -36,12 +36,7 @@ class DemonicScansSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.DEMONIC_SCANS,
-        displayName = "DemonicScans",
-        shortName = "DS",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo DemonicScans non valido"
@@ -74,7 +69,20 @@ class DemonicScansSource(
 
     override fun canonicalMangaUrl(url: String): String? = canonicalSeriesUrl(url)
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.DEMONIC_SCANS,
+            displayName = "DemonicScans",
+            shortName = "DS",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = DemonicScansSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://demonicscans.org"
 
         private val seriesRegex =
@@ -87,9 +95,9 @@ class DemonicScansSource(
         private val chapterParamRegex =
             Regex("""[?&]chapter=([^&#]+)""", RegexOption.IGNORE_CASE)
 
-        fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
+        override fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val normalized = url.trim()
             seriesRegex.find(normalized)?.let { return "$BASE_URL/manga/${it.groupValues[1]}" }
             readerRegex.find(normalized)?.let { return "$BASE_URL/manga/${it.groupValues[1]}" }

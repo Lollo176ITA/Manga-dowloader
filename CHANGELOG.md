@@ -12,11 +12,23 @@
 - Il controllo degli aggiornamenti dell'app è più affidabile: non si appoggia più al servizio di GitHub che, con molti utenti sulla stessa rete, poteva rifiutare le richieste. Il popup di aggiornamento mostra ora le novità del changelog.
 - Meno blocchi da Cloudflare sui siti delle fonti: l'app si presenta con una versione aggiornata di Chrome, presa dal telefono, e la stessa per pagine, download e copertine.
 
+### Corretto
+
+- Aggiungendo o togliendo un preferito mentre l'app controlla i nuovi capitoli in background, la modifica non va più persa.
+- Un download che fallisce per errori di rete ora si arrende dopo circa 15 minuti (5 tentativi) e mostra "Download non riuscito" con la possibilità di riprovare, invece di ritentare all'infinito bloccando gli altri download della stessa serie.
+- Nelle trame di AniList i caratteri speciali scritti come testo (per esempio "&lt;") non vengono più trasformati per errore.
+- Aggiunti gli accenti mancanti nei testi del tutorial.
+
 ### Sicurezza
 
+- Il PIN del controllo genitori impostato da ora in poi è salvato con un metodo più robusto; i PIN già impostati continuano a funzionare.
 - Collegamento ad AniList più sicuro: l'app accetta il ritorno dal browser solo se il collegamento l'ha avviato lei; un link esterno che prova a collegare un altro account viene ignorato con un avviso.
 - Il blocco del controllo genitori dopo troppi PIN sbagliati non si aggira più cambiando l'ora del telefono; dopo un riavvio il blocco riparte da capo.
 - L'account AniList non finisce più nel backup automatico di Android né nel trasferimento a un nuovo telefono, dove va ricollegato. Preferiti e impostazioni restano nel backup.
+
+### Interno
+
+- MangaViewModel suddiviso in controller (Reader, AniList, Home/Scopri, Aggiornamenti app); registro fonti unico tramite MangaSourceSpec; risposte AniList lette con classi @Serializable; selettori a segmenti delle impostazioni unificati; calcoli di zoom del reader condivisi (ReaderZoom.kt); LifecycleEventEffect al posto degli osservatori manuali; skill add-manga-source aggiornata.
 
 ## 2026-10-06
 

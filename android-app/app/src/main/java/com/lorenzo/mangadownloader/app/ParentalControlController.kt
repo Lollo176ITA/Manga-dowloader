@@ -5,6 +5,7 @@ import androidx.biometric.BiometricManager
 import com.lorenzo.mangadownloader.data.store.ParentalLockoutStore
 import com.lorenzo.mangadownloader.domain.generateParentalPinSalt
 import com.lorenzo.mangadownloader.domain.hashParentalPin
+import com.lorenzo.mangadownloader.domain.verifyParentalPin
 import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
 import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.sanitizeParentalPin
@@ -266,8 +267,7 @@ class ParentalControlController(
             return
         }
 
-        val providedHash = hashParentalPin(pinEntryState.pin, salt)
-        if (providedHash != expectedHash) {
+        if (!verifyParentalPin(pinEntryState.pin, salt, expectedHash)) {
             val attempts = lockoutStore.failedAttempts() + 1
             val lockout = parentalPinLockoutMillis(attempts)
             lockoutStore.recordFailure(lockoutMillis = lockout)

@@ -28,12 +28,7 @@ class HastaTeamSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.HASTA_TEAM,
-        displayName = "Hasta Team",
-        shortName = "HT",
-        language = MangaSourceLanguage.ITA,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo Hasta Team non valido"
@@ -87,7 +82,20 @@ class HastaTeamSource(
         return mapOf("Accept" to "application/json, text/plain, */*")
     }
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.HASTA_TEAM,
+            displayName = "Hasta Team",
+            shortName = "HT",
+            language = MangaSourceLanguage.ITA,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = HastaTeamSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://reader.hastateam.com/"
         private const val REMOTE_SEARCH_MIN_QUERY_LENGTH = 3
         private val json = Json { ignoreUnknownKeys = true }
@@ -99,11 +107,11 @@ class HastaTeamSource(
                 RegexOption.IGNORE_CASE,
             )
 
-        fun handlesUrl(url: String): Boolean {
+        override fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null || chapterApiUrl(url) != null
         }
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val normalized = url.trim()
             comicsRegex.find(normalized)?.let { match ->
                 return "$BASE_URL" + "comics/${match.groupValues[1]}"

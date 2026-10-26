@@ -6,25 +6,19 @@ import com.lorenzo.mangadownloader.data.model.mangaStatusFromText
 import com.lorenzo.mangadownloader.data.sources.firstNonBlankTrimmed
 import com.lorenzo.mangadownloader.domain.isAdultGenre
 import java.io.IOException
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.jsoup.parser.Parser
 
 /**
  * Un manga come lo descrive AniList: **solo metadati** (titolo, copertina, generi, voto, trama,
@@ -321,7 +315,11 @@ class AniListClient(
          */
         private const val MAX_FAVOURITE_PAGES = 25
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private val json = Json { ignoreUnknownKeys = true }
+        private val json = Json {
+            ignoreUnknownKeys = true
+            // Un `null` su un campo con default (liste, flag) prende il default invece di fallire.
+            coerceInputValues = true
+        }
 
         // API ufficiale: meglio un client identificabile che un finto browser.
         private val USER_AGENT = "MangApp/${BuildConfig.VERSION_NAME} (Android)"
@@ -478,127 +476,41 @@ class AniListClient(
          * voci senza id o senza alcun titolo, ignora i campi mancanti e ritorna lista vuota se
          * `data` è assente (es. risposta di errore). Pulisce la trama dai residui HTML.
          */
-        internal fun parseMediaResponse(jsonText: String): List<AniListManga> {
-            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("Page")
-                ?.jsonObject?.get("media")
-                ?.jsonArray
-                ?: return emptyList()
+        internal fun parseMediaResponse(jsonText: String): List<AniListManga> =
+            decode<PageData>(jsonText)?.page?.media.orEmpty().mapNotNull { it?.toManga() }
 
-            return media.mapNotNull { element -> parseMangaObject(element.jsonObject) }
-        }
-
-        internal fun parseAdultFlagsResponse(jsonText: String): Map<Int, Boolean> {
-            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("Page")
-                ?.jsonObject?.get("media")
-                ?.jsonArray
-                ?: return emptyMap()
-            return media.mapNotNull { element ->
-                val obj = element.jsonObject
-                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
-                val isAdult = obj["isAdult"]?.jsonPrimitive?.booleanOrNull == true
-                val genres = obj["genres"]?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull }
-                id to (isAdult || genres.any(::isAdultGenre))
+        internal fun parseAdultFlagsResponse(jsonText: String): Map<Int, Boolean> =
+            decode<PageData>(jsonText)?.page?.media.orEmpty().mapNotNull { media ->
+                val id = media?.id ?: return@mapNotNull null
+                id to (media.isAdult || media.genres.any(::isAdultGenre))
             }.toMap()
-        }
-
-        /** Un singolo oggetto media GraphQL → [AniListManga]; `null` se manca id o titolo. */
-        private fun parseMangaObject(obj: JsonObject): AniListManga? {
-            val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return null
-            val title = obj["title"]?.jsonObject
-            val romaji = title?.get("romaji")?.jsonPrimitive?.contentOrNull?.trim()
-            val english = title?.get("english")?.jsonPrimitive?.contentOrNull?.trim()
-            val native = title?.get("native")?.jsonPrimitive?.contentOrNull?.trim()
-            if (romaji.isNullOrBlank() && english.isNullOrBlank()) {
-                return null
-            }
-            return AniListManga(
-                id = id,
-                titleRomaji = romaji?.takeIf(String::isNotBlank),
-                titleEnglish = english?.takeIf(String::isNotBlank),
-                titleNative = native?.takeIf(String::isNotBlank),
-                synonyms = obj["synonyms"]?.jsonArray
-                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
-                    ?: emptyList(),
-                coverUrl = obj["coverImage"]?.jsonObject?.get("large")
-                    ?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
-                genres = obj["genres"]?.jsonArray
-                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
-                    ?: emptyList(),
-                averageScore = obj["averageScore"]?.jsonPrimitive?.intOrNull,
-                description = cleanDescription(obj["description"]?.jsonPrimitive?.contentOrNull),
-                status = mangaStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
-                chapters = obj["chapters"]?.jsonPrimitive?.intOrNull,
-                format = obj["format"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank),
-                isAdult = obj["isAdult"]?.jsonPrimitive?.booleanOrNull == true,
-            )
-        }
 
         /**
          * Estrae le raccomandazioni dalla [RECOMMENDATIONS_QUERY]. Tollerante come
          * [parseMediaResponse]; scarta le voci per adulti e i suggerimenti senza media.
          */
-        internal fun parseRecommendationsResponse(jsonText: String): List<AniListRecommendation> {
-            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("Page")
-                ?.jsonObject?.get("media")
-                ?.jsonArray
-                ?: return emptyList()
-
-            return media.flatMap { seedElement ->
-                val seedObj = seedElement.jsonObject
-                val seedId = seedObj["id"]?.jsonPrimitive?.intOrNull ?: return@flatMap emptyList()
-                val nodes = seedObj["recommendations"]
-                    ?.takeIf { it !is JsonNull }
-                    ?.jsonObject?.get("nodes")
-                    ?.takeIf { it !is JsonNull }
-                    ?.jsonArray
-                    ?: return@flatMap emptyList()
-                nodes.mapNotNull { node ->
-                    val nodeObj = node.takeIf { it !is JsonNull }?.jsonObject ?: return@mapNotNull null
-                    val recommended = nodeObj["mediaRecommendation"]
-                        ?.takeIf { it !is JsonNull }
-                        ?.jsonObject
-                        ?: return@mapNotNull null
-                    if (recommended["isAdult"]?.jsonPrimitive?.booleanOrNull == true) {
-                        return@mapNotNull null
-                    }
-                    val manga = parseMangaObject(recommended) ?: return@mapNotNull null
+        internal fun parseRecommendationsResponse(jsonText: String): List<AniListRecommendation> =
+            decode<PageData>(jsonText)?.page?.media.orEmpty().flatMap { seed ->
+                val seedId = seed?.id ?: return@flatMap emptyList()
+                seed.recommendations?.nodes.orEmpty().mapNotNull { node ->
+                    val recommended = node?.mediaRecommendation ?: return@mapNotNull null
+                    if (recommended.isAdult) return@mapNotNull null
                     AniListRecommendation(
                         seedMediaId = seedId,
-                        rating = nodeObj["rating"]?.jsonPrimitive?.intOrNull ?: 0,
-                        manga = manga,
+                        rating = node.rating,
+                        manga = recommended.toManga() ?: return@mapNotNull null,
                     )
                 }
             }
-        }
 
         /**
          * Estrae una pagina di preferiti: i media e il flag "c'è un'altra pagina". Tollerante
          * come [parseMediaResponse]: una risposta senza `data` dà lista vuota e nessun seguito.
          */
         internal fun parseFavouriteMangaResponse(jsonText: String): Pair<List<AniListManga>, Boolean> {
-            val manga = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("User")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject?.get("favourites")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject?.get("manga")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject
+            val manga = decode<UserData>(jsonText)?.user?.favourites?.manga
                 ?: return emptyList<AniListManga>() to false
-            val nodes = manga["nodes"]
-                ?.takeIf { it !is JsonNull }
-                ?.jsonArray
-                ?.mapNotNull { element -> parseMangaObject(element.jsonObject) }
-                ?: emptyList()
-            val hasNextPage = manga["pageInfo"]
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject?.get("hasNextPage")
-                ?.jsonPrimitive?.booleanOrNull
-                ?: false
-            return nodes to hasNextPage
+            return manga.nodes.mapNotNull { it?.toManga() } to (manga.pageInfo?.hasNextPage == true)
         }
 
         /**
@@ -607,91 +519,171 @@ class AniListClient(
          * "rimosso" — per questo chi chiama usa il valore solo come conferma, mai come verità
          * al posto di [fetchFavouriteManga].
          */
-        internal fun parseToggleFavouriteResponse(jsonText: String, mediaId: Int): Boolean {
-            val nodes = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("ToggleFavourite")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject?.get("manga")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject?.get("nodes")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonArray
-                ?: return false
-            return nodes.any { it.jsonObject["id"]?.jsonPrimitive?.intOrNull == mediaId }
-        }
+        internal fun parseToggleFavouriteResponse(jsonText: String, mediaId: Int): Boolean =
+            decode<ToggleData>(jsonText)?.toggle?.manga?.nodes.orEmpty().any { it?.id == mediaId }
 
         /** Estrae il [AniListViewer] dalla risposta della [VIEWER_QUERY]; `null` se assente. */
         internal fun parseViewerResponse(jsonText: String): AniListViewer? {
-            val viewer = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("Viewer")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject
-                ?: return null
-            val id = viewer["id"]?.jsonPrimitive?.intOrNull ?: return null
-            val name = viewer["name"]?.jsonPrimitive?.contentOrNull?.trim()
-                ?.takeIf(String::isNotBlank) ?: return null
-            val scoreFormat = viewer["mediaListOptions"]?.jsonObject
-                ?.get("scoreFormat")?.jsonPrimitive?.contentOrNull
+            val viewer = decode<ViewerData>(jsonText)?.viewer ?: return null
             return AniListViewer(
-                id = id,
-                name = name,
-                scoreFormat = aniListScoreFormatFromText(scoreFormat),
+                id = viewer.id ?: return null,
+                name = viewer.name.trimmedOrNull() ?: return null,
+                scoreFormat = aniListScoreFormatFromText(viewer.mediaListOptions?.scoreFormat),
             )
         }
 
         /** Estrae media + entry utente dalla [MEDIA_ENTRY_QUERY]; `null` se il media manca. */
         internal fun parseMediaEntryResponse(jsonText: String): AniListMediaEntry? {
-            val media = json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("Media")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject
-                ?: return null
-            val mediaId = media["id"]?.jsonPrimitive?.intOrNull ?: return null
+            val media = decode<MediaEntryData>(jsonText)?.media ?: return null
             return AniListMediaEntry(
-                mediaId = mediaId,
-                totalChapters = media["chapters"]?.jsonPrimitive?.intOrNull,
-                entry = media["mediaListEntry"]
-                    ?.takeIf { it !is JsonNull }
-                    ?.jsonObject
-                    ?.let(::parseListEntry),
+                mediaId = media.id ?: return null,
+                totalChapters = media.chapters,
+                entry = media.mediaListEntry?.toEntry(),
             )
         }
 
         /** Estrae l'entry salvata dalla risposta della [SAVE_ENTRY_MUTATION]. */
-        internal fun parseSaveEntryResponse(jsonText: String): AniListListEntry? {
-            return json.parseToJsonElement(jsonText).jsonObject["data"]
-                ?.jsonObject?.get("SaveMediaListEntry")
-                ?.takeIf { it !is JsonNull }
-                ?.jsonObject
-                ?.let(::parseListEntry)
-        }
+        internal fun parseSaveEntryResponse(jsonText: String): AniListListEntry? =
+            decode<SaveEntryData>(jsonText)?.entry?.toEntry()
 
-        private fun parseListEntry(obj: JsonObject): AniListListEntry {
-            return AniListListEntry(
-                status = aniListStatusFromText(obj["status"]?.jsonPrimitive?.contentOrNull),
-                progress = obj["progress"]?.jsonPrimitive?.intOrNull ?: 0,
-                score = obj["score"]?.jsonPrimitive?.doubleOrNull?.takeIf { it > 0.0 },
-            )
+        /**
+         * Il campo `data` della risposta GraphQL, `null` se manca (risposta di errore). Un JSON
+         * malformato diventa [IOException], come gli altri errori di rete che i chiamanti gestiscono.
+         */
+        private inline fun <reified T> decode(jsonText: String): T? = try {
+            json.decodeFromString<GraphQlResponse<T>>(jsonText).data
+        } catch (e: SerializationException) {
+            throw IOException("Risposta AniList non valida", e)
         }
 
         /**
-         * Ripulisce la trama AniList dai residui HTML (`<br>`, tag) e dalle entità più comuni,
-         * così è leggibile in un semplice [Text]. `null`/vuoto resta `null`.
+         * Ripulisce la trama AniList dai residui HTML (`<br>`, tag) e dalle entità, così è
+         * leggibile in un semplice [Text]. `null`/vuoto resta `null`.
          */
         internal fun cleanDescription(raw: String?): String? {
             val text = raw?.trim()?.takeIf(String::isNotBlank) ?: return null
-            return text
+            val withoutTags = text
                 .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
                 .replace(Regex("<[^>]+>"), "")
-                .replace("&quot;", "\"")
-                .replace("&amp;", "&")
-                .replace("&#039;", "'")
-                .replace("&apos;", "'")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
+            // Una sola passata di decodifica: `&amp;lt;` resta il testo letterale `&lt;`.
+            return Parser.unescapeEntities(withoutTags, false)
                 .replace(Regex("\n{3,}"), "\n\n")
                 .trim()
                 .takeIf(String::isNotBlank)
         }
     }
+}
+
+// Forma delle risposte GraphQL: tutto opzionale, così un campo assente o `null` non fa
+// fallire la decodifica (vedi `coerceInputValues`).
+
+@Serializable
+private class GraphQlResponse<T>(val data: T? = null)
+
+@Serializable
+private class PageData(@SerialName("Page") val page: MediaPage? = null)
+
+@Serializable
+private class MediaPage(val media: List<MediaDto?> = emptyList())
+
+@Serializable
+private class MediaDto(
+    val id: Int? = null,
+    val title: TitleDto? = null,
+    val synonyms: List<String> = emptyList(),
+    val coverImage: CoverDto? = null,
+    val genres: List<String> = emptyList(),
+    val averageScore: Int? = null,
+    val description: String? = null,
+    val status: String? = null,
+    val chapters: Int? = null,
+    val format: String? = null,
+    val isAdult: Boolean = false,
+    val recommendations: RecommendationConnection? = null,
+) {
+    /** `null` se manca l'id o qualsiasi titolo (romaji/inglese). */
+    fun toManga(): AniListManga? {
+        val id = id ?: return null
+        val romaji = title?.romaji.trimmedOrNull()
+        val english = title?.english.trimmedOrNull()
+        if (romaji == null && english == null) return null
+        return AniListManga(
+            id = id,
+            titleRomaji = romaji,
+            titleEnglish = english,
+            titleNative = title?.native.trimmedOrNull(),
+            synonyms = synonyms.mapNotNull { it.trimmedOrNull() },
+            coverUrl = coverImage?.large?.takeIf(String::isNotBlank),
+            genres = genres.mapNotNull { it.trimmedOrNull() },
+            averageScore = averageScore,
+            description = AniListClient.cleanDescription(description),
+            status = mangaStatusFromText(status),
+            chapters = chapters,
+            format = format?.takeIf(String::isNotBlank),
+            isAdult = isAdult,
+        )
+    }
+}
+
+private fun String?.trimmedOrNull(): String? = this?.trim()?.takeIf(String::isNotBlank)
+
+@Serializable
+private class TitleDto(val romaji: String? = null, val english: String? = null, val native: String? = null)
+
+@Serializable
+private class CoverDto(val large: String? = null)
+
+@Serializable
+private class RecommendationConnection(val nodes: List<RecommendationNode?> = emptyList())
+
+@Serializable
+private class RecommendationNode(val rating: Int = 0, val mediaRecommendation: MediaDto? = null)
+
+@Serializable
+private class UserData(@SerialName("User") val user: UserDto? = null)
+
+@Serializable
+private class UserDto(val favourites: FavouritesDto? = null)
+
+@Serializable
+private class FavouritesDto(val manga: MediaConnection? = null)
+
+@Serializable
+private class MediaConnection(val pageInfo: PageInfo? = null, val nodes: List<MediaDto?> = emptyList())
+
+@Serializable
+private class PageInfo(val hasNextPage: Boolean = false)
+
+@Serializable
+private class ToggleData(@SerialName("ToggleFavourite") val toggle: ToggleDto? = null)
+
+@Serializable
+private class ToggleDto(val manga: MediaConnection? = null)
+
+@Serializable
+private class ViewerData(@SerialName("Viewer") val viewer: ViewerDto? = null)
+
+@Serializable
+private class ViewerDto(val id: Int? = null, val name: String? = null, val mediaListOptions: ListOptionsDto? = null)
+
+@Serializable
+private class ListOptionsDto(val scoreFormat: String? = null)
+
+@Serializable
+private class MediaEntryData(@SerialName("Media") val media: MediaEntryDto? = null)
+
+@Serializable
+private class MediaEntryDto(val id: Int? = null, val chapters: Int? = null, val mediaListEntry: ListEntryDto? = null)
+
+@Serializable
+private class SaveEntryData(@SerialName("SaveMediaListEntry") val entry: ListEntryDto? = null)
+
+@Serializable
+private class ListEntryDto(val status: String? = null, val progress: Int? = null, val score: Double? = null) {
+    fun toEntry() = AniListListEntry(
+        status = aniListStatusFromText(status),
+        progress = progress ?: 0,
+        // Su AniList 0 significa "nessun voto": non va riportato come voto reale.
+        score = score?.takeIf { it > 0.0 },
+    )
 }

@@ -46,12 +46,7 @@ class WeebCentralSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.WEEB_CENTRAL,
-        displayName = "Weeb Central",
-        shortName = "WC",
-        language = MangaSourceLanguage.ENG,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo Weeb Central non valido"
@@ -91,7 +86,20 @@ class WeebCentralSource(
             .read()
             .hidesAdultContent()
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.WEEB_CENTRAL,
+            displayName = "Weeb Central",
+            shortName = "WC",
+            language = MangaSourceLanguage.ENG,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = WeebCentralSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://weebcentral.com"
 
         // Gli id sono ULID: 26 caratteri alfanumerici (Crockford base32).
@@ -113,9 +121,9 @@ class WeebCentralSource(
         /** "Chapter 12.5" → prefisso "Chapter", numero "12.5". */
         private val chapterLabelRegex = Regex("""^(.*?)\s*(\d+(?:\.\d+)?)\s*$""")
 
-        fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
+        override fun handlesUrl(url: String): Boolean = canonicalSeriesUrl(url) != null
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val match = seriesRegex.find(url.trim()) ?: return null
             return "$BASE_URL/series/${match.groupValues[1].uppercase()}"
         }

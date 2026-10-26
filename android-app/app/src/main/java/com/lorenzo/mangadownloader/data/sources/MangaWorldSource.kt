@@ -22,12 +22,7 @@ class MangaWorldSource(
     networkClient: MangaNetworkClient,
     libraryRepository: LibraryRepository = LibraryRepository(context),
 ) : BaseMangaSource(context, networkClient, libraryRepository) {
-    override val descriptor = MangaSourceDescriptor(
-        id = MangaSourceIds.MANGA_WORLD,
-        displayName = "MangaWorld",
-        shortName = "MW",
-        language = MangaSourceLanguage.ITA,
-    )
+    override val descriptor = Companion.descriptor
 
     override val invalidChapterUrlMessage: String =
         "URL manga o capitolo MangaWorld non valido"
@@ -69,7 +64,20 @@ class MangaWorldSource(
         return normalizedChapterIdentityUrl(url) ?: super.normalizeChapterUrlForComparison(url)
     }
 
-    companion object {
+    companion object : MangaSourceSpec {
+        override val descriptor = MangaSourceDescriptor(
+            id = MangaSourceIds.MANGA_WORLD,
+            displayName = "MangaWorld",
+            shortName = "MW",
+            language = MangaSourceLanguage.ITA,
+        )
+
+        override fun create(
+            context: Context,
+            networkClient: MangaNetworkClient,
+            libraryRepository: LibraryRepository,
+        ): MangaSource = MangaWorldSource(context, networkClient, libraryRepository)
+
         private const val BASE_URL = "https://www.mangaworld.mx/"
         private val mangaRegex =
             Regex(
@@ -84,11 +92,11 @@ class MangaWorldSource(
         private val readingEntryRegex =
             Regex("""(capitolo|volume)\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
 
-        fun handlesUrl(url: String): Boolean {
+        override fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null || chapterReaderUrl(url) != null
         }
 
-        fun canonicalSeriesUrl(url: String): String? {
+        override fun canonicalSeriesUrl(url: String): String? {
             val normalized = url.trim()
             readRegex.find(normalized)?.let { match ->
                 return "${BASE_URL}manga/${match.groupValues[1]}"

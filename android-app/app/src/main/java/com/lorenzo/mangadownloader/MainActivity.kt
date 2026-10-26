@@ -27,7 +27,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -51,8 +50,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -314,17 +312,10 @@ private fun MangaDownloaderAppContent(
     // foreground: il permesso notifiche (revocabile dalle impostazioni di sistema, altrimenti
     // l'avviso sotto "Notifiche preferiti" mentirebbe) e l'account AniList, visto che il
     // ritorno in primo piano è tipicamente il rientro dal browser dell'OAuth.
-    val lifecycleOwner = LocalLifecycleOwner.current
     var notificationsPermissionTick by remember { mutableIntStateOf(0) }
-    DisposableEffect(lifecycleOwner, viewModel) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                notificationsPermissionTick++
-                viewModel.syncAniListAccountState()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        notificationsPermissionTick++
+        viewModel.syncAniListAccountState()
     }
     val notificationsPermissionGranted = remember(notificationsPermissionTick) {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||

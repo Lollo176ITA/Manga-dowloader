@@ -6,6 +6,68 @@
 
 ---
 
+## 🔐 Sicurezza e distribuzione larga
+
+> Audit esterno verificato il 2026-10-26 sul branch `dev`. P0 → P3 è l'ordine consigliato prima di distribuire a molti utenti.
+
+- [ ] **P0 · Chiudere il vecchio canale SMTP** ✅ — Impatto Alto · Sforzo Basso *(passi manuali)*
+  - Fatto il 2026-10-26: le segnalazioni passano dal Worker [`report-relay/`](report-relay/README.md), che crea la card con l'API di Trello. Jakarta Mail, le regole ProGuard e la configurazione SMTP sono stati tolti dall'app e dalla CI.
+  - Resta da fare, a mano e **dopo** aver pubblicato una versione col relay: revocare la app password di `mangapp.reports@gmail.com` (le versioni vecchie smettono di inviare) e cancellare i secret GitHub `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO_EMAIL`.
+
+- [ ] **P1 · Redirect AniList accettato senza un login in corso** ✅ — Impatto Medio · Sforzo Basso
+  - Dove: [MainActivity.kt:168](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L168) e [MangaViewModel.kt:3649](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L3649). L'intent-filter è `BROWSABLE`: un link `mangapp://anilist-auth#access_token=<token altrui>` collega l'account dell'attaccante (`persistAccount` sovrascrive quello attuale), che da quel momento riceve progressi e preferiti.
+  - Fix: salvare un timestamp "login avviato" all'apertura di `authorizationUrl()` ([MainActivity.kt:849](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L849)) e rifiutare i redirect se manca o ha più di 10 minuti; va consumato al primo uso. Per `KEY_HANDLED_AUTH_TOKEN` salvare l'hash SHA-256, non il token in chiaro.
+  - Auth Tab / Custom Tab (`androidx.browser` 1.10.0) migliora solo la UX, alla sicurezza non serve.
+
+- [ ] **P1 · Blocco del PIN aggirabile spostando l'orologio** ✅ — Impatto Medio · Sforzo Basso
+  - Dove: [ParentalControlController.kt:254](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/ParentalControlController.kt#L254) usa `System.currentTimeMillis()`.
+  - Attenzione al fix dell'audit: `SystemClock.elapsedRealtime()` da solo si azzera al riavvio, quindi basterebbe riavviare il telefono. Va salvato anche `elapsedRealtime` + `Settings.Global.BOOT_COUNT` a ogni errore. Nello stesso avvio vale `elapsedRealtime`; dopo un riavvio vale l'orologio, ma se l'ora è precedente all'ultimo errore il PIN resta bloccato.
+  - Limite da dichiarare all'utente: cancellare i dati o disinstallare l'app azzera comunque il controllo. È una barriera leggera; per garanzie vere serve Family Link. L'hash veloce è la voce in 🔒 Controllo genitori: priorità bassa, perché uno spazio di 10⁶ PIN resta piccolo anche con PBKDF2.
+
+- [ ] **P1 · Token AniList nel backup automatico di Android** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: [AndroidManifest.xml:15](android-app/app/src/main/AndroidManifest.xml#L15) ha `allowBackup="true"` senza `dataExtractionRules`/`fullBackupContent`. Tutti gli store, token compreso, stanno nello stesso file `SettingsStore.PREFS_NAME`: escluderlo intero toglierebbe dal backup anche preferiti e impostazioni.
+  - Fix: spostare token e profilo AniList in un file di prefs a parte (con migrazione una tantum) ed escludere solo quello: `data_extraction_rules.xml` per API 31+, `fullBackupContent` per API 26-30.
+  - Tink / Keystore: scartato. Il token sta già nella sandbox e cifrarlo protegge solo da root e backup, già coperti qui sopra.
+
+- [ ] **P2 · Aggiornamenti tramite l'API GitHub senza autenticazione** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: [AppUpdateManager.kt:81](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/update/AppUpdateManager.kt#L81) (anche :104 e :134) chiama `api.github.com`, che ha un limite di 60 richieste all'ora per IP. Con molti utenti dietro lo stesso IP (CGNAT degli operatori mobili) arriva un 403: lo stabile ripiega su `version.properties`, ma si perdono le note e le preview.
+  - Le note sono il messaggio del commit (:72): per questo nel popup è comparso "daje roma".
+  - Fix: il workflow pubblica un `update.json` statico (versione, URL dell'APK, note prese dalla sezione del `CHANGELOG.md`) su raw o Pages, e l'app legge solo quello. Risolve entrambi i problemi.
+  - Rischio da valutare: tutto il canale aggiornamenti dipende dal repo GitHub. Un'app di scraping molto diffusa può ricevere una segnalazione DMCA; se il repo sparisce, le app installate restano senza aggiornamenti. Far puntare `updateConfigUrl` a un dominio proprio lascia una via d'uscita.
+
+- [ ] **P2 · Filtro adulti assente su Preferiti, Libreria, Cronologia, Aggiornamenti, widget e notifiche** ✅ — Impatto Medio · Sforzo Medio
+  - Dove: `hidesAdultContent()` ([MangaViewModel.kt:297](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L297)) si usa solo in ricerca, Home/Scopri, consigliati e nelle fonti VyManga e WeebCentral. `FavoriteManga` (:277) non salva se la serie è per adulti, quindi oggi non c'è niente su cui filtrare.
+  - Subito: all'attivazione del controllo genitori, avvisare che preferiti e download già presenti restano visibili.
+  - Poi: salvare `isAdult` sul preferito quando lo si aggiunge (il dato c'è già nel risultato di ricerca e in AniList), ricavarlo in background per i preferiti vecchi e filtrare ovunque con lo stesso flag.
+
+- [ ] **P2 · User-Agent fisso su Chrome 124** ✅ — Impatto Medio · Sforzo Basso
+  - Dove: [MangaNetworkClient.kt:135](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/network/MangaNetworkClient.kt#L135) e AniListClient.kt:308. Uno UA vecchio di due anni è un segnale per Cloudflare, e con molti utenti i blocchi pesano di più.
+  - Fix: usare lo UA di `WebSettings.getDefaultUserAgent()`, che si aggiorna con la WebView del telefono, togliendo il marcatore `; wv`, con la costante come ripiego. Valutare anche un limite di richieste parallele per host.
+
+- [ ] **P2 · Informativa privacy e consenso** 🔎 — Impatto Medio · Sforzo Basso
+  - Dal telefono escono dati: segnalazioni (email facoltativa, vocali, screenshot), crash (percorsi e titoli) e AniList. Distribuendo a molti serve un'informativa breve (nel README, con un link nelle Impostazioni) e un consenso esplicito prima di inviare un crash.
+
+- [ ] **P3 · Letture senza tetto di dimensione** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: `MangaNetworkClient.fetchBytes` (:43) usa `body.bytes()` e `BackupManager.restore` (:64) usa `readBytes()`. Mettere tetti fissi (es. 50 MB e 20 MB) e un limite sulle voci dei CBZ. L'APK di aggiornamento ha già la verifica della firma: un hash non aggiungerebbe nulla.
+
+- [ ] **P3 · CI** ✅ — Impatto Basso · Sforzo Basso
+  - Fissare le Action allo SHA e attivare Dependabot (Action e Gradle), che tiene aggiornati anche gli SHA.
+  - Passare i secret solo agli step di build dà poco: anche `assembleRelease` esegue gli stessi plugin di terzi.
+
+---
+
+## ✨ Feature (ordinate per resa con tanti utenti)
+
+- [ ] **Scarica solo in Wi-Fi** — Basso · vincolo `NetworkType.UNMETERED` sul worker. Il più economico.
+- [ ] **Lingua inglese** — Impatto Alto (6 fonti su 8 sono inglesi) · Sforzo Alto: tutte le stringhe sono nel codice (`strings.xml` ne ha 4). Spostarle nelle risorse Android (`values/` + `values-en/`), una schermata alla volta.
+- [ ] **MangaDex come fonte** — Impatto Alto (scan in italiano, API ufficiale) · Sforzo Medio (skill `add-manga-source`). Rispettare le regole dell'API: User-Agent identificabile e limiti di richiesta.
+- [ ] **Esporta in Download / cartella scelta con SAF** — Medio/Medio. Oggi i `.cbz` stanno in `Android/data` e si perdono disinstallando l'app.
+- [ ] **Download automatico dei nuovi capitoli dei preferiti** (solo Wi-Fi e in carica) — Medio/Medio, si appoggia a `FavoriteUpdatesWorker`.
+- [ ] **Silenziare un preferito / scegliere la frequenza del controllo** — Basso/Basso.
+- [ ] Rinviabili: incognito, deep link alle fonti, tasti volume nel reader, ritaglio dei bordi, seppia, scorrimento automatico, altri tracker (MAL, Kitsu), backup periodico.
+
+---
+
 ## 🟢 Bug & quick win
 
 - [ ] **Letture SharedPreferences sincrone nel costruttore del ViewModel (main thread)** ✅ — *RINVIATO (2026-05-26): lo stato iniziale (tab con parental control, fase tutorial, preferiti) è costruito sincronamente da queste letture; renderle async non è un vero quick win (rischio flash/regressioni su tutorial e tab iniziale) e il guadagno è marginale con prefs piccole. Da fare con cura a parte.*
@@ -53,9 +115,9 @@
   - Perché rinviato: la top bar è un titolo e qualche icona, una frazione dei ~5 ms di composizione per tasto (emulatore). Per evitarlo serve un modello dedicato per barra e tutorial (~60 righe ciascuno), una lambda stabile per "salva capitolo" e l'obbligo di tenere il modello allineato a ogni nuova azione della barra. Provato e annullato: troppa complessità per un effetto che sul telefono non si vede.
   - Da riprendere solo se il benchmark mostra un costo reale (ms per tasto in crescita) o dentro un refactor più ampio dello stato.
 
-- [ ] **Nessun Baseline Profile** 🔎 — Impatto Medio · Sforzo Medio
-  - Dove: `app/build.gradle.kts` ha R8 attivo ma niente `profileinstaller` né modulo `baselineprofile`. Le app Compose senza profilo eseguono in JIT il codice di avvio e del primo scroll.
-  - Cosa fare: modulo `:baselineprofile` con Macrobenchmark (avvio → Home → Libreria → reader) generato sull'emulatore. Il guadagno va misurato prima e dopo.
+- [ ] **Nessun Baseline Profile** ✅ — Impatto Medio · Sforzo Basso
+  - Dove: `profileinstaller` 1.4.1 e il modulo `:benchmark` ci sono già (aggiornato il 2026-10-26), manca solo il profilo. Senza profilo, le app Compose eseguono in JIT il codice dell'avvio e del primo scroll.
+  - Cosa fare: aggiungere il plugin `androidx.baselineprofile` 1.5.0 e un test generatore in `:benchmark` (avvio → Home → Libreria → reader). Misurare con `/perf` prima e dopo.
 
 ---
 
@@ -81,20 +143,38 @@
 
 ## 📦 Librerie
 
-- [ ] **Zoom e pagine lunghissime del reader scritti a mano** 🔎 — Impatto Medio · Sforzo Alto
-  - Dove: [TallPageNormalizer.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizer.kt) (322 righe: spezza le pagine alte in fasce su disco), [ReaderTallPage.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/ui/reader/ReaderTallPage.kt) (281, budget di memoria e sample size), `ZoomablePage` in `ReaderScreen.kt` (~130, pinch/pan/doppio tap).
-  - Candidata: [Telephoto](https://github.com/saket/telephoto) (`zoomable-image-coil3`): zoom + *subsampling* (decodifica a tessere, come le mappe), che è proprio il problema delle pagine webtoon. Potrebbe sostituire gran parte di quelle ~700 righe.
-  - Rischi: il reader verticale zooma l'intera lista, non la singola immagine, e i gesti sono stati ritoccati da poco (tap e Precedente/Successivo da ingranditi). Serve prima una prova su un ramo, non una sostituzione alla cieca.
-  - Testata: risultato insoddisfacente
+> Versioni lette il 2026-10-26 dai metadati di Google Maven e Maven Central.
 
-- [ ] **Baseline Profile (`profileinstaller` + plugin `baselineprofile`)** — vedi la voce in ⚡ Prestazioni.
+- [ ] **Robolectric 4.17 manda in crash il processo dei test su Windows** ✅ — Impatto Basso · Sforzo Basso
+  - Il 2026-10-26 sono state aggiornate le altre librerie: Kotlin 2.4.21, Gradle 9.8.2, Material3 `1.5.0-beta02`, OkHttp 5.5.1, `kotlinx-serialization-json` 1.12.0. Robolectric è rimasta alla 4.16.1, perché con la 4.17 il test executor si chiude con `0xC0000409` (crash nativo, non un test fallito); con la 4.16.1 passano 697 test su 697.
+  - Causa (verificata il 2026-10-26): la 4.17 porta `nativeruntime-dist-compat` 1.0.19, che per la prima volta implementa in nativo `BitmapRegionDecoder` (la 1.0.18 della 4.16.1 non contiene `nativeDecodeRegion`). Sulla DLL Windows quel codice è rotto: `BitmapRegionDecoder.newInstance` lancia `UnsatisfiedLinkError` su `BitmapRegionDecoderNatives.nativeNewInstance`, e nel percorso reale manda in crash la JVM. Colpisce solo i 3 test di [TallPageNormalizerTest](android-app/app/src/test/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizerTest.kt) che spezzano davvero l'immagine. A quella data non c'era nessuna issue upstream.
+  - Scelta: si resta sulla 4.16.1. Sulla nostra configurazione la 4.17 non porta niente: gli SDK 36/37 richiedono Java 21, e i test girano con Java 17.
+  - Cosa fare: passare alla 4.17.x (o a `nativeruntime-dist-compat` > 1.0.19) quando correggono il problema. Per verificare basta lanciare `TallPageNormalizerTest` su Windows.
+  - Nota per Material3: non usare la versione del BOM (1.4.x), perché `MaterialExpressiveTheme` esiste solo nella 1.5.
+
+- [ ] **Baseline Profile** — vedi la voce in ⚡ Prestazioni.
+
+- [ ] **Sentry per i crash** 🔎 — Impatto Alto con molti utenti · Sforzo Medio · *dopo* il Worker (voce P0)
+  - `io.sentry:sentry-android` 8.61.1 + plugin Gradle (carica la mappa R8).
+  - Cosa porta: crash raggruppati e deduplicati, stack trace decodificati, breadcrumb, versione e dispositivo. I crash mandati via Worker su Trello invece aprono una card ciascuno: con molti utenti la board si riempie di doppioni.
+  - Condizioni: invio solo con consenso, regione dati UE, niente titoli o percorsi nei dati extra. Controllare la quota del piano gratuito prima di scegliere.
+
+- [ ] **Chucker** (`debugImplementation`, 4.3.1) — Impatto Basso · Sforzo Basso. Mostra sul telefono le richieste HTTP delle fonti quando un sito si rompe.
+
+- [ ] **Test HTTP delle fonti** con MockWebServer3 5.5.0 (stessa versione di OkHttp): retry, Referer, 404, risposte troncate. Roborazzi 1.77.0 e Turbine 1.2.1 solo se servono davvero (regressioni di UI, test sui Flow).
 
 - Valutate e **scartate**, a oggi:
+  - **Telephoto**: provata nel reader il 2026-09-23 e scartata. Serve solo nel reader a pagine, mentre `TallPageNormalizer`/`ReaderTallPage` restano indispensabili nel verticale.
+  - **Tink / `security-crypto` / `datastore-tink`**: vedi la voce sul backup in 🔐.
+  - **Apollo Kotlin** per AniList: plugin, schema e codice generato per poche query scritte a mano. Il guadagno non giustifica il costo.
+  - **kotlinx-collections-immutable**: lo strong skipping è attivo, e il costo misurato delle ricomposizioni è già stato giudicato non percepibile.
+  - **Detekt 1.23.x** 🔎: è pensato per Kotlin più vecchi del 2.4. Se serve analisi statica, meglio `compose-lint-checks` come `lintChecks` di Android Lint.
+  - **LeakCanary 3.0-alpha**, **ACRA**, **estensioni Mihon/Tachiyomi** (eseguirebbero codice di terzi e annullerebbero la verifica della firma).
   - **DataStore** per le prefs che crescono: la variante Preferences riscrive comunque l'intero file a ogni modifica, quindi non risolve il problema; separare i file basta.
   - **Room**: sarebbe lo strumento giusto *se* si spostano posizioni/letto per capitolo e memoria di lettura in un DB (query per serie, potatura, statistiche). Costa plugin KSP e migrazione dei dati; ha senso solo insieme a quella voce, non da solo.
-  - **Hilt/Koin**: l'app crea a mano ~16 store e 2 repository condivisi; un framework DI aggiungerebbe codice generato e build più lente senza togliere complessità vera.
-  - **Navigation Compose**: vedi la voce rinviata sulla navigazione.
-  - **Jakarta Mail** è la dipendenza più pesante, ma è una scelta già accettata per le segnalazioni senza backend.
+  - **Hilt/Koin**: l'app crea a mano ~16 store e 2 repository condivisi; un framework DI aggiungerebbe codice generato e build più lente senza togliere complessità vera. Per dividere il ViewModel basta lo schema a controller già in uso. (Riconfermato il 2026-10-26.)
+  - **Room / DataStore 1.3.0**: riconfermato. L'argomento dell'audit sul ripristino non atomico è vero, ma tutti gli store stanno in un unico file di prefs: un solo `Editor` per l'intero restore lo rende atomico senza database 🔎.
+  - **Navigation Compose / Navigation 3 (1.2.0)**: vedi la voce rinviata sulla navigazione.
   - **`material-icons-extended`** (81 icone usate su migliaia): R8 elimina il resto in release, quindi l'APK non ne soffre; pesa solo sulle build debug. Passare ai drawable Material Symbols è pulizia, non prestazioni.
 
 ---

@@ -34,26 +34,10 @@ val repoOwner = versionProperties.getProperty("repoOwner")
 val repoName = versionProperties.getProperty("repoName")
 val apkAssetName = versionProperties.getProperty("apkAssetName")
 
-// Segnalazioni in-app (schermata "Segnala un problema" + invio dal dialog crash): l'app spedisce
-// un'email via SMTP all'indirizzo email-to-board di Trello ([reportToEmail]), autenticandosi su un
-// account email DEDICATO/usa-e-getta. ATTENZIONE: user e password finiscono nell'APK e sono
-// estraibili — la minificazione NON li nasconde. Per questo si usa un account dedicato: il danno
-// possibile è solo spam da quell'indirizzo, e la password è rotabile. In CI i valori arrivano dai
-// GitHub secret; in locale da local.properties (gitignored). Se user/password/destinatario sono
-// vuoti, le segnalazioni restano disattivate a runtime (build comunque ok).
-val localProperties = Properties().apply {
-    val localFile = rootProject.file("local.properties")
-    if (localFile.exists()) {
-        localFile.inputStream().use(::load)
-    }
-}
-fun reportConfig(envName: String, propName: String, default: String = ""): String =
-    (System.getenv(envName) ?: localProperties.getProperty(propName)).orEmpty().trim().ifBlank { default }
-val smtpHost = reportConfig("SMTP_HOST", "smtpHost", "smtp.gmail.com")
-val smtpPort = reportConfig("SMTP_PORT", "smtpPort", "587")
-val smtpUser = reportConfig("SMTP_USER", "smtpUser")
-val smtpPassword = reportConfig("SMTP_PASSWORD", "smtpPassword")
-val reportToEmail = reportConfig("REPORT_TO_EMAIL", "reportToEmail")
+// Segnalazioni in-app (schermata "Segnala un problema" + crash): POST al Worker Cloudflare in
+// report-relay/, che crea la card su Trello. L'URL è pubblico per natura (sta nell'APK): le
+// credenziali Trello vivono solo nel Worker.
+val reportRelayUrl = "https://mangapp-report-relay.lollo176ita.workers.dev/report"
 
 fun String?.toAndroidVersionCode(): Int {
     val raw = this?.trim().orEmpty()
@@ -126,11 +110,7 @@ android {
         buildConfigField("String", "UPDATE_REPO_OWNER", "\"${repoOwner.orEmpty()}\"")
         buildConfigField("String", "UPDATE_REPO_NAME", "\"${repoName.orEmpty()}\"")
         buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"${apkAssetName.orEmpty()}\"")
-        buildConfigField("String", "SMTP_HOST", "\"$smtpHost\"")
-        buildConfigField("String", "SMTP_PORT", "\"$smtpPort\"")
-        buildConfigField("String", "SMTP_USER", "\"$smtpUser\"")
-        buildConfigField("String", "SMTP_PASSWORD", "\"$smtpPassword\"")
-        buildConfigField("String", "REPORT_TO_EMAIL", "\"$reportToEmail\"")
+        buildConfigField("String", "REPORT_RELAY_URL", "\"$reportRelayUrl\"")
     }
 
     signingConfigs {
@@ -172,6 +152,8 @@ android {
             buildConfigField("String", "UPDATE_REPO_OWNER", "\"\"")
             buildConfigField("String", "UPDATE_REPO_NAME", "\"\"")
             buildConfigField("String", "UPDATE_APK_ASSET_NAME", "\"\"")
+            // Un crash durante una misura non deve diventare una card vera su Trello.
+            buildConfigField("String", "REPORT_RELAY_URL", "\"\"")
         }
     }
 
@@ -183,13 +165,6 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
-    }
-
-    packaging {
-        resources {
-            // File di licenza duplicati tra Jakarta Mail e Angus Activation.
-            excludes += "/META-INF/{AL2.0,LGPL2.1,NOTICE.md,LICENSE.md}"
-        }
     }
 
     testOptions {
@@ -223,7 +198,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3:1.5.0-alpha29")
+    implementation("androidx.compose.material3:material3:1.5.0-beta02")
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
@@ -231,18 +206,14 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("org.jsoup:jsoup:1.23.2")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("io.github.aldefy:lumen-android:1.0.0-beta20")
     // Installa i profili ART (richiesto da Macrobenchmark; servirà anche al Baseline Profile).
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
-    // Invio email via SMTP per le segnalazioni (Jakarta Mail + runtime Angus per Android).
-    implementation("org.eclipse.angus:jakarta.mail:2.0.5")
-    implementation("org.eclipse.angus:angus-activation:2.0.3")
-    implementation("jakarta.activation:jakarta.activation-api:2.1.4")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.7.0")

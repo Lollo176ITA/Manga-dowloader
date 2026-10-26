@@ -12,25 +12,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.lorenzo.mangadownloader.BuildConfig
+import com.lorenzo.mangadownloader.data.network.SharedHttpClient
 import java.io.File
-import java.util.Properties
-import jakarta.activation.DataHandler
-import jakarta.mail.Authenticator
-import jakarta.mail.Message
-import jakarta.mail.PasswordAuthentication
-import jakarta.mail.Session
-import jakarta.mail.Transport
-import jakarta.mail.internet.InternetAddress
-import jakarta.mail.internet.MimeBodyPart
-import jakarta.mail.internet.MimeMessage
-import jakarta.mail.internet.MimeMultipart
-import jakarta.mail.util.ByteArrayDataSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * Categoria di una segnalazione. [trelloLabel] è il tag `#...` aggiunto all'oggetto: l'email-to-board
- * di Trello lo riconosce come etichetta (se esiste) e lo toglie dal titolo della card.
+ * Categoria di una segnalazione. [trelloLabel] è l'etichetta che il relay applica alla card
+ * (deve essere una di quelle accettate da `report-relay`: bug, feature, altro, crash).
  */
 enum class ReportCategory(val label: String, val trelloLabel: String) {
     BUG("Bug", "bug"),
@@ -73,28 +67,24 @@ data class FeedbackDraft(
 )
 
 /**
- * Invia le segnalazioni (form + crash) spedendo un'**email via SMTP** all'indirizzo email-to-board
- * di Trello, che la trasforma in una card. Le credenziali SMTP ([BuildConfig.SMTP_USER]/`SMTP_PASSWORD`)
- * sono di un account email **dedicato/usa-e-getta**: finiscono nell'APK e sono estraibili, quindi il
- * danno in caso di leak è limitato (spam da quell'indirizzo) ed è sufficiente rigenerare la password.
- * L'invio è automatico, ma parte solo su azione esplicita dell'utente.
+ * Invia le segnalazioni (form + crash) con un POST multipart al Worker Cloudflare `report-relay`
+ * ([BuildConfig.REPORT_RELAY_URL]), che crea la card sulla board Trello. Le credenziali Trello
+ * stanno solo nel Worker: l'APK conosce solo l'URL, quindi chi lo estrae può al massimo creare
+ * card, entro i limiti di frequenza e dimensione del relay.
  */
 object FeedbackReporter {
 
-    /** Segnalazioni attive solo se l'account SMTP e il destinatario sono configurati in build. */
-    fun isConfigured(): Boolean =
-        BuildConfig.SMTP_USER.isNotBlank() &&
-            BuildConfig.SMTP_PASSWORD.isNotBlank() &&
-            BuildConfig.REPORT_TO_EMAIL.isNotBlank()
+    /** Segnalazioni attive solo se la build ha l'URL del relay. */
+    fun isConfigured(): Boolean = BuildConfig.REPORT_RELAY_URL.isNotBlank()
 
     private fun deviceLine(): String =
         "${Build.MANUFACTURER} ${Build.MODEL} — Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
 
-    /** Invia una segnalazione del form. Sospesa: fa rete su IO. True se l'invio SMTP riesce. */
+    /** Invia una segnalazione del form. Sospesa: fa rete su IO. True se il relay la accetta. */
     suspend fun sendReport(context: Context, draft: FeedbackDraft): Boolean {
         if (!isConfigured()) return false
         val subtypeSuffix = if (draft.subtype.isNotBlank()) " · ${draft.subtype}" else ""
-        val subject = "[${draft.category.label}$subtypeSuffix] MangApp ${BuildConfig.VERSION_NAME} #${draft.category.trelloLabel}"
+        val title = "[${draft.category.label}$subtypeSuffix] MangApp ${BuildConfig.VERSION_NAME}"
         val body = buildString {
             append(draft.message.trim())
             append("\n\n—\n")
@@ -103,51 +93,36 @@ object FeedbackReporter {
             append("\nDispositivo: ${deviceLine()}")
             append("\nContatto: ${draft.contactEmail.trim().ifBlank { "non fornito" }}")
         }
-        return sendEmail(context, subject, body, draft.imageUris, draft.audioFile)
+        return send(context, title, body, draft.category.trelloLabel, draft.imageUris, draft.audioFile)
     }
 
     /** Invia l'ultimo crash come segnalazione (dal dialog crash). */
     suspend fun sendCrashReport(context: Context, report: String): Boolean {
         if (!isConfigured()) return false
-        val subject = "[Crash] MangApp ${BuildConfig.VERSION_NAME} #crash"
+        val title = "[Crash] MangApp ${BuildConfig.VERSION_NAME}"
         val body = buildString {
             append(report.trim())
             append("\n\n—\n")
             append("Versione: MangApp ${BuildConfig.VERSION_NAME}")
             append("\nDispositivo: ${deviceLine()}")
         }
-        return sendEmail(context, subject, body, emptyList(), null)
+        return send(context, title, body, "crash", emptyList(), null)
     }
 
-    private suspend fun sendEmail(
+    private suspend fun send(
         context: Context,
-        subject: String,
+        title: String,
         body: String,
+        label: String,
         imageUris: List<Uri>,
         audioFile: File?,
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val props = Properties().apply {
-                put("mail.smtp.auth", "true")
-                put("mail.smtp.host", BuildConfig.SMTP_HOST)
-                put("mail.smtp.port", BuildConfig.SMTP_PORT)
-                if (BuildConfig.SMTP_PORT == "465") {
-                    put("mail.smtp.socketFactory.port", BuildConfig.SMTP_PORT)
-                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
-                } else {
-                    put("mail.smtp.starttls.enable", "true")
-                }
-            }
-            val session = Session.getInstance(
-                props,
-                object : Authenticator() {
-                    override fun getPasswordAuthentication(): PasswordAuthentication =
-                        PasswordAuthentication(BuildConfig.SMTP_USER, BuildConfig.SMTP_PASSWORD)
-                },
-            )
-
-            val multipart = MimeMultipart()
-            multipart.addBodyPart(MimeBodyPart().apply { setText(body, "utf-8") })
+            val form = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("title", title)
+                .addFormDataPart("body", body)
+                .addFormDataPart("label", label)
 
             val resolver = context.contentResolver
             imageUris.forEachIndexed { index, uri ->
@@ -155,33 +130,28 @@ object FeedbackReporter {
                     resolver.openInputStream(uri)?.use { it.readBytes() }
                 }.getOrNull() ?: return@forEachIndexed
                 val mime = resolver.getType(uri) ?: "image/jpeg"
-                val ext = when {
-                    mime.contains("png") -> "png"
-                    mime.contains("webp") -> "webp"
-                    else -> "jpg"
-                }
-                multipart.addBodyPart(attachmentPart(bytes, mime, "immagine_${index + 1}.$ext"))
+                val ext = mime.substringAfter("image/", "jpg").substringBefore(';').ifBlank { "jpg" }
+                form.addFormDataPart(
+                    "attachment",
+                    "immagine_${index + 1}.$ext",
+                    bytes.toRequestBody(mime.toMediaType()),
+                )
             }
             if (audioFile != null && audioFile.exists()) {
-                multipart.addBodyPart(attachmentPart(audioFile.readBytes(), "audio/mp4", audioFile.name))
+                form.addFormDataPart(
+                    "attachment",
+                    audioFile.name,
+                    audioFile.asRequestBody("audio/mp4".toMediaType()),
+                )
             }
 
-            val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(BuildConfig.SMTP_USER))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(BuildConfig.REPORT_TO_EMAIL))
-                setSubject(subject, "utf-8")
-                setContent(multipart)
-            }
-            Transport.send(message)
-            true
+            val request = Request.Builder()
+                .url(BuildConfig.REPORT_RELAY_URL)
+                .post(form.build())
+                .build()
+            SharedHttpClient.get(context).newCall(request).execute().use { it.isSuccessful }
         }.getOrDefault(false)
     }
-
-    private fun attachmentPart(bytes: ByteArray, mime: String, fileName: String): MimeBodyPart =
-        MimeBodyPart().apply {
-            dataHandler = DataHandler(ByteArrayDataSource(bytes, mime))
-            setFileName(fileName)
-        }
 }
 
 /**

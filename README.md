@@ -42,9 +42,9 @@ cd android-app
 ./gradlew testDebugUnitTest assembleRelease
 ```
 
-### Segnalazioni in-app (facoltativo)
+### Segnalazioni in-app
 
-"Segnala un problema" invia un'email via SMTP da un account dedicato. In locale le credenziali vanno in `android-app/local.properties` (non versionato): `smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `reportToEmail`. Se mancano, le segnalazioni restano disattivate e il build funziona lo stesso. Attenzione: user e password finiscono nell'APK e sono estraibili, per questo si usa un account usa-e-getta.
+"Segnala un problema" e l'invio dei crash fanno un POST al Worker Cloudflare in [`report-relay/`](report-relay/README.md), che crea la card sulla board Trello. Le credenziali Trello stanno solo nel Worker; l'app conosce solo l'URL, definito in `android-app/app/build.gradle.kts`.
 
 ## Struttura del codice
 
@@ -80,7 +80,6 @@ Secret richiesti nel repository GitHub:
 - `ANDROID_KEYSTORE_PASSWORD`: password della keystore
 - `ANDROID_KEY_ALIAS`: alias della chiave di release
 - `ANDROID_KEY_PASSWORD`: password della chiave di release
-- facoltativi, per le segnalazioni: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO_EMAIL`
 
 Genera `ANDROID_KEYSTORE_BASE64` senza a capo extra:
 

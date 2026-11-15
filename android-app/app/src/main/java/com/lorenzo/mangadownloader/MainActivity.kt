@@ -1,22 +1,14 @@
 package com.lorenzo.mangadownloader
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
@@ -31,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,82 +36,51 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.compositionContext
 import androidx.compose.ui.platform.createLifecycleAwareWindowRecomposer
-import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.lorenzo.mangadownloader.app.AppSystemEffects
 import com.lorenzo.mangadownloader.app.AppTab
-import com.lorenzo.mangadownloader.app.activeAdultKeys
-import com.lorenzo.mangadownloader.app.withoutRegisteredAdult
 import com.lorenzo.mangadownloader.app.MangaUiState
 import com.lorenzo.mangadownloader.app.MangaViewModel
 import com.lorenzo.mangadownloader.app.Screen
+import com.lorenzo.mangadownloader.app.activeAdultKeys
 import com.lorenzo.mangadownloader.app.canHandleBack
 import com.lorenzo.mangadownloader.app.currentScreen
-import com.lorenzo.mangadownloader.app.hidesAdultContent
 import com.lorenzo.mangadownloader.app.saveableScreenKey
 import com.lorenzo.mangadownloader.app.tabPageIndex
-import com.lorenzo.mangadownloader.app.unmatchedAniListFavoritesToShow
 import com.lorenzo.mangadownloader.app.visibleTabs
-import com.lorenzo.mangadownloader.app.withoutAdultContent
+import com.lorenzo.mangadownloader.app.withoutRegisteredAdult
 import com.lorenzo.mangadownloader.data.anilist.AniListAuth
-import com.lorenzo.mangadownloader.data.anilist.AniListScoreFormat
-import com.lorenzo.mangadownloader.data.backup.BackupRestoreMode
-import com.lorenzo.mangadownloader.data.library.DownloadedSeries
-import com.lorenzo.mangadownloader.data.model.ChapterEntry
 import com.lorenzo.mangadownloader.data.model.MangaDetails
-import com.lorenzo.mangadownloader.data.model.ReaderChapter
-import com.lorenzo.mangadownloader.data.model.toSearchResult
-import com.lorenzo.mangadownloader.data.report.CrashReporter
-import com.lorenzo.mangadownloader.data.report.FeedbackReporter
 import com.lorenzo.mangadownloader.data.store.unseenCount
-import com.lorenzo.mangadownloader.domain.home.DiscoverGenre
 import com.lorenzo.mangadownloader.domain.series.LibraryMatching
 import com.lorenzo.mangadownloader.domain.series.favoriteReadingStatesByKey
-import com.lorenzo.mangadownloader.ui.anilist.AniListMatchDialog
-import com.lorenzo.mangadownloader.ui.anilist.AniListTrackerDialog
+import com.lorenzo.mangadownloader.ui.app.AppDialogsHost
+import com.lorenzo.mangadownloader.ui.app.AppScreenHost
+import com.lorenzo.mangadownloader.ui.app.PendingCrashReportEffect
+import com.lorenzo.mangadownloader.ui.app.rememberBackupActions
+import com.lorenzo.mangadownloader.ui.app.rememberNotificationPermissions
+import com.lorenzo.mangadownloader.ui.app.rememberStartDownload
 import com.lorenzo.mangadownloader.ui.components.AppBottomBar
 import com.lorenzo.mangadownloader.ui.components.AppTopBar
-import com.lorenzo.mangadownloader.ui.components.AvailableUpdateDialog
-import com.lorenzo.mangadownloader.ui.components.ConfirmationDialog
 import com.lorenzo.mangadownloader.ui.components.LocalCardDensity
-import com.lorenzo.mangadownloader.ui.components.NotificationPermissionRationaleDialog
-import com.lorenzo.mangadownloader.ui.components.ParentalPinEntryDialog
-import com.lorenzo.mangadownloader.ui.components.ParentalPinSetupDialog
-import com.lorenzo.mangadownloader.ui.detail.DetailScreen
-import com.lorenzo.mangadownloader.ui.favorites.FavoritesScreen
-import com.lorenzo.mangadownloader.ui.history.HistoryScreen
-import com.lorenzo.mangadownloader.ui.history.StatsScreen
-import com.lorenzo.mangadownloader.ui.home.DiscoverGenreScreen
 import com.lorenzo.mangadownloader.ui.home.HomeScreen
-import com.lorenzo.mangadownloader.ui.info.ChangelogScreen
-import com.lorenzo.mangadownloader.ui.info.ReportProblemScreen
-import com.lorenzo.mangadownloader.ui.library.DownloadedSeriesScreen
-import com.lorenzo.mangadownloader.ui.library.LibraryScreen
 import com.lorenzo.mangadownloader.ui.library.rememberDownloadWorkUiState
-import com.lorenzo.mangadownloader.ui.reader.ReaderScreen
 import com.lorenzo.mangadownloader.ui.reader.SpreadPageMode
-import com.lorenzo.mangadownloader.ui.search.SearchLockedContent
-import com.lorenzo.mangadownloader.ui.search.SearchScreen
-import com.lorenzo.mangadownloader.ui.settings.BackupScreen
-import com.lorenzo.mangadownloader.ui.settings.SettingsScreen
-import com.lorenzo.mangadownloader.ui.settings.StorageScreen
 import com.lorenzo.mangadownloader.ui.theme.AnimationLevel
 import com.lorenzo.mangadownloader.ui.theme.AppMotion
 import com.lorenzo.mangadownloader.ui.theme.LocalAnimationLevel
 import com.lorenzo.mangadownloader.ui.theme.MangaDownloaderTheme
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialAnchor
 import com.lorenzo.mangadownloader.ui.tutorial.TutorialOverlay
-import com.lorenzo.mangadownloader.ui.updates.UpdatesScreen
 import com.lorenzo.mangadownloader.ui.widget.ReadingWidget
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -261,8 +221,13 @@ private fun rememberAdultFilteredState(state: MangaUiState): MangaUiState {
     )
 }
 
+/**
+ * Radice dell'app: tiene lo stato che attraversa le schermate (pager delle tab, schermo intero
+ * del reader, modalità modifica della Home) e monta barre, schermata corrente e dialog. I
+ * pezzi stanno in `ui/app/`: [AppScreenHost] per le schermate, [AppDialogsHost] per i dialog,
+ * più permessi notifiche, avvio dei download e backup.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@SuppressLint("InlinedApi") // POST_NOTIFICATIONS è inlined e ogni uso è protetto dal check API 33.
 @Composable
 private fun MangaDownloaderAppContent(
     state: MangaUiState,
@@ -278,15 +243,11 @@ private fun MangaDownloaderAppContent(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val downloadWorkUiState = rememberDownloadWorkUiState(context, viewModel, snackbarHostState)
-    val downloadStatuses = downloadWorkUiState.statuses
     val scope = rememberCoroutineScope()
     // Conserva lo stato salvabile (posizione di scroll in testa) di ogni schermata quando
     // viene smontata navigando altrove, e lo ripristina al ritorno. Vive qui, alla radice
     // dei contenuti, così sopravvive a tutte le transizioni tra schermate.
     val screenStateHolder = rememberSaveableStateHolder()
-    var lastCrashReport by remember {
-        mutableStateOf(CrashReporter.readLastCrash(appContext))
-    }
     LaunchedEffect(state.errorMessage) {
         val message = state.errorMessage ?: return@LaunchedEffect
         // Dove il retry è naturale (fetch dei dettagli fallito) la snackbar offre "Riprova",
@@ -304,95 +265,16 @@ private fun MangaDownloaderAppContent(
         }
     }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { }
-
-    // Cose che possono cambiare fuori dall'app e vanno ricontrollate a ogni ritorno in
-    // foreground: il permesso notifiche (revocabile dalle impostazioni di sistema, altrimenti
-    // l'avviso sotto "Notifiche preferiti" mentirebbe) e l'account AniList, visto che il
-    // ritorno in primo piano è tipicamente il rientro dal browser dell'OAuth.
-    var notificationsPermissionTick by remember { mutableIntStateOf(0) }
+    val notifications = rememberNotificationPermissions(
+        appContext = appContext,
+        snackbarHostState = snackbarHostState,
+        onFavoriteNotificationsGranted = { viewModel.setFavoriteNotificationsEnabled(true) },
+    )
+    // Il ritorno in primo piano è tipicamente il rientro dal browser dell'OAuth di AniList.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        notificationsPermissionTick++
         viewModel.syncAniListAccountState()
     }
-    val notificationsPermissionGranted = remember(notificationsPermissionTick) {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(
-                appContext,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    // Esito del permesso per "Notifiche preferiti": il toggle si accende SOLO se il
-    // permesso viene concesso; se negato resta spento e la snackbar porta alle
-    // impostazioni di sistema (al secondo rifiuto Android non mostra più il prompt).
-    val favoriteNotificationsPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        notificationsPermissionTick++
-        if (granted) {
-            viewModel.setFavoriteNotificationsEnabled(true)
-        } else {
-            scope.launch {
-                val result = snackbarHostState.showAutoDismissSnackbar(
-                    message = "Le notifiche sono bloccate per l'app",
-                    actionLabel = "Impostazioni",
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    runCatching {
-                        appContext.startActivity(
-                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                .putExtra(
-                                    android.provider.Settings.EXTRA_APP_PACKAGE,
-                                    appContext.packageName,
-                                )
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // Backup (Storage Access Framework): la modalità di import scelta viene ricordata tra il tap
-    // e il ritorno dal selettore di file. La sostituzione passa da una conferma esplicita.
-    // rememberSaveable: la scelta MERGE/REPLACE deve sopravvivere a una morte del processo
-    // mentre il selettore di file SAF è in primo piano (l'enum è Serializable).
-    var backupImportMode by rememberSaveable { mutableStateOf(BackupRestoreMode.MERGE) }
-    var showReplaceBackupConfirm by rememberSaveable { mutableStateOf(false) }
-    val createBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json"),
-    ) { uri -> uri?.let(viewModel::exportBackup) }
-    val importBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri -> uri?.let { viewModel.importBackup(it, backupImportMode) } }
-
-    // Niente più richiesta "alla cieca" del permesso notifiche al primo avvio (si impilava
-    // sul dialogo di benvenuto e portava a negazioni riflesse): la chiediamo nei momenti in
-    // cui il valore è evidente — fine del tutorial (con spiegazione, qui sotto), avvio di un
-    // download lungo e attivazione delle notifiche preferiti.
-    var showNotificationsRationale by rememberSaveable { mutableStateOf(false) }
-    val maybeAskNotificationsPermission: () -> Unit = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                appContext,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            showNotificationsRationale = true
-        }
-    }
-    if (showNotificationsRationale) {
-        NotificationPermissionRationaleDialog(
-            onAccept = {
-                showNotificationsRationale = false
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            },
-            onDismiss = { showNotificationsRationale = false },
-        )
-    }
+    val backupActions = rememberBackupActions(viewModel)
 
     LaunchedEffect(Unit) {
         // Aperti dal tap su una notifica di download: porta direttamente alla Libreria.
@@ -406,74 +288,17 @@ private fun MangaDownloaderAppContent(
         viewModel.checkForAppUpdate()
     }
 
-    // Senza POST_NOTIFICATIONS (Android 13+) il worker non può promuoversi a foreground
-    // service: i download lunghi vengono fermati dal sistema (~10 minuti) e ripresi solo a
-    // singhiozzo sotto Doze. Richiediamo il permesso nel momento in cui serve davvero
-    // (avvio di un download) e, se negato, spieghiamo la conseguenza. Il worker ri-controlla
-    // il permesso a ogni aggiornamento di progresso, quindi concederlo a download già
-    // partito lo promuove comunque a foreground.
-    val downloadNotificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (!granted) {
-            scope.launch {
-                snackbarHostState.showSnackbar(
-                    "Senza notifiche i download lunghi possono essere interrotti dal sistema",
-                )
-            }
-        }
-    }
-
-    val onStartDownload: (MangaDetails, ChapterEntry, ChapterEntry) -> Unit = { details, startChapter, endChapter ->
-        val firstUrl = startChapter.url.trim()
-        val lastUrl = endChapter.url.trim()
-        if (firstUrl.isBlank()) {
-            scope.launch {
-                snackbarHostState.showSnackbar("URL non valido")
-            }
-        } else {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(
-                        appContext,
-                        Manifest.permission.POST_NOTIFICATIONS,
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    downloadNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-                DownloadWorker.enqueue(
-                    context = appContext,
-                    firstUrl = firstUrl,
-                    lastUrl = lastUrl,
-                    sourceId = details.sourceId,
-                    seriesTitle = details.title,
-                    mangaUrl = details.mangaUrl,
-                    coverUrl = details.coverUrl,
-                )
-                viewModel.onDownloadQueued(details)
-                scope.launch {
-                    // Azione "Libreria": progresso, coda e stop vivono nella tab Libreria;
-                    // un tap ci porta dove si monitora la coda appena creata (chiude il dettaglio).
-                    val result = snackbarHostState.showAutoDismissSnackbar(
-                        message = if (startChapter.url == endChapter.url) {
-                            "Download aggiunto in coda: ${startChapter.displayLabel()}"
-                        } else {
-                            "Download aggiunto in coda: ${startChapter.displayLabel()} - ${endChapter.displayLabel()}"
-                        },
-                        actionLabel = "Libreria",
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        viewModel.clearSelection()
-                        viewModel.selectTab(AppTab.LIBRARY)
-                    }
-                }
-            } catch (exc: Exception) {
-                scope.launch {
-                    snackbarHostState.showSnackbar(exc.message ?: "Impossibile avviare il download")
-                }
-            }
-        }
-    }
+    val onStartDownload = rememberStartDownload(
+        appContext = appContext,
+        snackbarHostState = snackbarHostState,
+        notifications = notifications,
+        onQueued = viewModel::onDownloadQueued,
+        // Chiude il dettaglio e porta dove si monitora la coda appena creata.
+        onOpenLibrary = {
+            viewModel.clearSelection()
+            viewModel.selectTab(AppTab.LIBRARY)
+        },
+    )
 
     val visibleTabs = state.visibleTabs()
     val pagerState = rememberPagerState(
@@ -609,7 +434,7 @@ private fun MangaDownloaderAppContent(
             viewModel.tutorial.onFallbackCompleted()
             // A tour appena concluso il valore delle notifiche è chiaro: è il momento
             // giusto per chiedere il permesso, con la spiegazione del perché.
-            maybeAskNotificationsPermission()
+            notifications.askWithRationale()
         },
         onAdvancePhase = viewModel.tutorial::advancePhase,
         onTargetTap = { anchor ->
@@ -653,551 +478,114 @@ private fun MangaDownloaderAppContent(
         },
         onFinish = { keepSample ->
             viewModel.tutorial.onFinish(keepSample)
-            maybeAskNotificationsPermission()
+            notifications.askWithRationale()
         },
     ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-        topBar = {
-            if (!(state.readerChapter != null && isReaderFullscreen)) {
-                AppTopBar(
-                    state = state,
-                    visibleTab = visiblePagerTab,
-                    onBack = viewModel::handleBack,
-                    onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
-                    onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
-                    onOpenSettings = viewModel::openSettings,
-                    onReaderBrightnessChange = viewModel::previewReaderBrightness,
-                    onReaderBrightnessChangeFinished = viewModel::commitReaderBrightness,
-                    onSelectReadingMode = viewModel::setReaderReadingMode,
-                    onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
-                    // Leggendo in streaming si può tenere il capitolo: le pagine sono già
-                    // state scaricate per mostrarlo, quindi salvarlo è a un tocco invece che
-                    // a un giro completo (esci → dettaglio → selettore intervallo).
-                    onSaveStreamingChapter = state.readerChapter?.streamingChapter?.let { streaming ->
-                        {
-                            onStartDownload(
-                                MangaDetails(
-                                    sourceId = streaming.sourceId,
-                                    title = streaming.mangaTitle,
-                                    // La copertina correda la serie salvata: si prende dal
-                                    // dettaglio da cui siamo entrati, e solo se è la stessa serie.
-                                    coverUrl = state.selected
-                                        ?.takeIf { it.mangaUrl == streaming.mangaUrl }
-                                        ?.coverUrl,
-                                    mangaUrl = streaming.mangaUrl,
-                                    chapters = streaming.chapters,
-                                ),
-                                streaming.chapter,
-                                streaming.chapter,
-                            )
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Capitolo aggiunto ai download")
-                            }
-                        }
-                    },
-                    unseenUpdatesCount = unseenCount(state.favoriteUpdates),
-                    onOpenUpdates = viewModel::openUpdates,
-                    onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
-                    homeEditMode = homeEditMode,
-                    onToggleHomeEdit = { homeEditMode = !homeEditMode },
-                )
-            }
-        },
-        bottomBar = {
-            if (showPager) {
-                AppBottomBar(
-                    currentTab = visiblePagerTab,
-                    favoritesBadgeCount = unseenCount(state.favoriteUpdates),
-                    showHomeTab = state.settings.showHomeTab,
-                    onSelect = { tab ->
-                        viewModel.selectTab(tab)
-                        val requiresSearchUnlock = tab == AppTab.SEARCH &&
-                            state.settings.parentalControlEnabled &&
-                            state.currentTab != AppTab.SEARCH
-                        if (!requiresSearchUnlock) {
-                            scope.launch {
-                                pagerState.animateScrollToPage(state.tabPageIndex(tab))
-                            }
-                        }
-                    },
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { innerPadding ->
-        val selectedManga = state.selected
-        val selectedSeries = state.selectedDownloadedSeries
-
-        // Avvolge la schermata corrente: ne preserva/ripristina lo stato salvabile (scroll)
-        // tra una navigazione e l'altra. La chiave distingue le schermate (vedi saveableScreenKey).
-        screenStateHolder.SaveableStateProvider(state.saveableScreenKey()) {
-        when (state.currentScreen()) {
-            Screen.Reader -> {
-                // Il capitolo cambia a ogni pagina solo per l'avanzamento, che al reader non
-                // serve: `remember` confronta per uguaglianza e restituisce la stessa istanza
-                // finché il capitolo resta quello, così ReaderScreen salta la ricomposizione
-                // mentre si sfoglia.
-                val chapterWithoutProgress = state.readerChapter?.withoutReaderProgress()
-                val readerChapter = remember(chapterWithoutProgress) { chapterWithoutProgress }
-                ReaderScreen(
-                    chapter = readerChapter,
-                    previousChapter = state.readerPreviousChapter,
-                    nextChapter = state.readerNextChapter,
-                    pages = state.readerPages,
-                    isLoading = state.isLoadingReader,
-                    readingMode = state.readerReadingMode,
-                    doubleTapZoomEnabled = state.settings.doubleTapZoomEnabled,
-                    spreadRotation = state.readerSpreadPageMode
-                        .takeIf { it == SpreadPageMode.ROTATE }
-                        ?.let { state.readerReadingMode.spreadRotation },
-                    pageSpacing = state.settings.readerPageSpacingDp.dp,
-                    navBarVisible = !isReaderFullscreen,
-                    padding = innerPadding,
-                    initialPageIndex = state.readerInitialPageIndex,
-                    onOpenPrevious = viewModel::openPreviousReaderChapter,
-                    onOpenNext = viewModel::openNextReaderChapter,
-                    onPageVisible = viewModel::saveReaderPagePosition,
-                    onToggleFullscreen = { isReaderFullscreen = !isReaderFullscreen },
-                    onRetry = viewModel::retryReaderLoad,
-                )
-            }
-            Screen.StorageManager -> {
-                StorageScreen(
-                    library = state.library,
-                    padding = innerPadding,
-                    onOpenSeries = viewModel::selectDownloadedSeries,
-                    onDeleteSeries = viewModel::deleteDownloadedSeries,
-                    onDeleteReadChapters = viewModel::deleteReadChapters,
-                )
-            }
-            Screen.Updates -> {
-                UpdatesScreen(
-                    events = state.favoriteUpdates,
-                    padding = innerPadding,
-                    onSelect = viewModel::openMangaFromUpdate,
-                    onBrowse = goToSearchTab,
-                )
-            }
-            Screen.History -> {
-                HistoryScreen(
-                    memory = state.readingMemory,
-                    library = state.library,
-                    padding = innerPadding,
-                    onOpenChapter = viewModel::openReader,
-                    onResumeStreamingChapter = viewModel::resumeStreamingChapter,
-                )
-            }
-            Screen.Stats -> {
-                StatsScreen(
-                    state = state,
-                    padding = innerPadding,
-                    onOpenSeries = viewModel::selectDownloadedSeries,
-                )
-            }
-            Screen.DiscoverGenre -> {
-                DiscoverGenreScreen(
-                    discovery = if (state.settings.hidesAdultContent()) {
-                        state.discovery.withoutAdultContent()
-                    } else {
-                        state.discovery
-                    },
-                    padding = innerPadding,
-                    onPick = viewModel::onPickAniListManga,
-                    onShowInfo = viewModel::showDiscoveryInfo,
-                    onDismissInfo = viewModel::dismissDiscoveryInfo,
-                    onRetry = {
-                        state.discovery.selectedGenre?.let(viewModel::loadDiscoverGenre)
-                    },
-                )
-            }
-            Screen.Backup -> {
-                BackupScreen(
-                    padding = innerPadding,
-                    onExport = { createBackupLauncher.launch("manga-downloader-backup.json") },
-                    onImportMerge = {
-                        backupImportMode = BackupRestoreMode.MERGE
-                        importBackupLauncher.launch(arrayOf("application/json", "*/*"))
-                    },
-                    onImportReplace = { showReplaceBackupConfirm = true },
-                )
-            }
-            Screen.Feedback -> {
-                ReportProblemScreen(
-                    padding = innerPadding,
-                    onResult = { ok ->
-                        scope.launch {
-                            if (ok) {
-                                viewModel.closeFeedback()
-                                snackbarHostState.showSnackbar("Segnalazione inviata. Grazie!")
-                            } else {
-                                snackbarHostState.showSnackbar(
-                                    if (!FeedbackReporter.isConfigured()) {
-                                        "Segnalazioni non configurate in questa build"
-                                    } else {
-                                        "Invio non riuscito. Controlla la connessione e riprova."
-                                    },
-                                )
-                            }
-                        }
-                    },
-                )
-            }
-            Screen.Settings -> {
-                SettingsScreen(
-                    settings = state.settings,
-                    sourceHealth = state.sourceHealth,
-                    isBiometricAvailable = state.isBiometricAvailable,
-                    isParentalAuthInProgress = state.isParentalAuthInProgress,
-                    notificationsPermissionGranted = notificationsPermissionGranted,
-                    aniListViewerName = state.aniList.viewer?.name,
-                    isAniListConnecting = state.aniList.isConnecting,
-                    padding = innerPadding,
-                    onSelectThemeMode = viewModel::setThemeMode,
-                    onSelectCardDensity = viewModel::setCardDensity,
-                    onSelectAnimationLevel = viewModel::setAnimationLevel,
-                    onToggleDynamicColor = viewModel::setUseDynamicColor,
-                    onRestartTutorial = viewModel.tutorial::restart,
-                    onConnectAniList = {
-                        scope.launch {
-                            if (!AniListAuth.isConfigured()) {
-                                snackbarHostState.showSnackbar(
-                                    "Collegamento AniList non configurato in questa build",
-                                )
-                                return@launch
-                            }
-                            try {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, viewModel.beginAniListLogin().toUri()),
-                                )
-                            } catch (_: ActivityNotFoundException) {
-                                snackbarHostState.showSnackbar("Nessun browser disponibile")
-                            }
-                        }
-                    },
-                    onDisconnectAniList = viewModel::disconnectAniList,
-                    onToggleAniListSync = viewModel::setAniListSyncEnabled,
-                    onToggleAniListFavoritesSync =
-                        viewModel::setAniListFavoritesSyncEnabled,
-                    onToggleAutoDownload = viewModel::setAutoDownloadEnabled,
-                    onTriggerChange = viewModel::setAutoDownloadTriggerChapters,
-                    onBatchChange = viewModel::setAutoDownloadBatchSize,
-                    onToggleSmartCleanup = viewModel::setSmartCleanupEnabled,
-                    onSmartCleanupKeepChange = viewModel::setSmartCleanupKeepPreviousChapters,
-                    onSelectReadingMode = viewModel::setReadingMode,
-                    onSelectSpreadPageMode = viewModel::setSpreadPageMode,
-                    onSelectReaderPageSpacing = viewModel::setReaderPageSpacing,
-                    onToggleDoubleTapZoom = viewModel::setDoubleTapZoomEnabled,
-                    onToggleKeepScreenOn = viewModel::setKeepScreenOnEnabled,
-                    onSetSourceEnabled = viewModel::setSourceEnabled,
-                    onToggleShowHomeTab = viewModel::setShowHomeTab,
-                    onToggleParentalControl = viewModel.parental::setEnabled,
-                    onRequestChangeParentalPin = viewModel.parental::requestChangePin,
-                    onToggleParentalBiometric = viewModel.parental::setBiometricEnabled,
-                    onToggleHideAdultContent = viewModel::setHideAdultContent,
-                    onToggleLabs = viewModel::setLabsEnabled,
-                    onToggleDownloadDevUpdates = viewModel::setDownloadDevUpdates,
-                    onTogglePrivacyBrightness = viewModel::setPrivacyBrightnessEnabled,
-                    onToggleAllowLandscapeRotation = viewModel::setAllowLandscapeRotation,
-                    onToggleFavoriteNotifications = { enabled ->
-                        if (enabled && !notificationsPermissionGranted) {
-                            // L'attivazione vera avviene nel callback del launcher,
-                            // solo a permesso concesso: niente switch ON "a vuoto".
-                            favoriteNotificationsPermissionLauncher.launch(
-                                Manifest.permission.POST_NOTIFICATIONS,
-                            )
-                        } else {
-                            viewModel.setFavoriteNotificationsEnabled(enabled)
-                        }
-                    },
-                    onOpenStorageManager = viewModel::openStorageManager,
-                    onOpenBackup = viewModel::openBackup,
-                    onOpenReportProblem = viewModel::openFeedback,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    onOpenChangelog = viewModel::openChangelog,
-                )
-            }
-            Screen.Changelog -> {
-                ChangelogScreen(padding = innerPadding)
-            }
-            Screen.Detail -> if (selectedManga != null) {
-                val linkBindings = state.selectedSeriesLink?.sources.orEmpty()
-                val downloadedChapterKeys = remember(selectedManga, state.library, linkBindings) {
-                    LibraryMatching.downloadedChapterKeys(selectedManga, state.library, linkBindings)
-                }
-                val readChapterIds = remember(selectedManga, state.library, state.selectedMangaReadChapterIds, linkBindings) {
-                    state.selectedMangaReadChapterIds +
-                        LibraryMatching.downloadedReadChapterIds(selectedManga, state.library, linkBindings)
-                }
-                val aniListTracking = remember(selectedManga, state.aniList.trackings, state.selectedSeriesKey) {
-                    state.selectedSeriesKey?.let { state.aniList.trackings[it] }
-                }
-                DetailScreen(
-                    details = selectedManga,
-                    isLoading = state.isLoadingDetails,
-                    padding = innerPadding,
-                    downloadedChapterKeys = downloadedChapterKeys,
-                    readChapterIds = readChapterIds,
-                    autoDownloadEnabled = state.settings.autoDownloadEnabled,
-                    showSourceSelector = state.selectedSeriesLink != null,
-                    sourceOptions = state.sourceOptions,
-                    onOpenSourceMenu = viewModel::loadSourceOptions,
-                    onSwitchSource = viewModel::switchSource,
-                    showAniListTracking = state.aniList.viewer != null,
-                    aniListTracking = aniListTracking,
-                    onLinkAniList = viewModel::openAniListMatch,
-                    onOpenAniListTracker = viewModel::openAniListTracker,
-                    onStart = onStartDownload,
-                    onReadChapter = viewModel::openChapterFromDetail,
-                    onEnableAutoDownload = { viewModel.setAutoDownloadEnabled(true) },
-                )
-            }
-            Screen.DownloadedSeries -> if (selectedSeries != null) {
-                DownloadedSeriesScreen(
-                    series = selectedSeries,
-                    padding = innerPadding,
-                    onOpenChapter = viewModel::openReader,
-                    onDeleteChapter = viewModel::deleteDownloadedChapter,
-                    onSetChapterRead = viewModel::setChapterRead,
-                    onMarkReadUpTo = viewModel::markChaptersReadUpTo,
-                )
-            }
-            Screen.Tabs -> {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    userScrollEnabled = showPager,
-                ) { page ->
-                    when (visibleTabs.getOrElse(page) { AppTab.SEARCH }) {
-                        AppTab.HOME -> HomeScreen(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    if (!(state.readerChapter != null && isReaderFullscreen)) {
+                        AppTopBar(
                             state = state,
-                            editMode = homeEditMode,
-                            padding = innerPadding,
-                            onResume = viewModel::openReader,
-                            onResumeStreamingChapter = viewModel::resumeStreamingChapter,
-                            onOpenUpdate = viewModel::openMangaFromUpdate,
-                            onOpenAllUpdates = viewModel::openUpdates,
-                            onOpenHistory = viewModel::openHistory,
-                            onOpenStats = viewModel::openStats,
-                            onPickDiscover = viewModel::onPickAniListManga,
-                            onShowDiscoverInfo = viewModel::showDiscoveryInfo,
-                            onDismissDiscoverInfo = viewModel::dismissDiscoveryInfo,
-                            onLoadDiscover = viewModel::loadDiscovery,
-                            onLoadRecommendations = viewModel::loadRecommendations,
-                            onRefreshFeeds = viewModel::refreshHomeFeeds,
-                            onOpenGenre = viewModel::openDiscoverGenre,
-                            onSearchFirst = goToSearchTab,
-                            onStartTutorial = {
-                                viewModel.tutorial.onWelcomeStart()
-                                // Il tour interattivo parte dalla tab Cerca (primo spotlight sulla
-                                // barra di ricerca): portaci l'utente, rispettando il lock parentale.
-                                goToSearchTab()
-                            },
-                            onDismissTutorial = viewModel.tutorial::onWelcomeSkip,
-                            onMoveBlock = viewModel::moveHomeBlock,
-                            onSetBlockHidden = viewModel::setHomeBlockHidden,
-                        )
-                        // Sotto controllo parentale la pagina Cerca si vede solo dopo il PIN: con
-                        // uno swipe ci si arriva comunque, e dietro al dialog del PIN restavano
-                        // visibili le ricerche precedenti e i loro risultati.
-                        AppTab.SEARCH -> if (
-                            state.settings.parentalControlEnabled && state.currentTab != AppTab.SEARCH
-                        ) {
-                            SearchLockedContent(
-                                padding = innerPadding,
-                                onUnlock = { viewModel.selectTab(AppTab.SEARCH) },
-                            )
-                        } else {
-                            SearchScreen(
-                                state = state,
-                                padding = innerPadding,
-                                onQueryChange = viewModel::onQueryChange,
-                                onClearRecentSearches = viewModel::clearRecentSearches,
-                                onRefresh = viewModel::submitSearch,
-                                onSelectSeries = viewModel::selectSeries,
-                                onToggleFavorite = viewModel::toggleFavoriteFromGroup,
-                                onShowInfo = viewModel::showMangaInfo,
-                                onDismissInfo = viewModel::dismissMangaInfo,
-                                onSelectLanguage = viewModel::selectLanguageSearch,
-                                onSelectAllSources = viewModel::selectAllSourcesSearch,
-                            )
-                        }
-                        AppTab.FAVORITES -> FavoritesScreen(
-                            favorites = state.favorites,
-                            query = state.favoritesQuery,
-                            filterReadingState = state.favoriteFilterReadingState,
-                            sort = state.settings.favoriteSort,
-                            statusByKey = state.favoriteStatusByKey,
-                            seenByKey = state.favoriteSeenStates,
-                            noticesByKey = state.favoriteNotices,
-                            readingStateByKey = favoriteReadingStates,
-                            padding = innerPadding,
-                            onQueryChange = viewModel::onFavoritesQueryChange,
-                            onSelect = { favorite ->
-                                viewModel.selectManga(favorite.toSearchResult())
-                            },
-                            onBrowse = goToSearchTab,
-                            onSelectSort = viewModel::setFavoriteSort,
-                            onSelectReadingState = viewModel::setFavoriteFilterReadingState,
-                            shelves = state.favoriteShelves,
-                            filterShelfId = state.favoriteFilterShelfId,
-                            onSelectShelf = viewModel::setFavoriteFilterShelf,
-                            onCreateShelf = viewModel::createFavoriteShelf,
-                            onRenameShelf = viewModel::renameFavoriteShelf,
-                            onDeleteShelf = viewModel::deleteFavoriteShelf,
-                            onSetShelves = viewModel::setShelvesForFavorite,
-                            unmatchedAniList = state.unmatchedAniListFavoritesToShow(),
-                            // Come i titoli di Scopri: il pager segue da solo il cambio di tab.
-                            onPickUnmatched = { viewModel.onPickAniListManga(it.toAniListManga()) },
-                            onReadNow = viewModel::readNowFromFavorite,
-                            onRemoveFavorite = { favorite ->
-                                viewModel.toggleFavorite(favorite)
-                                scope.launch {
-                                    val result = snackbarHostState.showAutoDismissSnackbar(
-                                        message = "Rimosso dai preferiti: ${favorite.title}",
-                                        actionLabel = "Annulla",
+                            visibleTab = visiblePagerTab,
+                            onBack = viewModel::handleBack,
+                            onToggleFavorite = viewModel::toggleFavoriteSelectedManga,
+                            onToggleFavoriteSeries = viewModel::toggleFavoriteSelectedSeries,
+                            onOpenSettings = viewModel::openSettings,
+                            onReaderBrightnessChange = viewModel::previewReaderBrightness,
+                            onReaderBrightnessChangeFinished = viewModel::commitReaderBrightness,
+                            onSelectReadingMode = viewModel::setReaderReadingMode,
+                            onSelectSpreadPageMode = viewModel::setReaderSpreadPageMode,
+                            // Leggendo in streaming si può tenere il capitolo: le pagine sono già
+                            // state scaricate per mostrarlo, quindi salvarlo è a un tocco invece che
+                            // a un giro completo (esci → dettaglio → selettore intervallo).
+                            onSaveStreamingChapter = state.readerChapter?.streamingChapter?.let { streaming ->
+                                {
+                                    onStartDownload(
+                                        MangaDetails(
+                                            sourceId = streaming.sourceId,
+                                            title = streaming.mangaTitle,
+                                            // La copertina correda la serie salvata: si prende dal
+                                            // dettaglio da cui siamo entrati, e solo se è la stessa serie.
+                                            coverUrl = state.selected
+                                                ?.takeIf { it.mangaUrl == streaming.mangaUrl }
+                                                ?.coverUrl,
+                                            mangaUrl = streaming.mangaUrl,
+                                            chapters = streaming.chapters,
+                                        ),
+                                        streaming.chapter,
+                                        streaming.chapter,
                                     )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.toggleFavorite(favorite)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Capitolo aggiunto ai download")
+                                    }
+                                }
+                            },
+                            unseenUpdatesCount = unseenCount(state.favoriteUpdates),
+                            onOpenUpdates = viewModel::openUpdates,
+                            onMarkAllUpdatesSeen = viewModel::markAllUpdatesSeen,
+                            homeEditMode = homeEditMode,
+                            onToggleHomeEdit = { homeEditMode = !homeEditMode },
+                        )
+                    }
+                },
+                bottomBar = {
+                    if (showPager) {
+                        AppBottomBar(
+                            currentTab = visiblePagerTab,
+                            favoritesBadgeCount = unseenCount(state.favoriteUpdates),
+                            showHomeTab = state.settings.showHomeTab,
+                            onSelect = { tab ->
+                                viewModel.selectTab(tab)
+                                val requiresSearchUnlock = tab == AppTab.SEARCH &&
+                                    state.settings.parentalControlEnabled &&
+                                    state.currentTab != AppTab.SEARCH
+                                if (!requiresSearchUnlock) {
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(state.tabPageIndex(tab))
                                     }
                                 }
                             },
                         )
-                        AppTab.LIBRARY -> LibraryScreen(
-                            state = state,
-                            downloadStatuses = downloadStatuses,
-                            padding = innerPadding,
-                            onOpenSeries = viewModel::selectDownloadedSeries,
-                            onDeleteSeries = viewModel::deleteDownloadedSeries,
-                            onDeleteReadChapters = viewModel::deleteReadChapters,
-                            onQueryChange = viewModel::onLibraryQueryChange,
-                            onBrowse = goToSearchTab,
-                            onStopDownloads = { DownloadWorker.stopAll(context) },
-                            onStopSeriesDownload = { status ->
-                                DownloadWorker.stopWork(context, status.workIds)
-                            },
-                            onResume = viewModel::openReader,
-                            onSelectSort = viewModel::setLibrarySort,
-                            onMarkAllRead = viewModel::markAllChaptersRead,
-                        )
-                    }
-                }
-            }
-        }
-        }
-        }
-        if (privacyDimAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = privacyDimAlpha)),
-            )
-        }
-    }
-    }
-
-    if (showReplaceBackupConfirm) {
-        ConfirmationDialog(
-            title = "Sostituisci dati",
-            text = "I preferiti e le impostazioni attuali verranno rimpiazzati con quelli del backup. Continuare?",
-            confirmLabel = "Sostituisci",
-            onDismiss = { showReplaceBackupConfirm = false },
-            onConfirm = {
-                showReplaceBackupConfirm = false
-                backupImportMode = BackupRestoreMode.REPLACE
-                importBackupLauncher.launch(arrayOf("application/json", "*/*"))
-            },
-        )
-    }
-
-    // Crash del run precedente: la segnalazione parte da sola in background, senza
-    // disturbare l'utente con stack trace incomprensibili (scelta deliberata). Se l'invio
-    // fallisce il report resta su disco e si ritenta al prossimo avvio.
-    LaunchedEffect(lastCrashReport) {
-        val report = lastCrashReport ?: return@LaunchedEffect
-        if (!FeedbackReporter.isConfigured()) {
-            CrashReporter.clearLastCrash(appContext)
-            lastCrashReport = null
-            return@LaunchedEffect
-        }
-        val sent = FeedbackReporter.sendCrashReport(appContext, report)
-        if (sent) {
-            CrashReporter.clearLastCrash(appContext)
-        }
-        lastCrashReport = null
-    }
-
-    state.parentalPinSetupState?.let { setupState ->
-        ParentalPinSetupDialog(
-            state = setupState,
-            onPinChange = { viewModel.parental.onPinSetupChange(pin = it) },
-            onConfirmPinChange = { viewModel.parental.onPinSetupChange(confirmPin = it) },
-            onDismiss = viewModel.parental::dismissPinSetup,
-            onConfirm = viewModel.parental::confirmPinSetup,
-        )
-    }
-
-    state.parentalPinEntryState?.let { pinEntryState ->
-        ParentalPinEntryDialog(
-            state = pinEntryState,
-            onPinChange = viewModel.parental::onPinEntryChange,
-            onDismiss = viewModel.parental::dismissPinEntry,
-            onConfirm = viewModel.parental::confirmPinEntry,
-        )
-    }
-
-    state.availableUpdate?.let { update ->
-        AvailableUpdateDialog(
-            update = update,
-            isInstalling = state.isInstallingUpdate,
-            onDismiss = viewModel::dismissAvailableUpdate,
-            onConfirm = viewModel::installAvailableUpdate,
-        )
-    }
-
-    state.aniList.match?.let { match ->
-        AniListMatchDialog(
-            match = match,
-            onQueryChange = viewModel::onAniListMatchQueryChange,
-            onSearch = viewModel::submitAniListMatchSearch,
-            onSelect = viewModel::confirmAniListMatch,
-            onDismiss = viewModel::dismissAniListMatch,
-        )
-    }
-
-    state.aniList.trackerKey
-        ?.let { key -> state.aniList.trackings[key] }
-        ?.let { tracking ->
-            AniListTrackerDialog(
-                tracking = tracking,
-                scoreFormat = state.aniList.viewer?.scoreFormat ?: AniListScoreFormat.POINT_10,
-                isSaving = state.aniList.isSavingEntry,
-                onSave = viewModel::saveAniListEntry,
-                onUnlink = viewModel::unlinkAniListTracking,
-                onOpenOnSite = {
-                    try {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, tracking.siteUrl().toUri()),
-                        )
-                    } catch (_: ActivityNotFoundException) {
-                        scope.launch { snackbarHostState.showSnackbar("Nessun browser disponibile") }
                     }
                 },
-                onDismiss = viewModel::dismissAniListTracker,
-            )
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+            ) { innerPadding ->
+                // Avvolge la schermata corrente: ne preserva/ripristina lo stato salvabile (scroll)
+                // tra una navigazione e l'altra. La chiave distingue le schermate (vedi saveableScreenKey).
+                screenStateHolder.SaveableStateProvider(state.saveableScreenKey()) {
+                    AppScreenHost(
+                        state = state,
+                        viewModel = viewModel,
+                        padding = innerPadding,
+                        snackbarHostState = snackbarHostState,
+                        pagerState = pagerState,
+                        showPager = showPager,
+                        readerFullscreen = isReaderFullscreen,
+                        onToggleReaderFullscreen = { isReaderFullscreen = !isReaderFullscreen },
+                        homeEditMode = homeEditMode,
+                        favoriteReadingStates = favoriteReadingStates,
+                        downloadStatuses = downloadWorkUiState.statuses,
+                        notifications = notifications,
+                        backupActions = backupActions,
+                        onStartDownload = onStartDownload,
+                        goToSearchTab = goToSearchTab,
+                    )
+                }
+            }
+            if (privacyDimAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = privacyDimAlpha)),
+                )
+            }
         }
-}
+    }
 
-/** Il capitolo senza l'avanzamento di lettura (pagina, totale, ultimo accesso). */
-private fun ReaderChapter.withoutReaderProgress(): ReaderChapter = copy(
-    readerPageIndex = null,
-    readerPageCount = null,
-    downloadedChapter = downloadedChapter?.copy(
-        readerPageIndex = null,
-        readerPageCount = null,
-        lastReadAtMillis = null,
-    ),
-)
+    PendingCrashReportEffect(appContext)
+    AppDialogsHost(state = state, viewModel = viewModel, snackbarHostState = snackbarHostState)
+}
 
 private fun readerPrivacyDimAlpha(enabled: Boolean, brightness: Float): Float {
     if (!enabled) return 0f

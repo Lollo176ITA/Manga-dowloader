@@ -119,7 +119,6 @@
 | Valore | Voce | Impatto | Rischio | Sforzo |
 | --- | --- | --- | --- | --- |
 | 40 | Skill di progetto che descrivono un progetto che non esiste più | 4 | 4 | 1 |
-| 24 | `MangaDownloaderAppContent` (923 righe, 59 commit su 60) | 5 | 3 | 3 |
 | 21 | `FavoriteUpdatesWorker.doWork` (202 righe, nessun test) | 3 | 4 | 3 |
 | 16 | Store creati a mano in tre posti | 2 | 2 | 2 |
 | 15 | Modelli di stato dentro `MangaViewModel.kt` | 2 | 1 | 1 |
@@ -135,10 +134,9 @@
   - Perché è la prima: il codice lo scrive Claude leggendo queste skill. Ogni sessione di test o di UI parte da percorsi che non esistono e da un comando di test su un modulo che Gradle non conosce.
   - Cosa fare: riallineare le tre skill ai percorsi `android-app/app/src/...` e al solo `:app:testDebugUnitTest`.
 
-- [ ] **`MangaDownloaderAppContent` è un unico composable di 923 righe** ✅ — Valore 24
-  - Dove: [MainActivity.kt:267-1190](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L267). Dentro: launcher dei permessi, backup, snackbar, avvio download, pager, top/bottom bar, `when` delle schermate e dialog. 115 riferimenti `viewModel::`.
-  - Misura: il file è stato toccato in **59 degli ultimi 60 commit** (124 su 255 in tutto). È il punto dove passa ogni feature, e ogni volta va riletto per intero (60 KB, circa 15.000 token).
-  - Cosa fare, in ordine di isolamento: `rememberNotificationPermissions` (righe 307-425, tre launcher e il dialogo di spiegazione) → `rememberStartDownload` (427-476) → `AppDialogsHost` → `ScreenHost` (il `when`). File separati in `ui/app/`. Nessun cambio di comportamento.
+- [ ] **Rifare il giro `/perf` dopo lo spezzamento di `MainActivity`** ✅ — Impatto Basso · Sforzo Basso
+  - Il 2026-11-15 `MangaDownloaderAppContent` è sceso da 923 a 357 righe (`MainActivity.kt` da 1230 a 618): schermate, tab, impostazioni, dialog, permessi notifiche, avvio download e backup stanno in `ui/app/`.
+  - La metrica `rootCompose` del benchmark somma il tempo della sola radice (`Metrics.kt`): ora che il `when` delle schermate è un composable a parte, il numero non è più confrontabile col giro precedente. Serve un giro nuovo che faccia da riferimento.
 
 - [ ] **`FavoriteUpdatesWorker.doWork` fa tutto in 202 righe e non ha test** ✅ — Valore 21
   - Dove: [FavoriteUpdatesWorker.kt:82-283](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L82). Migrazione, risoluzione identità, sync AniList, giro di rete con ripiego sui mirror, baseline, feed, notifiche e cambio di fonte nello stesso metodo. Toccato in 16 degli ultimi 60 commit.

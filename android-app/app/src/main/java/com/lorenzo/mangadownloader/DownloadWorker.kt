@@ -25,6 +25,7 @@ import androidx.work.workDataOf
 import com.lorenzo.mangadownloader.data.model.DownloadResult
 import com.lorenzo.mangadownloader.data.model.readingUnitPlural
 import com.lorenzo.mangadownloader.data.model.readingUnitSingular
+import com.lorenzo.mangadownloader.data.network.isWorthRetrying
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import java.io.IOException
 import java.util.UUID
@@ -231,7 +232,8 @@ class DownloadWorker(
         } catch (ioe: IOException) {
             // Ritenta solo questa serie: con una catena per serie le altre non aspettano. Con
             // un limite: una fonte morta terrebbe ferma per sempre la catena di questa serie.
-            if (runAttemptCount < MAX_DOWNLOAD_ATTEMPTS - 1) {
+            // Un 404 o un 403 non si ritentano affatto: non passeranno al giro dopo.
+            if (isWorthRetrying(ioe) && runAttemptCount < MAX_DOWNLOAD_ATTEMPTS - 1) {
                 Result.retry()
             } else {
                 failedResult(ioe, firstUrl, lastUrl, inputSourceId ?: taggedSourceId, taggedSeriesTitle, taggedMangaUrl)

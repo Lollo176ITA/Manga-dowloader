@@ -56,18 +56,6 @@
 
 ## 🟡 Affidabilità & test mancanti
 
-> Le prime due voci vengono da un audit esterno, verificate sul codice il 2026-11-15 (le altre due, scrittura atomica e lock dei metadati di serie, sono state fatte lo stesso giorno). Valore = (Impatto + Rischio) × (6 − Sforzo), come in 🧹.
-
-- [ ] **JSON illeggibile trattato come "vuoto", poi sovrascritto** ✅ — Valore 24 (Impatto 2 · Rischio 4 · Sforzo 2)
-  - Dove: `readJson` ([SharedPreferencesJson.kt:12](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/store/SharedPreferencesJson.kt#L12)) restituisce il default su qualunque errore di parsing. Per i preferiti vuol dire lista vuota, e la prima scrittura dopo cancella quelli veri.
-  - Il caso realistico non è il disco rotto: è un campo nuovo senza valore di default aggiunto a un modello salvato. Da quel momento ogni lista salvata dalle versioni precedenti non si legge più.
-  - Cosa fare: quando il parsing fallisce, copiare il valore grezzo in una chiave `<chiave>.corrotto` prima di restituire il default, e allegarlo alla segnalazione. Più un test per store che rilegge un JSON scritto "alla vecchia" (senza i campi aggiunti dopo).
-
-- [ ] **I download ritentano anche gli errori che non passeranno mai** ✅ — Valore 20 (Impatto 3 · Rischio 2 · Sforzo 2)
-  - Dove: `MangaNetworkClient.executeSuccessful` lancia `IOException("HTTP 404 …")` per ogni risposta non-2xx ([MangaNetworkClient.kt:93](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/network/MangaNetworkClient.kt#L93)), e `DownloadWorker` ritenta ogni `IOException` fino a 5 volte con attesa esponenziale ([DownloadWorker.kt:231](android-app/app/src/main/java/com/lorenzo/mangadownloader/DownloadWorker.kt#L231)).
-  - Effetto: un capitolo rimosso (404) o un blocco Cloudflare (403) resta "in download" per minuti prima di dire che è fallito.
-  - Cosa fare: una `HttpStatusException(code)` che estende `IOException`; il worker fallisce subito sui 4xx, tranne 408 e 429.
-
 - [ ] **DemonicScans: nessun ripiego sull'host immagini di riserva** ✅ — Impatto Basso · Sforzo Basso
   - Dove: [DemonicScansSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/DemonicScansSource.kt). Il reader del sito, se un'immagine fallisce, riprova sostituendo `demoniclibs` con `librarydm` nell'URL (`tryAgain` nella pagina, verificato il 2026-09-25). L'app invece fa fallire la pagina.
   - Cosa fare: al fallimento di una pagina `cdn.demoniclibs.com`, riprovare una volta su `librarydm`.

@@ -13,6 +13,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.lorenzo.mangadownloader.BuildConfig
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
+import com.lorenzo.mangadownloader.data.store.SettingsStore
+import com.lorenzo.mangadownloader.data.store.unreadableJsonKeys
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -80,6 +82,16 @@ object FeedbackReporter {
     private fun deviceLine(): String =
         "${Build.MANUFACTURER} ${Build.MODEL} — Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
 
+    /**
+     * Dati salvati che l'app non riesce più a leggere (vedi [unreadableJsonKeys]): solo i nomi
+     * delle chiavi, mai il contenuto, che sono titoli e indirizzi dell'utente.
+     */
+    private fun unreadableDataLine(context: Context): String {
+        val keys = context.getSharedPreferences(SettingsStore.PREFS_NAME, Context.MODE_PRIVATE)
+            .unreadableJsonKeys()
+        return if (keys.isEmpty()) "" else "\nDati illeggibili: ${keys.joinToString()}"
+    }
+
     /** Invia una segnalazione del form. Sospesa: fa rete su IO. True se il relay la accetta. */
     suspend fun sendReport(context: Context, draft: FeedbackDraft): Boolean {
         if (!isConfigured()) return false
@@ -92,6 +104,7 @@ object FeedbackReporter {
             append("\nVersione: MangApp ${BuildConfig.VERSION_NAME}")
             append("\nDispositivo: ${deviceLine()}")
             append("\nContatto: ${draft.contactEmail.trim().ifBlank { "non fornito" }}")
+            append(unreadableDataLine(context))
         }
         return send(context, title, body, draft.category.trelloLabel, draft.imageUris, draft.audioFile)
     }
@@ -105,6 +118,7 @@ object FeedbackReporter {
             append("\n\n—\n")
             append("Versione: MangApp ${BuildConfig.VERSION_NAME}")
             append("\nDispositivo: ${deviceLine()}")
+            append(unreadableDataLine(context))
         }
         return send(context, title, body, "crash", emptyList(), null)
     }

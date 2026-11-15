@@ -9,6 +9,27 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
+/**
+ * Il server ha risposto, ma con uno stato non-2xx. Resta una [IOException] (e il messaggio resta
+ * "HTTP <codice> …") così chi già la gestiva continua a farlo; il [code] serve a distinguere
+ * un guasto passeggero da una risposta che non cambierà riprovando.
+ */
+class HttpStatusException(val code: Int, message: String) : IOException(message)
+
+/**
+ * Ha senso riprovare più tardi? No per i 4xx (capitolo rimosso, accesso negato): ritentare un
+ * 404 lascia solo il download "in corso" per minuti prima di dire che è fallito. Fanno eccezione
+ * 408 (timeout) e 429 (troppe richieste), che passano da soli. Errori di rete e 5xx: sì.
+ */
+fun isWorthRetrying(error: IOException): Boolean {
+    val status = generateSequence<Throwable>(error) { it.cause }
+        .filterIsInstance<HttpStatusException>()
+        .firstOrNull()
+        ?.code
+        ?: return true
+    return status !in 400..499 || status == 408 || status == 429
+}
+
 class MangaNetworkClient(
     private val httpClient: OkHttpClient,
 ) {
@@ -91,7 +112,7 @@ class MangaNetworkClient(
         readBody: (Response) -> T,
     ): T = executeWithConnectionRetry(request).use { response ->
         if (!response.isSuccessful) {
-            throw IOException("HTTP ${response.code} $errorContext")
+            throw HttpStatusException(response.code, "HTTP ${response.code} $errorContext")
         }
         readBody(response)
     }

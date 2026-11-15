@@ -56,6 +56,18 @@
 
 ## 🟡 Affidabilità & test mancanti
 
+> Le prime due voci vengono da un audit esterno, verificate sul codice il 2026-11-15 (le altre due, scrittura atomica e lock dei metadati di serie, sono state fatte lo stesso giorno). Valore = (Impatto + Rischio) × (6 − Sforzo), come in 🧹.
+
+- [ ] **JSON illeggibile trattato come "vuoto", poi sovrascritto** ✅ — Valore 24 (Impatto 2 · Rischio 4 · Sforzo 2)
+  - Dove: `readJson` ([SharedPreferencesJson.kt:12](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/store/SharedPreferencesJson.kt#L12)) restituisce il default su qualunque errore di parsing. Per i preferiti vuol dire lista vuota, e la prima scrittura dopo cancella quelli veri.
+  - Il caso realistico non è il disco rotto: è un campo nuovo senza valore di default aggiunto a un modello salvato. Da quel momento ogni lista salvata dalle versioni precedenti non si legge più.
+  - Cosa fare: quando il parsing fallisce, copiare il valore grezzo in una chiave `<chiave>.corrotto` prima di restituire il default, e allegarlo alla segnalazione. Più un test per store che rilegge un JSON scritto "alla vecchia" (senza i campi aggiunti dopo).
+
+- [ ] **I download ritentano anche gli errori che non passeranno mai** ✅ — Valore 20 (Impatto 3 · Rischio 2 · Sforzo 2)
+  - Dove: `MangaNetworkClient.executeSuccessful` lancia `IOException("HTTP 404 …")` per ogni risposta non-2xx ([MangaNetworkClient.kt:93](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/network/MangaNetworkClient.kt#L93)), e `DownloadWorker` ritenta ogni `IOException` fino a 5 volte con attesa esponenziale ([DownloadWorker.kt:231](android-app/app/src/main/java/com/lorenzo/mangadownloader/DownloadWorker.kt#L231)).
+  - Effetto: un capitolo rimosso (404) o un blocco Cloudflare (403) resta "in download" per minuti prima di dire che è fallito.
+  - Cosa fare: una `HttpStatusException(code)` che estende `IOException`; il worker fallisce subito sui 4xx, tranne 408 e 429.
+
 - [ ] **DemonicScans: nessun ripiego sull'host immagini di riserva** ✅ — Impatto Basso · Sforzo Basso
   - Dove: [DemonicScansSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/DemonicScansSource.kt). Il reader del sito, se un'immagine fallisce, riprova sostituendo `demoniclibs` con `librarydm` nell'URL (`tryAgain` nella pagina, verificato il 2026-09-25). L'app invece fa fallire la pagina.
   - Cosa fare: al fallimento di una pagina `cdn.demoniclibs.com`, riprovare una volta su `librarydm`.
@@ -100,33 +112,83 @@
 
 ## 🧹 Snellimento & architettura
 
-- [ ] **Estrarre altri controller dal ViewModel (4300 righe)** ✅ — Impatto Medio · Sforzo Alto
-  - Stesso schema già usato per `ParentalControlController` e `TutorialController`: classe che condivide il `MutableStateFlow`, esposta come `viewModel.xxx`.
-  - Candidati, dal più isolato al più intrecciato: **Home/Scopri** (`loadDiscovery`, `loadRecommendations`, `refreshHomeFeeds`, generi, ~300 righe) → **AniList** (auth, match, tracker, sync, ~550 righe) → **Preferiti e scaffali** → **Reader** (apertura, streaming, prefetch, avanzamento, adiacenze: ~1100 righe, il più accoppiato con libreria e memoria di lettura).
+> Audit strutturale del 2026-11-15 su `dev` (32.500 righe di codice in 128 file, 14.700 di test in 98 file).
+> **Valore** = (Impatto + Rischio) × (6 − Sforzo), ognuno da 1 a 5: più alto, prima si fa.
+> Il criterio che ordina tutto: un file grosso costa solo se **cambia spesso**. Per ogni file è indicato in quanti degli ultimi 60 commit è stato toccato.
 
-- [ ] **`MangaUiState` monolitico e schermate che lo ricevono intero** ✅ — Impatto Medio · Sforzo Alto
-  - Dove: `MangaUiState` ha ~90 campi; `AppTopBar`, `HomeScreen`, `LibraryScreen`, `SearchScreen`, `StatsScreen` e `TutorialOverlay` prendono `state: MangaUiState`, quindi rigirano a ogni emissione qualsiasi.
-  - Cosa fare: sotto-stati per area (`ReaderUiState`, `LibraryUiState`, `FavoritesUiState`, `ParentalUiState`…, sul modello di `DiscoveryUiState`/`AniListUiState` che esistono già) e ogni schermata riceve solo il suo. Va di pari passo con l'estrazione dei controller.
-  - Misurato (2026-09-25): strong skipping attivo e 547/741 composable saltabili, ma `MangaUiState` è una nuova istanza a ogni emissione, quindi chi lo riceve intero si ricompone sempre. Il reader, il percorso più caldo, è **quasi isolato**: `ReaderScreen` non si ricompone mai, la radice solo quando si salva l'avanzamento (4-6 volte in 15 swipe). Il guadagno reale è sulla digitazione in ricerca (vedi la voce "Barre, tutorial e tab vicine…" in Prestazioni, rinviata: il costo misurato è piccolo). Conviene farlo **a pezzi**, schermata per schermata, non come refactor unico.
+| Valore | Voce | Impatto | Rischio | Sforzo |
+| --- | --- | --- | --- | --- |
+| 40 | Skill di progetto che descrivono un progetto che non esiste più | 4 | 4 | 1 |
+| 24 | `MangaDownloaderAppContent` (923 righe, 59 commit su 60) | 5 | 3 | 3 |
+| 21 | `FavoriteUpdatesWorker.doWork` (202 righe, nessun test) | 3 | 4 | 3 |
+| 16 | Store creati a mano in tre posti | 2 | 2 | 2 |
+| 15 | Modelli di stato dentro `MangaViewModel.kt` | 2 | 1 | 1 |
+| 12 | Controller "scheda manga" e "preferiti" dal ViewModel | 3 | 3 | 4 |
+| 10 | Residui della migrazione KMP/iOS | 1 | 1 | 1 |
+| 9 | Schermate con decine di parametri | 2 | 1 | 3 |
+| 6 | `MangaUiState` monolitico | 2 | 1 | 4 |
+| 6 | File grossi ma fermi (`ReaderScreen`, `UiComponents`, test delle fonti) | 1 | 1 | 3 |
 
-- [ ] **`MangaDownloaderAppContent` è un unico composable di ~900 righe** ✅ — Impatto Medio · Sforzo Medio
-  - Dove: [MainActivity.kt:200-1106](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L200): launcher dei permessi, backup, snackbar, top/bottom bar, pager, `when` delle schermate e dialog, tutto nello stesso scope di ricomposizione.
-  - Cosa fare: separare `AppScaffold`, `ScreenHost` (il `when`) e `AppDialogsHost`, ognuno con i soli parametri che usa. Rende efficaci i due punti sopra.
+- [ ] **Skill di progetto che descrivono un progetto che non esiste più** ✅ — Valore 40
+  - Dove: `.claude/skills/android-testing/SKILL.md` (righe 8-67 e 155: modulo KMP `:shared`, `commonTest`, `MapSettings`/`FakeFileSystem`/`MockEngine`, comando `:shared:testAndroidHostTest`, "il `MangaViewModel` vive in `:shared` e riceve un `AppContainer`"), `app-ui/SKILL.md` e `accessibility/SKILL.md` (link a `android-app/shared/src/commonMain/...`). `android-testing` e `app-ui` citano anche il client Python `manga_downloader.py`.
+  - Verificato: `settings.gradle.kts` include solo `:app` e `:benchmark`; `shared/src/commonMain/kotlin` e `manga_downloader.py` non esistono; il ViewModel è in `app/` e crea gli store da solo.
+  - Perché è la prima: il codice lo scrive Claude leggendo queste skill. Ogni sessione di test o di UI parte da percorsi che non esistono e da un comando di test su un modulo che Gradle non conosce.
+  - Cosa fare: riallineare le tre skill ai percorsi `android-app/app/src/...` e al solo `:app:testDebugUnitTest`.
 
-- [ ] **File troppo grossi da navigare** 🔎 — Impatto Basso · Sforzo Medio
-  - `UiComponents.kt` (1045 righe, componenti eterogenei) e `ReaderScreen.kt` (1280 righe, con `VerticalReader` da solo ~410). Solo organizzazione: dividere per componente, nessun guadagno di prestazioni.
+- [ ] **`MangaDownloaderAppContent` è un unico composable di 923 righe** ✅ — Valore 24
+  - Dove: [MainActivity.kt:267-1190](android-app/app/src/main/java/com/lorenzo/mangadownloader/MainActivity.kt#L267). Dentro: launcher dei permessi, backup, snackbar, avvio download, pager, top/bottom bar, `when` delle schermate e dialog. 115 riferimenti `viewModel::`.
+  - Misura: il file è stato toccato in **59 degli ultimi 60 commit** (124 su 255 in tutto). È il punto dove passa ogni feature, e ogni volta va riletto per intero (60 KB, circa 15.000 token).
+  - Cosa fare, in ordine di isolamento: `rememberNotificationPermissions` (righe 307-425, tre launcher e il dialogo di spiegazione) → `rememberStartDownload` (427-476) → `AppDialogsHost` → `ScreenHost` (il `when`). File separati in `ui/app/`. Nessun cambio di comportamento.
+
+- [ ] **`FavoriteUpdatesWorker.doWork` fa tutto in 202 righe e non ha test** ✅ — Valore 21
+  - Dove: [FavoriteUpdatesWorker.kt:82-283](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L82). Migrazione, risoluzione identità, sync AniList, giro di rete con ripiego sui mirror, baseline, feed, notifiche e cambio di fonte nello stesso metodo. Toccato in 16 degli ultimi 60 commit.
+  - Le funzioni pure che usa (`computeFavoriteUpdate`, `appendUpdateEvent`, `fetchFromFirstAvailable`) sono testate; l'orchestrazione no: nessun test nomina la classe.
+  - Perché: gira in background, un errore qui (notifica doppia, baseline persa, mirror cambiato a torto) non si vede finché un utente non lo segnala.
+  - Cosa fare: spostare il ciclo in una classe senza `Context` (`FavoriteUpdatesRun`, sul modello di `AniListFavoritesSynchronizer`), con fetch e notifier passati come parametri, e testarla: mirror di ripiego, interruzione a metà, serie per adulti non notificata.
+
+- [ ] **Store creati a mano in tre posti** ✅ — Valore 16
+  - Dove: [MangaViewModel.kt:470-505](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L470) (15 store), [FavoriteUpdatesWorker.kt:84-148](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L84) (12 store, più la stessa `FavoritesSeriesMigration` con gli stessi 6 argomenti), `ReadingWidget.kt` (3).
+  - Cosa fare: una classe `AppStores(context)` con gli store come proprietà `lazy` e `migrateFavorites()`. Non è un framework DI (scartato, vedi 📦): è un solo file che toglie la duplicazione e rende impossibile dimenticare la migrazione in un nuovo punto d'ingresso.
+
+- [ ] **Modelli di stato dentro `MangaViewModel.kt`** ✅ — Valore 15
+  - Dove: righe 150-450 del file: `DiscoveryUiState`, `AniListUiState`, `FavoriteManga`, `AppSettings` (37 campi), `MangaUiState` (67 campi), `MangaInfoDialogState`.
+  - Cosa fare: spostarli in `app/MangaUiState.kt` e `app/AppSettings.kt`. Puro spostamento, stesso package, nessun import da cambiare: il ViewModel scende da 2390 a circa 2090 righe e chi cerca un campo dello stato non apre un file da 105 KB.
+
+- [ ] **Estrarre i controller "scheda manga" e "preferiti" dal ViewModel (2390 righe)** ✅ — Valore 12
+  - Già estratti: `ReaderController` (1380 righe), `AniListController`, `HomeFeedController`, `AppUpdateController`, `ParentalControlController`, `TutorialController`. Il ViewModel era a 4300 righe.
+  - Restano, per dimensione: **scheda e scelta della fonte** (righe 1286-1810: `selectSeries`, `loadSourceOptions`, `switchSource`, `selectManga` da 161 righe, `showMangaInfo`, `toggleFavorite`) → **preferiti e scaffali** (753-910) → **ricerca aggregata** (2035-2155).
+  - Il ViewModel è toccato in 10 degli ultimi 60 commit: conviene farlo quando si rimette mano alla scheda manga, non come lavoro a sé.
+
+- [ ] **Residui della migrazione KMP/iOS abbandonata** ✅ — Valore 10
+  - `android-app/shared/src/commonMain/composeResources/files/CHANGELOG.md` è tracciato ma non lo legge nessuno (la build copia quello della root, `app/build.gradle.kts:184`) ed è fermo a 246 righe contro 278.
+  - `.gitignore`: le righe per `ios-app/`, cartella che non esiste.
+  - `README.md:7-9` dice "7 fonti" e non cita WeebCentral, che è nel catalogo (`MangaSourceIds`, 8 fonti).
+  - [MangaViewModel.kt:685](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L685): a ogni avvio apre un `edit` sulle prefs per togliere due chiavi (`favorite_categories_json`, `favorite_category_assignments_json`) rimosse da versioni fa. Va protetto con un `contains`, o tolto.
+
+- [ ] **Schermate con decine di parametri** ✅ — Valore 9 · *rinviabile*
+  - `SettingsScreen` 44 parametri, `FavoritesScreen` 27, `DetailScreen` 23, `HomeScreen` 22, `AppTopBar` 20.
+  - Raggruppare le callback in un oggetto "azioni" per schermata accorcia `MainActivity`, ma è un'astrazione in più da tenere allineata: da fare solo dentro lo spezzamento di `MangaDownloaderAppContent`, se il `when` resta illeggibile.
+
+- [ ] **`MangaUiState` monolitico e schermate che lo ricevono intero** ✅ — Valore 6 · *rinviabile*
+  - Dove: 67 campi; `AppTopBar`, `HomeScreen`, `LibraryScreen`, `SearchScreen`, `StatsScreen` e `TutorialOverlay` prendono `state: MangaUiState`.
+  - Misurato (2026-09-25): il reader è quasi isolato, e il costo sulla digitazione in ricerca è piccolo (vedi la voce rinviata in ⚡). Sotto-stati per area solo insieme all'estrazione di un controller, schermata per schermata.
+
+- [ ] **File grossi ma fermi** ✅ — Valore 6 · *non toccare*
+  - `ReaderScreen.kt` (1226 righe, `VerticalReader` 353; 4 commit su 60), `UiComponents.kt` (1025 righe, 24 componenti; 3 su 60), `LibraryRepository.kt` (951; 3 su 60), `MangaSourcesTest.kt` (1763 righe, tutte le fonti in un file).
+  - Sono lunghi ma cambiano poco: dividerli costa un diff grande e non rende niente. Da spezzare solo il giorno in cui si lavora a lungo su uno di loro.
 
 ---
 
 ## 📦 Librerie
 
-> Versioni lette il 2026-10-26 dai metadati di Google Maven e Maven Central.
+> Versioni lette il 2026-11-15 dai metadati di Google Maven e Maven Central. Quel giorno: AGP 9.5.1, Gradle 9.9.1, Material3 `1.5.0-rc01`, jsoup 1.24.1, `kotlinx-serialization-json` 1.13.0, UiAutomator 2.4.1. Tutto il resto era già all'ultima stabile.
 
-- [ ] **Robolectric 4.17 manda in crash il processo dei test su Windows** ✅ — Impatto Basso · Sforzo Basso
+- [ ] **Robolectric 4.17 e 4.18 mandano in crash il processo dei test su Windows** ✅ — Impatto Basso · Sforzo Basso
   - Il 2026-10-26 sono state aggiornate le altre librerie: Kotlin 2.4.21, Gradle 9.8.2, Material3 `1.5.0-beta02`, OkHttp 5.5.1, `kotlinx-serialization-json` 1.12.0. Robolectric è rimasta alla 4.16.1, perché con la 4.17 il test executor si chiude con `0xC0000409` (crash nativo, non un test fallito); con la 4.16.1 passano 697 test su 697.
   - Causa (verificata il 2026-10-26): la 4.17 porta `nativeruntime-dist-compat` 1.0.19, che per la prima volta implementa in nativo `BitmapRegionDecoder` (la 1.0.18 della 4.16.1 non contiene `nativeDecodeRegion`). Sulla DLL Windows quel codice è rotto: `BitmapRegionDecoder.newInstance` lancia `UnsatisfiedLinkError` su `BitmapRegionDecoderNatives.nativeNewInstance`, e nel percorso reale manda in crash la JVM. Colpisce solo i 3 test di [TallPageNormalizerTest](android-app/app/src/test/java/com/lorenzo/mangadownloader/ui/reader/TallPageNormalizerTest.kt) che spezzano davvero l'immagine. A quella data non c'era nessuna issue upstream.
   - Scelta: si resta sulla 4.16.1. Sulla nostra configurazione la 4.17 non porta niente: gli SDK 36/37 richiedono Java 21, e i test girano con Java 17.
-  - Cosa fare: passare alla 4.17.x (o a `nativeruntime-dist-compat` > 1.0.19) quando correggono il problema. Per verificare basta lanciare `TallPageNormalizerTest` su Windows.
+  - Riprovato il 2026-11-15 con la 4.18: stesso crash `0xC0000409` su `TallPageNormalizerTest`.
+  - Cosa fare: riprovare a ogni nuova versione (o con `nativeruntime-dist-compat` > 1.0.19). Per verificare basta lanciare `TallPageNormalizerTest` su Windows.
   - Nota per Material3: non usare la versione del BOM (1.4.x), perché `MaterialExpressiveTheme` esiste solo nella 1.5.
 
 - [ ] **Baseline Profile** — vedi la voce in ⚡ Prestazioni.
@@ -162,6 +224,6 @@
   - Oggi con il parentale attivo la tab Cerca chiede il PIN, e dopo il PIN i risultati sono comunque filtrati. Un ragazzo quindi non può cercare niente da solo.
   - Da decidere: un'opzione "Consenti la ricerca filtrata" che lascia cercare senza PIN, con il filtro per adulti sempre acceso. Scelta di prodotto, non tecnica.
 
-- [ ] **Hash del PIN troppo veloce** 🔎 — Impatto Basso · Sforzo Basso
-  - Dove: [ParentalControlSecurity.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ParentalControlSecurity.kt) — SHA-256 con sale, un solo passaggio: chi legge le preferenze dell'app (root, backup di sistema) prova tutti i PIN a 6 cifre in un attimo.
-  - Cosa fare: PBKDF2 con molte iterazioni, migrando l'hash al primo sblocco riuscito.
+- [ ] **PIN impostati prima del PBKDF2 ancora con l'hash veloce** ✅ — Impatto Basso · Sforzo Basso
+  - Fatto: i PIN nuovi usano PBKDF2 con 100.000 iterazioni ([ParentalControlSecurity.kt:22](android-app/app/src/main/java/com/lorenzo/mangadownloader/domain/ParentalControlSecurity.kt#L22)).
+  - Resta: un PIN impostato prima continua a essere verificato con SHA-256 a un passaggio, perché `hashParentalPin` è chiamato solo quando si imposta il PIN (`ParentalControlController.kt:167`). Va ricalcolato e salvato al primo sblocco riuscito.

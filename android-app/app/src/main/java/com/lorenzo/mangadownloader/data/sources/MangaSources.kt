@@ -410,7 +410,20 @@ abstract class BaseMangaSource(
     override fun prepareSeriesStorage(plan: DownloadPlan) {
         val coverFileName = ensureCoverFile(plan.coverUrl, plan.mangaUrl, plan.outputDir)
         val metadataFile = File(plan.outputDir, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        val existingMetadata = SeriesMetadataJson.read(metadataFile)
+        val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(plan)
+        // Sotto il lock dei metadati: un "segna come letto" fatto mentre parte il download
+        // non deve essere sovrascritto dalla copia letta un attimo prima.
+        SeriesMetadataJson.update(metadataFile) { existingMetadata ->
+            mergedSeriesMetadata(plan, existingMetadata, coverFileName, streamingReadChapterIds)
+        }
+    }
+
+    private fun mergedSeriesMetadata(
+        plan: DownloadPlan,
+        existingMetadata: SeriesMetadata?,
+        coverFileName: String?,
+        streamingReadChapterIds: Set<String>,
+    ): SeriesMetadata {
         val mergedChapters = linkedMapOf<String, SeriesMetadataChapter>()
         existingMetadata?.chapters.orEmpty().forEach { chapter ->
             mergedChapters[chapter.fileName] = chapter
@@ -433,8 +446,7 @@ abstract class BaseMangaSource(
                 publishedAtMillis = chapter.publishedAtMillis,
             )
         }
-        val streamingReadChapterIds = libraryRepository.streamingReadChapterIds(plan)
-        val metadata = SeriesMetadata(
+        return SeriesMetadata(
             sourceId = existingMetadata?.sourceId ?: plan.sourceId,
             title = plan.seriesTitle,
             mangaUrl = plan.mangaUrl,
@@ -443,7 +455,6 @@ abstract class BaseMangaSource(
             readChapterIds = existingMetadata?.readChapterIds.orEmpty() + streamingReadChapterIds,
             chapters = mergedChapters.values.toList(),
         )
-        SeriesMetadataJson.write(metadataFile, metadata)
     }
 
     override suspend fun downloadChapterAsCbz(

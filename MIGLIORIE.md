@@ -107,7 +107,6 @@
 | Valore | Voce | Impatto | Rischio | Sforzo |
 | --- | --- | --- | --- | --- |
 | 40 | Skill di progetto che descrivono un progetto che non esiste più | 4 | 4 | 1 |
-| 21 | `FavoriteUpdatesWorker.doWork` (202 righe, nessun test) | 3 | 4 | 3 |
 | 16 | Store creati a mano in tre posti | 2 | 2 | 2 |
 | 15 | Modelli di stato dentro `MangaViewModel.kt` | 2 | 1 | 1 |
 | 12 | Controller "scheda manga" e "preferiti" dal ViewModel | 3 | 3 | 4 |
@@ -126,14 +125,8 @@
   - Il 2026-11-15 `MangaDownloaderAppContent` è sceso da 923 a 357 righe (`MainActivity.kt` da 1230 a 618): schermate, tab, impostazioni, dialog, permessi notifiche, avvio download e backup stanno in `ui/app/`.
   - La metrica `rootCompose` del benchmark somma il tempo della sola radice (`Metrics.kt`): ora che il `when` delle schermate è un composable a parte, il numero non è più confrontabile col giro precedente. Serve un giro nuovo che faccia da riferimento.
 
-- [ ] **`FavoriteUpdatesWorker.doWork` fa tutto in 202 righe e non ha test** ✅ — Valore 21
-  - Dove: [FavoriteUpdatesWorker.kt:82-283](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L82). Migrazione, risoluzione identità, sync AniList, giro di rete con ripiego sui mirror, baseline, feed, notifiche e cambio di fonte nello stesso metodo. Toccato in 16 degli ultimi 60 commit.
-  - Le funzioni pure che usa (`computeFavoriteUpdate`, `appendUpdateEvent`, `fetchFromFirstAvailable`) sono testate; l'orchestrazione no: nessun test nomina la classe.
-  - Perché: gira in background, un errore qui (notifica doppia, baseline persa, mirror cambiato a torto) non si vede finché un utente non lo segnala.
-  - Cosa fare: spostare il ciclo in una classe senza `Context` (`FavoriteUpdatesRun`, sul modello di `AniListFavoritesSynchronizer`), con fetch e notifier passati come parametri, e testarla: mirror di ripiego, interruzione a metà, serie per adulti non notificata.
-
 - [ ] **Store creati a mano in tre posti** ✅ — Valore 16
-  - Dove: [MangaViewModel.kt:470-505](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L470) (15 store), [FavoriteUpdatesWorker.kt:84-148](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L84) (12 store, più la stessa `FavoritesSeriesMigration` con gli stessi 6 argomenti), `ReadingWidget.kt` (3).
+  - Dove: [MangaViewModel.kt:470-505](android-app/app/src/main/java/com/lorenzo/mangadownloader/app/MangaViewModel.kt#L470) (15 store), [FavoriteUpdatesWorker.kt:72-136](android-app/app/src/main/java/com/lorenzo/mangadownloader/FavoriteUpdatesWorker.kt#L72) (12 store, più la stessa `FavoritesSeriesMigration` con gli stessi 6 argomenti), `ReadingWidget.kt` (3).
   - Cosa fare: una classe `AppStores(context)` con gli store come proprietà `lazy` e `migrateFavorites()`. Non è un framework DI (scartato, vedi 📦): è un solo file che toglie la duplicazione e rende impossibile dimenticare la migrazione in un nuovo punto d'ingresso.
 
 - [ ] **Modelli di stato dentro `MangaViewModel.kt`** ✅ — Valore 15

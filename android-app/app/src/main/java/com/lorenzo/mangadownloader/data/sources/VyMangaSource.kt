@@ -117,6 +117,8 @@ class VyMangaSource(
             language = MangaSourceLanguage.ENG,
         )
 
+        override val networkDomain = "mangavyvy.com"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

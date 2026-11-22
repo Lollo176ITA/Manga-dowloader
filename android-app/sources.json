@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "mangapill": { "domain": "mangapill.com" },
+    "hasta_team": {
+      "domain": "hastateam.com",
+      "maintenance": "il sito blocca le app con il controllo anti-bot di Cloudflare. Usa le altre fonti finché non arriva una correzione."
+    },
+    "manga_world": { "domain": "mangaworld.me" },
+    "vymanga": { "domain": "mangavyvy.com" },
+    "asura_scans": { "domain": "asurascans.com" },
+    "demonic_scans": { "domain": "demonicscans.org" },
+    "tcb_scans": { "domain": "tcbonepiecechapters.com" },
+    "weeb_central": { "domain": "weebcentral.com" }
+  }
+}

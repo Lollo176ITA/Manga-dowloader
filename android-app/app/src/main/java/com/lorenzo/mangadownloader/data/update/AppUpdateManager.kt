@@ -13,6 +13,7 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.lorenzo.mangadownloader.BuildConfig
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -70,6 +71,11 @@ open class AppUpdateRepository(
         val info = listOfNotNull(stableInfo, previewInfo).maxBy { it.versionCode }
         if (info.versionCode <= BuildConfig.VERSION_CODE) return@withContext null
         info
+    }
+
+    /** Domini aggiornati e fonti in manutenzione (`sources.json`, stesso repo degli aggiornamenti). */
+    open suspend fun refreshSourceConfig(force: Boolean = false) {
+        RemoteSourceConfig.refresh(httpClient, force)
     }
 
     private fun fetchUpdateFeedInfo(channel: AppUpdateChannel): AppUpdateInfo {

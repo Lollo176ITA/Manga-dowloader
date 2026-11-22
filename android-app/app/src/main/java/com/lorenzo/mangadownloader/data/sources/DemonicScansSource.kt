@@ -77,6 +77,8 @@ class DemonicScansSource(
             language = MangaSourceLanguage.ENG,
         )
 
+        override val networkDomain = "demonicscans.org"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

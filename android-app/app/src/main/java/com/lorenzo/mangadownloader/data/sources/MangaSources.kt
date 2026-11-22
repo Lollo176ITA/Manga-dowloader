@@ -61,6 +61,12 @@ data class MangaSourceDescriptor(
 interface MangaSourceSpec {
     val descriptor: MangaSourceDescriptor
 
+    /**
+     * Dominio (senza `www.`) verso cui partono le richieste scritte nel codice della fonte.
+     * `sources.json` può sostituirlo con quello nuovo dopo un trasloco, vedi [SourceOverrides].
+     */
+    val networkDomain: String
+
     /** `true` se [url] è una serie o un capitolo di questa fonte. */
     fun handlesUrl(url: String): Boolean
 

@@ -2008,7 +2008,13 @@ class MangaViewModel internal constructor(
     /** Riapre il capitolo corrente del reader: CTA "Riprova" quando il fetch delle pagine fallisce. */
     fun retryReaderLoad() = reader.retryReaderLoad()
 
-    fun checkForAppUpdate(force: Boolean = false) = appUpdate.checkForUpdate(force)
+    fun checkForAppUpdate(force: Boolean = false) {
+        appUpdate.checkForUpdate(force)
+        // Stesso momento, stesso repo: domini aggiornati e fonti in manutenzione.
+        viewModelScope.launch {
+            appUpdateRepository.refreshSourceConfig(force)
+        }
+    }
 
     fun dismissAvailableUpdate() = appUpdate.dismiss()
 

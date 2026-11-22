@@ -72,6 +72,8 @@ class MangaWorldSource(
             language = MangaSourceLanguage.ITA,
         )
 
+        override val networkDomain = "mangaworld.mx"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

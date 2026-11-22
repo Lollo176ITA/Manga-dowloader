@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader.data.network
 
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
+import com.lorenzo.mangadownloader.data.sources.SourceMaintenanceException
 import java.io.IOException
 import java.io.OutputStream
 import java.net.URI
@@ -22,6 +24,9 @@ class HttpStatusException(val code: Int, message: String) : IOException(message)
  * 408 (timeout) e 429 (troppe richieste), che passano da soli. Errori di rete e 5xx: sì.
  */
 fun isWorthRetrying(error: IOException): Boolean {
+    if (generateSequence<Throwable>(error) { it.cause }.any { it is SourceMaintenanceException }) {
+        return false
+    }
     val status = generateSequence<Throwable>(error) { it.cause }
         .filterIsInstance<HttpStatusException>()
         .firstOrNull()
@@ -50,7 +55,8 @@ class MangaNetworkClient(
             headers = headers,
         )
         return executeSuccessful(request, "su $url") { response ->
-            response.body.string()
+            // Se la fonte ha traslocato, i link della pagina tornano al dominio salvato.
+            RemoteSourceConfig.current.toSavedDomains(response.body.string())
         }
     }
 
@@ -110,11 +116,15 @@ class MangaNetworkClient(
         request: Request,
         errorContext: String,
         readBody: (Response) -> T,
-    ): T = executeWithConnectionRetry(request).use { response ->
-        if (!response.isSuccessful) {
-            throw HttpStatusException(response.code, "HTTP ${response.code} $errorContext")
+    ): T {
+        RemoteSourceConfig.current.maintenanceMessageForHost(request.url.host)
+            ?.let { throw SourceMaintenanceException(it) }
+        return executeWithConnectionRetry(request).use { response ->
+            if (!response.isSuccessful) {
+                throw HttpStatusException(response.code, "HTTP ${response.code} $errorContext")
+            }
+            readBody(response)
         }
-        readBody(response)
     }
 
     /**

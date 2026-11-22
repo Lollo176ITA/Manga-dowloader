@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.network
 
 import android.content.Context
+import com.lorenzo.mangadownloader.data.sources.SourceDomainInterceptor
 import java.io.File
 import java.util.concurrent.TimeUnit
 import okhttp3.Cache
@@ -38,6 +39,7 @@ object SharedHttpClient {
             .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
             .cache(Cache(cacheDir, CACHE_SIZE_BYTES))
             .retryOnConnectionFailure(true)
+            .addInterceptor(SourceDomainInterceptor())
             .build()
     }
 }

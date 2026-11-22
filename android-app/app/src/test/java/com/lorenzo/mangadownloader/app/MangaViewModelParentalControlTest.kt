@@ -321,6 +321,8 @@ class MangaViewModelParentalControlTest {
             return null
         }
 
+        override suspend fun refreshSourceConfig(force: Boolean) = Unit
+
         override suspend fun downloadUpdateApk(info: AppUpdateInfo): File {
             throw UnsupportedOperationException("Download is not used by these tests")
         }

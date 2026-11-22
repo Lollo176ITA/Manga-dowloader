@@ -94,6 +94,8 @@ class WeebCentralSource(
             language = MangaSourceLanguage.ENG,
         )
 
+        override val networkDomain = "weebcentral.com"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

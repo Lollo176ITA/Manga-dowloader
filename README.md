@@ -46,6 +46,24 @@ cd android-app
 
 "Segnala un problema" e l'invio dei crash fanno un POST al Worker Cloudflare in [`report-relay/`](report-relay/README.md), che crea la card sulla board Trello. Le credenziali Trello stanno solo nel Worker; l'app conosce solo l'URL, definito in `android-app/app/build.gradle.kts`.
 
+### Fonti: cambio di dominio e manutenzione senza rilasciare l'app
+
+L'app legge [`android-app/sources.json`](android-app/sources.json) dal branch `main` (all'avvio, al più ogni sei ore, e prima del controllo dei preferiti). Basta modificarlo su GitHub:
+
+```json
+{
+  "sources": {
+    "manga_world": { "domain": "mangaworld.nz" },
+    "tcb_scans": { "maintenance": "Il sito ha cambiato struttura, arriva un aggiornamento." }
+  }
+}
+```
+
+- `domain`: il sito ha traslocato. Le richieste vanno al dominio nuovo; preferiti, download e cronologia restano validi, perché l'app continua a salvarli col dominio di partenza.
+- `maintenance`: l'app smette di interrogare la fonte e mostra il messaggio nelle impostazioni. Ricerca e preferiti ripiegano sulle altre fonti.
+
+Le chiavi sono gli id di `MangaSourceIds`. Contano solo le fonti del catalogo e un dominio deve essere un nome di dominio: il file non può dirottare altre richieste né far eseguire codice.
+
 ## Struttura del codice
 
 Sorgenti in `android-app/app/src/main/java/com/lorenzo/mangadownloader/`, divisi per area:

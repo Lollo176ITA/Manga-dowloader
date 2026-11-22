@@ -11,6 +11,7 @@ import com.lorenzo.mangadownloader.data.network.BrowserUserAgent
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
 import com.lorenzo.mangadownloader.data.report.CrashReporter
 import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
 import com.lorenzo.mangadownloader.ui.theme.AppMotion
 
 class MangaApplication : Application(), SingletonImageLoader.Factory {
@@ -27,6 +28,7 @@ class MangaApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         CrashReporter.install(this)
         BrowserUserAgent.install(this)
+        RemoteSourceConfig.install(this)
     }
 
     override fun newImageLoader(context: Context): ImageLoader {

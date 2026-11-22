@@ -90,6 +90,8 @@ class HastaTeamSource(
             language = MangaSourceLanguage.ITA,
         )
 
+        override val networkDomain = "hastateam.com"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

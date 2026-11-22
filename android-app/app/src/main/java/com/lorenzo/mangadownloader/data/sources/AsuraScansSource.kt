@@ -101,6 +101,8 @@ class AsuraScansSource(
             language = MangaSourceLanguage.ENG,
         )
 
+        override val networkDomain = "asurascans.com"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

@@ -80,6 +80,8 @@ class TcbScansSource(
             language = MangaSourceLanguage.ENG,
         )
 
+        override val networkDomain = "tcbonepiecechapters.com"
+
         override fun create(
             context: Context,
             networkClient: MangaNetworkClient,

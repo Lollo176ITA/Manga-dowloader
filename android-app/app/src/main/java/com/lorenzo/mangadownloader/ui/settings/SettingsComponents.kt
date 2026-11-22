@@ -48,6 +48,7 @@ import com.lorenzo.mangadownloader.app.DEFAULT_READER_PAGE_SPACING_DP
 import com.lorenzo.mangadownloader.data.model.ReadingMode
 import com.lorenzo.mangadownloader.data.model.ThemeMode
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
 import com.lorenzo.mangadownloader.data.sources.SourceReachability
 import com.lorenzo.mangadownloader.data.sources.sourceUnreachableLabels
 import com.lorenzo.mangadownloader.ui.components.CardDensity
@@ -767,13 +768,16 @@ fun SourceTogglesContent(
     val warnings = remember(sourceHealth) {
         sourceUnreachableLabels(sourceHealth, System.currentTimeMillis())
     }
+    // Fonti fermate da `sources.json`: l'app non le interroga finché non esce la correzione.
+    val maintenance = remember { RemoteSourceConfig.current.maintenance }
     Column {
         MangaSourceCatalog.descriptors.forEachIndexed { index, descriptor ->
             if (index > 0) SettingsDivider()
             SettingRow(
                 title = descriptor.displayName,
                 description = "Lingua: ${descriptor.language.displayName}",
-                warning = warnings[descriptor.id],
+                warning = maintenance[descriptor.id]?.let { "In manutenzione: $it" }
+                    ?: warnings[descriptor.id],
                 checked = descriptor.id !in disabledSourceIds,
                 onCheckedChange = { enabled -> onToggle(descriptor.id, enabled) },
             )

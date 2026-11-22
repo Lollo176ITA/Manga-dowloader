@@ -33,6 +33,7 @@ import com.lorenzo.mangadownloader.data.anilist.newAniListFavorites
 import com.lorenzo.mangadownloader.data.anilist.realAniListFavoritesSynchronizer
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
 import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
 import com.lorenzo.mangadownloader.data.sources.SourceHealthStore
 import com.lorenzo.mangadownloader.data.sources.isSourceSkipped
 import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
@@ -105,6 +106,8 @@ class FavoriteUpdatesWorker(
             return Result.success()
         }
 
+        // Prima di interrogare le fonti: un dominio cambiato vale anche per il controllo notturno.
+        RemoteSourceConfig.refresh(SharedHttpClient.get(context))
         val registry = sharedSourceRegistry(context)
         val aniListClient = AniListClient(SharedHttpClient.get(context))
 

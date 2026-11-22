@@ -22,10 +22,13 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.lorenzo.mangadownloader.data.model.ChapterEntry
 import com.lorenzo.mangadownloader.data.model.DownloadResult
 import com.lorenzo.mangadownloader.data.model.readingUnitPlural
 import com.lorenzo.mangadownloader.data.model.readingUnitSingular
+import com.lorenzo.mangadownloader.data.network.HttpStatusException
 import com.lorenzo.mangadownloader.data.network.isWorthRetrying
+import com.lorenzo.mangadownloader.data.sources.InsufficientStorageException
 import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import java.io.IOException
 import java.util.UUID
@@ -116,91 +119,109 @@ class DownloadWorker(
             val totalChapters = plan.chapters.size
             val completedChapters = AtomicInteger(0)
             val statusMutex = Mutex()
-            val chapterSemaphore = Semaphore(CHAPTER_CONCURRENCY)
             val lastPageEmitMs = AtomicLong(0L)
 
-            coroutineScope {
-                plan.chapters.map { chapter ->
-                    async(Dispatchers.IO) {
-                        chapterSemaphore.withPermit {
-                            ensureActiveDownload()
-                            val chapterLabel = chapter.displayLabel()
-                            emitStatus(
-                                mutex = statusMutex,
-                                sourceId = plan.sourceId,
-                                seriesTitle = plan.seriesTitle,
-                                mangaUrl = plan.mangaUrl,
-                                message = "$chapterLabel in download",
-                                doneChapters = completedChapters.get(),
-                                totalChapters = totalChapters,
-                            )
+            // Ultimo tentativo: un capitolo che continua a non scaricarsi non deve più tenere
+            // fermi gli altri. Prima, con la rete caduta conviene fermarsi subito e ritentare
+            // la serie invece di aspettare il timeout su ogni capitolo.
+            val isLastAttempt = runAttemptCount >= MAX_DOWNLOAD_ATTEMPTS - 1
+            val failures = downloadChaptersCollectingFailures(
+                chapters = plan.chapters,
+                concurrency = CHAPTER_CONCURRENCY,
+                abortOn = { !isLastAttempt && it is IOException && !it.hasHttpStatus() },
+            ) { chapter ->
+                ensureActiveDownload()
+                val chapterLabel = chapter.displayLabel()
+                emitStatus(
+                    mutex = statusMutex,
+                    sourceId = plan.sourceId,
+                    seriesTitle = plan.seriesTitle,
+                    mangaUrl = plan.mangaUrl,
+                    message = "$chapterLabel in download",
+                    doneChapters = completedChapters.get(),
+                    totalChapters = totalChapters,
+                )
 
-                            val result = source.downloadChapterAsCbz(
-                                chapter = chapter,
-                                outputDir = plan.outputDir,
-                                pageConcurrency = PAGE_CONCURRENCY,
-                                onProcessingProgress = processing@ { processed, pageTotal ->
-                                    val isBoundary = processed == 0 ||
-                                        processed >= pageTotal ||
-                                        processed % PAGE_PROGRESS_STRIDE == 0
-                                    if (!isBoundary) return@processing
-                                    emitStatus(
-                                        mutex = statusMutex,
-                                        sourceId = plan.sourceId,
-                                        seriesTitle = plan.seriesTitle,
-                                        mangaUrl = plan.mangaUrl,
-                                        message = "$chapterLabel: preparazione immagini $processed/$pageTotal",
-                                        doneChapters = completedChapters.get(),
-                                        totalChapters = totalChapters,
-                                    )
-                                },
-                            ) download@ { pageDone, pageTotal ->
-                                // Skip per-page emits except the final one or boundaries:
-                                // a chapter of 50 pages would otherwise produce 50 setProgress
-                                // round-trips, each waking the UI observer.
-                                val isFinalPage = pageDone >= pageTotal
-                                val isBatchBoundary = pageDone % PAGE_PROGRESS_STRIDE == 0
-                                val now = System.currentTimeMillis()
-                                val previousEmitMs = lastPageEmitMs.get()
-                                val timedOut = now - previousEmitMs >= PAGE_PROGRESS_MIN_INTERVAL_MS
-                                if (
-                                    !isFinalPage &&
-                                    !isBatchBoundary &&
-                                    !timedOut
-                                ) {
-                                    return@download
-                                }
-                                lastPageEmitMs.set(now)
-                                emitStatus(
-                                    mutex = statusMutex,
-                                    sourceId = plan.sourceId,
-                                    seriesTitle = plan.seriesTitle,
-                                    mangaUrl = plan.mangaUrl,
-                                    message = "$chapterLabel: pagina $pageDone/$pageTotal",
-                                    doneChapters = completedChapters.get(),
-                                    totalChapters = totalChapters,
-                                )
-                            }
-
-                            val done = completedChapters.incrementAndGet()
-                            val message = when (result) {
-                                DownloadResult.DOWNLOADED ->
-                                    "$chapterLabel completato"
-                                DownloadResult.SKIPPED_EXISTING ->
-                                    "$chapterLabel già presente"
-                            }
-                            emitStatus(
-                                mutex = statusMutex,
-                                sourceId = plan.sourceId,
-                                seriesTitle = plan.seriesTitle,
-                                mangaUrl = plan.mangaUrl,
-                                message = message,
-                                doneChapters = done,
-                                totalChapters = totalChapters,
-                            )
-                        }
+                val result = source.downloadChapterAsCbz(
+                    chapter = chapter,
+                    outputDir = plan.outputDir,
+                    pageConcurrency = PAGE_CONCURRENCY,
+                    onProcessingProgress = processing@ { processed, pageTotal ->
+                        val isBoundary = processed == 0 ||
+                            processed >= pageTotal ||
+                            processed % PAGE_PROGRESS_STRIDE == 0
+                        if (!isBoundary) return@processing
+                        emitStatus(
+                            mutex = statusMutex,
+                            sourceId = plan.sourceId,
+                            seriesTitle = plan.seriesTitle,
+                            mangaUrl = plan.mangaUrl,
+                            message = "$chapterLabel: preparazione immagini $processed/$pageTotal",
+                            doneChapters = completedChapters.get(),
+                            totalChapters = totalChapters,
+                        )
+                    },
+                ) download@ { pageDone, pageTotal ->
+                    // Skip per-page emits except the final one or boundaries:
+                    // a chapter of 50 pages would otherwise produce 50 setProgress
+                    // round-trips, each waking the UI observer.
+                    val isFinalPage = pageDone >= pageTotal
+                    val isBatchBoundary = pageDone % PAGE_PROGRESS_STRIDE == 0
+                    val now = System.currentTimeMillis()
+                    val previousEmitMs = lastPageEmitMs.get()
+                    val timedOut = now - previousEmitMs >= PAGE_PROGRESS_MIN_INTERVAL_MS
+                    if (
+                        !isFinalPage &&
+                        !isBatchBoundary &&
+                        !timedOut
+                    ) {
+                        return@download
                     }
-                }.awaitAll()
+                    lastPageEmitMs.set(now)
+                    emitStatus(
+                        mutex = statusMutex,
+                        sourceId = plan.sourceId,
+                        seriesTitle = plan.seriesTitle,
+                        mangaUrl = plan.mangaUrl,
+                        message = "$chapterLabel: pagina $pageDone/$pageTotal",
+                        doneChapters = completedChapters.get(),
+                        totalChapters = totalChapters,
+                    )
+                }
+
+                val done = completedChapters.incrementAndGet()
+                val message = when (result) {
+                    DownloadResult.DOWNLOADED ->
+                        "$chapterLabel completato"
+                    DownloadResult.SKIPPED_EXISTING ->
+                        "$chapterLabel già presente"
+                }
+                emitStatus(
+                    mutex = statusMutex,
+                    sourceId = plan.sourceId,
+                    seriesTitle = plan.seriesTitle,
+                    mangaUrl = plan.mangaUrl,
+                    message = message,
+                    doneChapters = done,
+                    totalChapters = totalChapters,
+                )
+            }
+
+            if (failures.isNotEmpty()) {
+                // Un 5xx o un 429 passano da soli: si ritenta la serie, i capitoli già salvati
+                // vengono saltati. Un 404 o una pagina che non si legge più no.
+                val worthRetrying = failures.any { it.error is IOException && isWorthRetrying(it.error) }
+                if (worthRetrying && !isLastAttempt) {
+                    return Result.retry()
+                }
+                return failedResult(
+                    IOException(chapterFailuresMessage(failures, plan.chapters), failures.first().error),
+                    firstUrl,
+                    lastUrl,
+                    plan.sourceId,
+                    plan.seriesTitle,
+                    plan.mangaUrl,
+                )
             }
 
             updateStatus(
@@ -575,6 +596,60 @@ class DownloadWorker(
 }
 
 private class DownloadStoppedException : RuntimeException()
+
+internal class ChapterFailure(val chapter: ChapterEntry, val error: Exception)
+
+/**
+ * Scarica [chapters] (al più [concurrency] insieme) e restituisce quelli non riusciti, invece
+ * di fermarsi al primo: un capitolo rimosso dal sito (404) non deve impedire di scaricare i
+ * successivi. Fermano tutto solo lo stop dell'utente, il disco pieno e gli errori per cui
+ * [abortOn] dice di non proseguire.
+ */
+internal suspend fun downloadChaptersCollectingFailures(
+    chapters: List<ChapterEntry>,
+    concurrency: Int,
+    abortOn: (Exception) -> Boolean = { false },
+    downloadChapter: suspend (ChapterEntry) -> Unit,
+): List<ChapterFailure> = coroutineScope {
+    val semaphore = Semaphore(concurrency)
+    chapters.map { chapter ->
+        async(Dispatchers.IO) {
+            semaphore.withPermit {
+                try {
+                    downloadChapter(chapter)
+                    null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (stopped: DownloadStoppedException) {
+                    throw stopped
+                } catch (storage: InsufficientStorageException) {
+                    throw storage
+                } catch (error: Exception) {
+                    if (abortOn(error)) throw error
+                    ChapterFailure(chapter, error)
+                }
+            }
+        }
+    }.awaitAll().filterNotNull()
+}
+
+/**
+ * Testo per notifica e snackbar. Se non si è scaricato niente la causa è quasi sempre una
+ * sola (fonte giù, accesso negato): vale più l'errore originale di un conteggio.
+ */
+internal fun chapterFailuresMessage(failures: List<ChapterFailure>, chapters: List<ChapterEntry>): String {
+    if (failures.size >= chapters.size) {
+        return failures.first().error.message ?: "Errore sconosciuto"
+    }
+    val named = failures.take(MAX_NAMED_FAILURES).joinToString(", ") { it.chapter.displayNumber() }
+    val more = if (failures.size > MAX_NAMED_FAILURES) "…" else ""
+    return "${failures.size} ${readingUnitPlural(chapters)} su ${chapters.size} non scaricati: $named$more"
+}
+
+private const val MAX_NAMED_FAILURES = 3
+
+private fun Throwable.hasHttpStatus(): Boolean =
+    generateSequence(this) { it.cause }.any { it is HttpStatusException }
 
 private fun Set<String>.tagValue(prefix: String): String? {
     return firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)

@@ -4,6 +4,23 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Opus). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-11-23
+
+### Migliorato
+
+- Se un capitolo non si scarica (rimosso dal sito, bloccato o con pagine illeggibili), gli altri capitoli della serie vengono scaricati lo stesso, senza attese di minuti, e alla fine il messaggio indica quali capitoli non sono stati scaricati. Se cade la rete, invece, l'app riprova il download della serie più tardi.
+- Quando una fonte cambia indirizzo o va in manutenzione, l'app si adegua da sola, senza bisogno di una nuova versione. Una fonte in manutenzione mostra il motivo nelle impostazioni delle fonti, e ricerca e preferiti usano le altre.
+
+### Corretto
+
+- MangaWorld funziona di nuovo dopo il trasloco su mangaworld.me e il rifacimento del sito. Preferiti e manga già scaricati restano collegati come prima, e le serie oneshot ora si aprono invece di mostrare "nessun capitolo".
+- Hasta Team è temporaneamente in manutenzione, perché il sito blocca le app con il controllo anti-bot di Cloudflare: nel frattempo si usano le altre fonti.
+- Un capitolo segnato come letto mentre parte un download non torna più "non letto", e i dati di una serie scaricata non si rovinano più se l'app si chiude mentre li salva.
+
+### Interno
+
+- Controllo quotidiano automatico di tutte le fonti sui siti reali (workflow GitHub che apre o chiude l'issue "Fonti da controllare"); segnalazioni e crash inviati a Trello tramite Worker Cloudflare al posto dell'email SMTP; i dati salvati illeggibili vengono conservati in copia e segnalati nei report invece di essere sovrascritti; MainActivity suddivisa in host di schermate e dialog; controllo dei preferiti in background estratto in FavoriteUpdatesRun con test; dipendenze aggiornate (Material3 1.5.0-rc01, jsoup 1.24.1, kotlinx-serialization 1.13.0, Gradle wrapper).
+
 ## 2026-10-26
 
 ### Migliorato

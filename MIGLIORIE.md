@@ -11,8 +11,8 @@
 > Stato misurato su `dev`: 771 test, nessuno fallito (8 sono il controllo sulle fonti vere, che gira solo a richiesta); Android Lint dà 1 errore e 5 avvisi; nessun `TODO`, `runBlocking` o `GlobalScope` nel codice. Il codice è sano: i rischi veri oggi sono fuori dal codice (rilascio, fonti che cambiano, distribuzione).
 > Ordine consigliato. Le voci nuove sono descritte qui sotto, le altre rimandano alla loro sezione.
 
-1. **Pubblicare la stabile** (voce qui sotto), poi chiudere il P0 SMTP in 🔐.
-2. **Hasta Team dietro il challenge di Cloudflare** (qui sotto): da provare sul telefono, è una delle due fonti italiane.
+1. **Chiudere il P0 SMTP in 🔐**: la 1.17.1 (2026-11-23) non ha più le credenziali nell'APK, quindi la app password Gmail si può revocare.
+2. **Hasta Team dietro il challenge di Cloudflare** (qui sotto): è una delle due fonti italiane, oggi in manutenzione.
 3. **Attivare il controllo quotidiano delle fonti** (qui sotto): il workflow c'è, va portato sul branch di default.
 4. **Informativa privacy e consenso ai crash** (🔐 P2), **Scarica solo in Wi-Fi** e **Baseline Profile** (⚡): piccoli e già descritti.
 5. **Decidere come affrontare la verifica sviluppatori di Android** (qui sotto) prima che arrivi in Europa.
@@ -20,22 +20,14 @@
 
 - [ ] **Hasta Team risponde col challenge di Cloudflare** ✅ — Impatto Alto · Sforzo da capire
   - Trovato dal controllo sulle fonti vere il 2026-11-16: `https://reader.hastateam.com/` e la sua API rispondono 403 con la pagina "Just a moment..." sia a OkHttp sia a una richiesta con lo User-Agent di Chrome 141. Le altre 7 fonti passano.
-  - Ricontrollato il 2026-11-24: la risposta ha `Cf-Mitigated: challenge`, cioè il challenge JavaScript dato a qualunque client che non sia un browser. Vale da ogni rete, telefono compreso, perché l'app usa OkHttp.
-  - Fatto: `"hasta_team"` è in manutenzione in `android-app/sources.json`. Diventa effettivo quando il file arriva su `main`.
+  - Ricontrollato il 2026-11-23: la risposta ha `Cf-Mitigated: challenge`, cioè il challenge JavaScript dato a qualunque client che non sia un browser. Vale da ogni rete, telefono compreso, perché l'app usa OkHttp.
+  - Fatto: `"hasta_team"` è in manutenzione in `android-app/sources.json` (su `main` dalla 1.17.1).
   - Resta: il risolutore di challenge via WebView (📦, finora scartato perché nessuna fonte lo richiedeva), poi togliere la manutenzione.
 
 - [ ] **Attivare il controllo quotidiano delle fonti** ✅ — Impatto Alto · Sforzo Basso *(passi manuali)*
   - Fatto: `LiveSourcesCheckTest` (ricerca → scheda → pagine → prima immagine sul sito vero, con `-PliveSources=true`) e il workflow `sources-check.yml`, che apre o chiude l'issue "Fonti da controllare".
   - Resta: GitHub esegue i workflow schedulati solo dal branch di default, che oggi è `claude/add-manga-image-display-5MBOE` e non `main`. Va cambiato il branch di default (o portato lì il workflow), poi lanciato una volta a mano.
   - Da verificare al primo giro 🔎: se Cloudflare blocca gli IP dei runner GitHub, le fonti risulteranno rotte anche quando non lo sono. In quel caso il controllo va fatto girare altrove.
-
-- [ ] **`sources.json` va portato su `main`** ✅ — Impatto Alto · Sforzo Basso
-  - L'app lo legge da `raw.githubusercontent.com/…/main/android-app/sources.json`. Finché `dev` non è fuso il file non c'è: l'app riceve un 404 e non cambia nulla. Uso e formato sono nel README.
-
-- [ ] **La stabile è ferma al 25 settembre** ✅ — Impatto Alto · Sforzo Basso
-  - `main` è alla 1.16.4 (`6c565f7`, 2026-09-25); `dev` è avanti di 11 commit, 118 file, +17.156/−8.265 righe (1.16.6). Chi usa la stabile ha ancora le credenziali SMTP nell'APK, il PIN con l'hash veloce e il login AniList senza `state`.
-  - Più `dev` si allontana, più il rilascio diventa un salto unico difficile da diagnosticare se qualcosa si rompe.
-  - Cosa fare: provare sul telefono una preview (elenco in 🔐 "Da verificare sul telefono", più Asura e DemonicScans), fondere in `main`, rilasciare, e solo dopo revocare la app password Gmail.
 
 - [ ] **Verifica sviluppatori di Android** 🔎 — Impatto Alto · decisione, non codice
   - Dal 30 settembre 2026 in Brasile, Indonesia, Singapore e Thailandia, e nel resto del mondo nel 2027, sui telefoni certificati un APK di uno sviluppatore non registrato si installa solo col "percorso avanzato": avvisi, riavvio e 24 ore di attesa la prima volta. `adb` resta libero.

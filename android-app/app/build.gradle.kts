@@ -169,6 +169,9 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // `-PliveSources=true` accende LiveSourcesCheckTest, che interroga i siti veri delle
+        // fonti. Il valore entra negli input del task: cambiarlo lo fa rieseguire.
+        unitTests.all { it.systemProperty("liveSources", providers.gradleProperty("liveSources").getOrElse("false")) }
     }
 
 }

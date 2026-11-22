@@ -85,6 +85,7 @@ I test (`src/test/...`) stanno nello stesso package della classe che verificano;
 | Workflow | Quando parte | Cosa fa |
 | --- | --- | --- |
 | `android-tests.yml` | pull request che toccano `android-app/` | test unitari |
+| `sources-check.yml` | ogni giorno (o avvio manuale) | prova ogni fonte sul sito vero: ricerca, scheda, pagine, prima immagine. Se una fallisce apre l'issue "Fonti da controllare" e la chiude quando tornano tutte a funzionare. In locale: `./gradlew :app:testDebugUnitTest --tests "*LiveSourcesCheckTest" -PliveSources=true` |
 | `android-preview.yml` | push su `dev` che toccano `android-app/` | test + APK firmato, pubblicato come pre-release `android-preview-v<versione>-preview.<n>` |
 | `android.yml` | push su `main` che cambiano `android-app/version.properties` (o avvio manuale) | test + APK firmato, pubblicato nella release `android-v<versionName>` e come artifact `manga-downloader-release` |
 

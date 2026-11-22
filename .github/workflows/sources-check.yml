@@ -1,0 +1,77 @@
+name: Sources check
+
+# Controllo quotidiano delle fonti sui siti veri (LiveSourcesCheckTest). Se una fonte non
+# risponde più come il parser si aspetta, apre (o aggiorna) l'issue "Fonti da controllare";
+# quando tutte tornano a funzionare la chiude. Gli orari schedulati valgono solo sul branch
+# di default del repository.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: sources-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_TITLE: Fonti da controllare
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Check the sources on the real sites
+        working-directory: android-app
+        continue-on-error: true
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest \
+            --tests "com.lorenzo.mangadownloader.data.sources.LiveSourcesCheckTest" \
+            -PliveSources=true
+
+      - name: Summarize
+        id: report
+        run: |
+          set +e
+          python3 .github/scripts/sources_report.py \
+            "android-app/app/build/test-results/testDebugUnitTest/*LiveSourcesCheckTest*.xml" \
+            > "$RUNNER_TEMP/report.md"
+          echo "failed=$?" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/report.md" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the issue
+        if: steps.report.outputs.failed != '0'
+        run: |
+          printf '\n\n[Log del controllo](%s)\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> "$RUNNER_TEMP/report.md"
+          NUMBER="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')"
+          if [ -n "$NUMBER" ]; then
+            gh issue comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/report.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body-file "$RUNNER_TEMP/report.md"
+          fi
+          exit 1
+
+      - name: Close the issue when everything works again
+        if: steps.report.outputs.failed == '0'
+        run: |
+          NUMBER="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')"
+          if [ -n "$NUMBER" ]; then
+            gh issue close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment "Tutte le fonti rispondono di nuovo."
+          fi

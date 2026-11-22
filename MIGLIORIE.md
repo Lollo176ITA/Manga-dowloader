@@ -6,6 +6,61 @@
 
 ---
 
+## 🧭 Prossimi passi (analisi del 2026-11-16)
+
+> Stato misurato su `dev`: 771 test, nessuno fallito (8 sono il controllo sulle fonti vere, che gira solo a richiesta); Android Lint dà 1 errore e 5 avvisi; nessun `TODO`, `runBlocking` o `GlobalScope` nel codice. Il codice è sano: i rischi veri oggi sono fuori dal codice (rilascio, fonti che cambiano, distribuzione).
+> Ordine consigliato. Le voci nuove sono descritte qui sotto, le altre rimandano alla loro sezione.
+
+1. **Pubblicare la stabile** (voce qui sotto), poi chiudere il P0 SMTP in 🔐.
+2. **Hasta Team dietro il challenge di Cloudflare** (qui sotto): da provare sul telefono, è una delle due fonti italiane.
+3. **Attivare il controllo quotidiano delle fonti** (qui sotto): il workflow c'è, va portato sul branch di default.
+4. **Informativa privacy e consenso ai crash** (🔐 P2), **Scarica solo in Wi-Fi** e **Baseline Profile** (⚡): piccoli e già descritti.
+5. **Decidere come affrontare la verifica sviluppatori di Android** (qui sotto) prima che arrivi in Europa.
+6. Poi le feature per crescere: **MangaDex** e **lingua inglese** (✨).
+
+- [ ] **Hasta Team risponde col challenge di Cloudflare** ✅ — Impatto Alto · Sforzo da capire
+  - Trovato dal controllo sulle fonti vere il 2026-11-16: `https://reader.hastateam.com/` e la sua API rispondono 403 con la pagina "Just a moment..." sia a OkHttp sia a una richiesta con lo User-Agent di Chrome 141. Le altre 7 fonti passano.
+  - Ricontrollato il 2026-11-24: la risposta ha `Cf-Mitigated: challenge`, cioè il challenge JavaScript dato a qualunque client che non sia un browser. Vale da ogni rete, telefono compreso, perché l'app usa OkHttp.
+  - Fatto: `"hasta_team"` è in manutenzione in `android-app/sources.json`. Diventa effettivo quando il file arriva su `main`.
+  - Resta: il risolutore di challenge via WebView (📦, finora scartato perché nessuna fonte lo richiedeva), poi togliere la manutenzione.
+
+- [ ] **Attivare il controllo quotidiano delle fonti** ✅ — Impatto Alto · Sforzo Basso *(passi manuali)*
+  - Fatto: `LiveSourcesCheckTest` (ricerca → scheda → pagine → prima immagine sul sito vero, con `-PliveSources=true`) e il workflow `sources-check.yml`, che apre o chiude l'issue "Fonti da controllare".
+  - Resta: GitHub esegue i workflow schedulati solo dal branch di default, che oggi è `claude/add-manga-image-display-5MBOE` e non `main`. Va cambiato il branch di default (o portato lì il workflow), poi lanciato una volta a mano.
+  - Da verificare al primo giro 🔎: se Cloudflare blocca gli IP dei runner GitHub, le fonti risulteranno rotte anche quando non lo sono. In quel caso il controllo va fatto girare altrove.
+
+- [ ] **`sources.json` va portato su `main`** ✅ — Impatto Alto · Sforzo Basso
+  - L'app lo legge da `raw.githubusercontent.com/…/main/android-app/sources.json`. Finché `dev` non è fuso il file non c'è: l'app riceve un 404 e non cambia nulla. Uso e formato sono nel README.
+
+- [ ] **MangaWorld ha traslocato su `mangaworld.me` e rifatto il sito** ✅ — Impatto Alto · Sforzo Medio
+  - Trovato dal controllo sulle fonti vere il 2026-11-24: `www.mangaworld.mx` risponde 301 verso `www.mangaworld.me`. Il dominio nuovo è già in `android-app/sources.json`.
+  - Il dominio non basta: la ricerca ora è fatta di `article.card` dentro `.archive-grid`, con il titolo in `.card-title a`, e il parser cerca `.manga-title` / `.comics-grid .entry`. Risultato: "nessun risultato". Scheda e lettore vanno ricontrollati allo stesso modo.
+
+- [ ] **MangaWorld: i oneshot non hanno capitoli** ✅ — Impatto Basso · Sforzo Basso
+  - Dove: [MangaWorldSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/MangaWorldSource.kt) `collectChapterEntries` accetta solo titoli "Capitolo N" o "Volume N". Una serie con il solo capitolo "Oneshot" (es. `manga/3294`, primo risultato cercando "one piece") finisce in "Nessun capitolo trovato sulla pagina manga".
+  - Cosa fare: trattare "Oneshot" come capitolo 1.
+
+- [ ] **La stabile è ferma al 25 settembre** ✅ — Impatto Alto · Sforzo Basso
+  - `main` è alla 1.16.4 (`6c565f7`, 2026-09-25); `dev` è avanti di 11 commit, 118 file, +17.156/−8.265 righe (1.16.6). Chi usa la stabile ha ancora le credenziali SMTP nell'APK, il PIN con l'hash veloce e il login AniList senza `state`.
+  - Più `dev` si allontana, più il rilascio diventa un salto unico difficile da diagnosticare se qualcosa si rompe.
+  - Cosa fare: provare sul telefono una preview (elenco in 🔐 "Da verificare sul telefono", più Asura e DemonicScans), fondere in `main`, rilasciare, e solo dopo revocare la app password Gmail.
+
+- [ ] **Verifica sviluppatori di Android** 🔎 — Impatto Alto · decisione, non codice
+  - Dal 30 settembre 2026 in Brasile, Indonesia, Singapore e Thailandia, e nel resto del mondo nel 2027, sui telefoni certificati un APK di uno sviluppatore non registrato si installa solo col "percorso avanzato": avvisi, riavvio e 24 ore di attesa la prima volta. `adb` resta libero.
+  - Per un'app distribuita come APK a molte persone è l'ostacolo più grande in arrivo. Registrarsi vuol dire legare la propria identità a un'app di scraping.
+  - Cosa fare: decidere tra registrazione e istruzioni per il percorso avanzato (nel README e nella pagina di download). Va fatto prima di investire nella crescita.
+
+- [ ] **Aggiornamento senza finestra di conferma (Android 12+)** 🔎 — Impatto Medio · Sforzo Medio
+  - Dove: [AppUpdateManager.kt:305](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/update/AppUpdateManager.kt#L305) apre l'installer di sistema con un `Intent`.
+  - Con una sessione `PackageInstaller`, `setRequireUserAction(USER_ACTION_NOT_REQUIRED)` e il permesso `UPDATE_PACKAGES_WITHOUT_USER_ACTION`, un'app che aggiorna se stessa non chiede conferma (la documentazione Android elenca le condizioni: `targetSdk` recente, già a posto col 37). Nessuna libreria.
+  - Più utenti sull'ultima versione vuol dire meno segnalazioni di fonti già riparate. Da provare sul telefono: il sistema può comunque chiedere conferma, e il caso va gestito.
+
+- [ ] **Lint non gira in CI e oggi fallisce** ✅ — Impatto Basso · Sforzo Basso
+  - I tre workflow lanciano solo `testDebugUnitTest`. `:app:lintDebug` si ferma su un errore: `reading_widget_preview.xml:40` usa `android:tint` (regola `UseAppTint`). È un falso positivo, perché l'anteprima del widget non passa da AppCompat: basta un `tools:ignore`.
+  - Cosa fare: silenziare quella riga e aggiungere `lintDebug` al workflow dei test. I 5 avvisi (attributi del widget validi solo da API 31, Robolectric) sono innocui.
+
+---
+
 ## 🔐 Sicurezza e distribuzione larga
 
 > Audit esterno verificato il 2026-10-26 sul branch `dev`. P0 → P3 è l'ordine consigliato prima di distribuire a molti utenti.
@@ -106,7 +161,6 @@
 
 | Valore | Voce | Impatto | Rischio | Sforzo |
 | --- | --- | --- | --- | --- |
-| 40 | Skill di progetto che descrivono un progetto che non esiste più | 4 | 4 | 1 |
 | 16 | Store creati a mano in tre posti | 2 | 2 | 2 |
 | 15 | Modelli di stato dentro `MangaViewModel.kt` | 2 | 1 | 1 |
 | 12 | Controller "scheda manga" e "preferiti" dal ViewModel | 3 | 3 | 4 |
@@ -114,12 +168,6 @@
 | 9 | Schermate con decine di parametri | 2 | 1 | 3 |
 | 6 | `MangaUiState` monolitico | 2 | 1 | 4 |
 | 6 | File grossi ma fermi (`ReaderScreen`, `UiComponents`, test delle fonti) | 1 | 1 | 3 |
-
-- [ ] **Skill di progetto che descrivono un progetto che non esiste più** ✅ — Valore 40
-  - Dove: `.claude/skills/android-testing/SKILL.md` (righe 8-67 e 155: modulo KMP `:shared`, `commonTest`, `MapSettings`/`FakeFileSystem`/`MockEngine`, comando `:shared:testAndroidHostTest`, "il `MangaViewModel` vive in `:shared` e riceve un `AppContainer`"), `app-ui/SKILL.md` e `accessibility/SKILL.md` (link a `android-app/shared/src/commonMain/...`). `android-testing` e `app-ui` citano anche il client Python `manga_downloader.py`.
-  - Verificato: `settings.gradle.kts` include solo `:app` e `:benchmark`; `shared/src/commonMain/kotlin` e `manga_downloader.py` non esistono; il ViewModel è in `app/` e crea gli store da solo.
-  - Perché è la prima: il codice lo scrive Claude leggendo queste skill. Ogni sessione di test o di UI parte da percorsi che non esistono e da un comando di test su un modulo che Gradle non conosce.
-  - Cosa fare: riallineare le tre skill ai percorsi `android-app/app/src/...` e al solo `:app:testDebugUnitTest`.
 
 - [ ] **Rifare il giro `/perf` dopo lo spezzamento di `MainActivity`** ✅ — Impatto Basso · Sforzo Basso
   - Il 2026-11-15 `MangaDownloaderAppContent` è sceso da 923 a 357 righe (`MainActivity.kt` da 1230 a 618): schermate, tab, impostazioni, dialog, permessi notifiche, avvio download e backup stanno in `ui/app/`.
@@ -181,9 +229,18 @@
 
 - [ ] **Test HTTP delle fonti** con MockWebServer3 5.5.0 (stessa versione di OkHttp): retry, Referer, 404, risposte troncate. Roborazzi 1.77.0 e Turbine 1.2.1 solo se servono davvero (regressioni di UI, test sui Flow).
 
+- [ ] **`okhttp-dnsoverhttps`** (modulo ufficiale di OkHttp, stessa versione 5.5.1) 🔎 — Impatto Alto *se* i blocchi ci sono · Sforzo Basso
+  - Oggi l'app usa il DNS dell'operatore (nessuna configurazione DNS in `SharedHttpClient`). In Italia i siti pirata vengono bloccati proprio a livello DNS su ordine AGCOM, e MangaWorld ha già avuto un procedimento (delibera 86/21/CSP). Mihon offre la stessa opzione.
+  - Cosa fare: un'impostazione "DNS sicuro" (spento / Cloudflare / Google), circa 40 righe. Prima va verificato su una SIM italiana che una fonte sia davvero bloccata: senza blocco non serve.
+
+- Confronto con Mihon (catalogo delle sue dipendenze letto il 2026-11-16): usa SQLDelight, un framework DI, Voyager, Apollo, RxJava, QuickJS e Firebase Crashlytics. Sono le stesse famiglie già scartate qui sotto, e servono a un'app con centinaia di estensioni di terzi. Per 8 fonti scritte in casa le scelte fatte restano giuste: a questa app non mancano librerie.
+
 - Valutate e **scartate**, a oggi:
+  - **`okhttp-brotli`**: una riga, ma fa risparmiare pochi KB sulle pagine HTML. Non si sente.
+  - **Risolutore di challenge Cloudflare via WebView** (lo schema di Mihon: WebView che ottiene il cookie `cf_clearance`): nessuna fonte oggi lo richiede. Circa 200 righe senza librerie, da scrivere solo il giorno in cui una fonte finisce dietro il challenge.
+  - **QuickJS**: serve solo se una fonte nasconde gli URL delle immagini dietro JavaScript.
   - **Telephoto**: provata nel reader il 2026-09-23 e scartata. Serve solo nel reader a pagine, mentre `TallPageNormalizer`/`ReaderTallPage` restano indispensabili nel verticale.
-  - **Tink / `security-crypto` / `datastore-tink`**: vedi la voce sul backup in 🔐.
+  - **Tink / `security-crypto` / `datastore-tink`**: scartate (la voce sul backup in 🔐 a cui questa riga rimandava non è più nel file).
   - **Apollo Kotlin** per AniList: plugin, schema e codice generato per poche query scritte a mano. Il guadagno non giustifica il costo.
   - **kotlinx-collections-immutable**: lo strong skipping è attivo, e il costo misurato delle ricomposizioni è già stato giudicato non percepibile.
   - **Detekt 1.23.x** 🔎: è pensato per Kotlin più vecchi del 2.4. Se serve analisi statica, meglio `compose-lint-checks` come `lintChecks` di Android Lint.

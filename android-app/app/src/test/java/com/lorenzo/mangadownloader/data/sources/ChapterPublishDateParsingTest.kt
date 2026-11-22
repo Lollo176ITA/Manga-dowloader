@@ -23,14 +23,15 @@ class ChapterPublishDateParsingTest {
     fun mangaWorldChapters_readTheItalianChapDate() {
         val details = MangaWorldSource.parseMangaDetails(
             """
-            <section id="manga-page">
-              <h1 class="name bigger">Sayonara Eri</h1>
-              <div id="chapterList">
-                <div class="chapters-wrapper">
-                  <div class="chapter pl-2"><a class="chap" href="https://www.mangaworld.mx/manga/2754/sayonara-eri/read/chapter-1" title="Sayonara Eri Capitolo 01 Scan ITA"><span class="d-inline-block">Capitolo 01</span><i class="text-right text-muted chap-date">03 Maggio 2022</i><div class="clearfix"></div></a></div>
-                </div>
-              </div>
-            </section>
+            <h1 class="manga-title display">Sayonara Eri</h1>
+            <div class="volume-list" data-chapters-list>
+              <ul class="ch-list single-chapters">
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2754/sayonara-eri/read/chapter-1" title="Sayonara Eri Capitolo 01 Scan ITA">
+                  <span class="ch-label"><span class="ch-name">Capitolo 01</span></span>
+                  <span class="ch-date">03 Maggio 2022</span>
+                </a></li>
+              </ul>
+            </div>
             """.trimIndent(),
             "https://www.mangaworld.mx/manga/2754/sayonara-eri",
         )
@@ -44,14 +45,14 @@ class ChapterPublishDateParsingTest {
     fun mangaWorldChapters_haveNoDateWhenTheSiteOmitsIt() {
         val details = MangaWorldSource.parseMangaDetails(
             """
-            <section id="manga-page">
-              <h1 class="name bigger">Sayonara Eri</h1>
-              <div id="chapterList">
-                <div class="chapters-wrapper">
-                  <div class="chapter pl-2"><a class="chap" href="https://www.mangaworld.mx/manga/2754/sayonara-eri/read/chapter-1" title="Sayonara Eri Capitolo 01 Scan ITA"><span>Capitolo 01</span></a></div>
-                </div>
-              </div>
-            </section>
+            <h1 class="manga-title display">Sayonara Eri</h1>
+            <div class="volume-list" data-chapters-list>
+              <ul class="ch-list single-chapters">
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2754/sayonara-eri/read/chapter-1" title="Sayonara Eri Capitolo 01 Scan ITA">
+                  <span class="ch-label"><span class="ch-name">Capitolo 01</span></span>
+                </a></li>
+              </ul>
+            </div>
             """.trimIndent(),
             "https://www.mangaworld.mx/manga/2754/sayonara-eri",
         )

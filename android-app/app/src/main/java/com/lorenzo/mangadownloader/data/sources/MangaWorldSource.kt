@@ -80,19 +80,28 @@ class MangaWorldSource(
             libraryRepository: LibraryRepository,
         ): MangaSource = MangaWorldSource(context, networkClient, libraryRepository)
 
+        /**
+         * Dominio con cui le serie sono salvate. Il sito ha traslocato su `mangaworld.me`
+         * (2026-11): le richieste ci arrivano da `sources.json` o, prima che il file sia
+         * scaricato, dal redirect 301 del dominio vecchio.
+         */
         private const val BASE_URL = "https://www.mangaworld.mx/"
+
+        /** Qualunque dominio `mangaworld.<tld>`: i link letti dal sito nuovo restano validi. */
+        private const val HOST_PATTERN = """(?:www\.)?mangaworld\.[a-z]{2,}"""
         private val mangaRegex =
             Regex(
-                """^https?://(?:www\.)?mangaworld\.mx/manga/(\d+)(?:/[^/?#]+)?/?(?:[?#].*)?$""",
+                """^https?://$HOST_PATTERN/manga/(\d+)(?:/[^/?#]+)?/?(?:[?#].*)?$""",
                 RegexOption.IGNORE_CASE,
             )
         private val readRegex =
             Regex(
-                """^https?://(?:www\.)?mangaworld\.mx/manga/(\d+)(?:/([^/?#]+))?/read/([^/?#]+)(?:/\d+)?""",
+                """^https?://$HOST_PATTERN/manga/(\d+)(?:/([^/?#]+))?/read/([^/?#]+)(?:/\d+)?""",
                 RegexOption.IGNORE_CASE,
             )
         private val readingEntryRegex =
             Regex("""(capitolo|volume)\s+(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        private val oneshotRegex = Regex("""\bone[\s-]?shot\b""", RegexOption.IGNORE_CASE)
 
         override fun handlesUrl(url: String): Boolean {
             return canonicalSeriesUrl(url) != null || chapterReaderUrl(url) != null
@@ -123,14 +132,16 @@ class MangaWorldSource(
 
         private fun parseSearchResults(document: Document): List<MangaSearchResult> {
             val results = linkedMapOf<String, MangaSearchResult>()
-            val selectors = """a.manga-title[href*="/manga/"], .comics-grid .entry a.thumb[href*="/manga/"]"""
+            // Archivio: `<article class="card archive-card">` dentro `.archive-grid`, con la
+            // copertina in `a.card-cover` e il titolo in `.card-title a`.
+            val selectors = """.archive-grid a.card-cover[href*="/manga/"], .archive-grid .card-title a[href*="/manga/"]"""
             for (anchor in document.select(selectors)) {
                 val mangaUrl = canonicalSeriesUrl(anchor.absUrl("href")) ?: continue
-                val entry = anchor.closest(".entry")
+                val entry = anchor.closest(".card")
                 val title = firstNonBlankTrimmed(
                     anchor.attr("title"),
                     anchor.text(),
-                    entry?.selectFirst(".manga-title")?.text(),
+                    entry?.selectFirst(".card-title")?.text(),
                     entry?.selectFirst("img")?.attr("alt"),
                 ) ?: continue
                 val cover = entry?.selectFirst("img")
@@ -155,14 +166,13 @@ class MangaWorldSource(
         private fun parseMangaDetails(document: Document, mangaUrl: String): MangaDetails {
             val canonical = canonicalSeriesUrl(mangaUrl)
                 ?: throw IllegalArgumentException("URL manga MangaWorld non valido")
-            val title = document.selectFirst("h1.name")?.text()?.trim()
+            val title = document.selectFirst("h1.manga-title")?.text()?.trim()
                 ?: document.selectFirst("h1")?.text()?.trim()
                 ?: "manga"
             val cover = firstNonBlankTrimmed(
-                document.selectFirst(".comic-info .thumb img")?.absUrl("src"),
                 document.selectFirst("""meta[property="og:image"]""")?.attr("content"),
             )
-            val description = parseDescription(document, ".comic-description #noidungm")
+            val description = parseDescription(document, ".manga-plot")
             val chapters = parseChapters(document)
             return MangaDetails(
                 sourceId = MangaSourceIds.MANGA_WORLD,
@@ -176,24 +186,35 @@ class MangaWorldSource(
         }
 
         private fun parseChapters(document: Document): List<ChapterEntry> {
+            // `.volume-list` contiene un `.volume` per volume (nome in `.volume-name`, capitoli
+            // in `ul.volume-chapters`) oppure, per le serie senza volumi, un solo
+            // `ul.single-chapters`. Ogni capitolo è un `a.ch` con nome in `.ch-name`.
             val entries = linkedMapOf<String, ChapterEntry>()
-            for (volume in document.select(".chapters-wrapper .volume-element")) {
+            val oneshots = linkedMapOf<String, ChapterEntry>()
+            for (volume in document.select(".volume-list .volume")) {
                 val volumeText = volume.selectFirst(".volume-name")?.text()?.trim()
                 collectChapterEntries(
                     target = entries,
-                    anchors = volume.select("""a.chap[href*="/read/"]"""),
+                    oneshots = oneshots,
+                    anchors = volume.select("""a.ch[href*="/read/"]"""),
                     volumeText = volumeText,
                 )
             }
 
-            val ungroupedSelectors = """#chapterList a.chap[href*="/read/"], .chapters-wrapper a[href*="/read/"]"""
-            val ungroupedAnchors = document.select(ungroupedSelectors)
-                .filter { anchor -> anchor.closest(".volume-element") == null }
+            val ungroupedAnchors = document.select(""".volume-list a.ch[href*="/read/"]""")
+                .filter { anchor -> anchor.closest(".volume") == null }
             collectChapterEntries(
                 target = entries,
+                oneshots = oneshots,
                 anchors = ungroupedAnchors,
                 volumeText = null,
             )
+
+            // Un oneshot conta come capitolo 1, ma solo se la serie non ha capitoli numerati:
+            // altrimenti ci sarebbero due "capitolo 1".
+            if (entries.isEmpty()) {
+                entries.putAll(oneshots)
+            }
 
             if (entries.isEmpty()) {
                 throw IllegalStateException("Nessun capitolo trovato sulla pagina manga")
@@ -204,6 +225,7 @@ class MangaWorldSource(
 
         private fun collectChapterEntries(
             target: LinkedHashMap<String, ChapterEntry>,
+            oneshots: LinkedHashMap<String, ChapterEntry>,
             anchors: Iterable<Element>,
             volumeText: String?,
         ) {
@@ -211,38 +233,60 @@ class MangaWorldSource(
                 val href = anchor.absUrl("href").ifBlank { anchor.attr("href").trim() }
                 val chapterUrl = chapterReaderUrl(href) ?: continue
                 val title = firstNonBlankTrimmed(
+                    anchor.selectFirst(".ch-name")?.text(),
                     anchor.selectFirst("span")?.text(),
                     anchor.attr("title"),
                     anchor.text(),
                 ) ?: continue
-                val entryMatch = readingEntryRegex.find(title) ?: continue
+                val entryMatch = readingEntryRegex.find(title)
+                if (entryMatch == null) {
+                    if (oneshotRegex.containsMatchIn(title)) {
+                        oneshots[chapterUrl] = chapterEntry(anchor, chapterUrl, "1", "Capitolo", volumeText)
+                    }
+                    continue
+                }
                 val labelPrefix = entryMatch.groupValues[1]
                     .lowercase(Locale.US)
                     .replaceFirstChar { it.titlecase(Locale.US) }
-                val numberText = entryMatch.groupValues[2].trim()
-                val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
-                    ?: numberText.toBigDecimalOrNull()
-                    ?: BigDecimal(numberText)
-                val normalizedVolumeText = volumeText?.takeIf(String::isNotBlank)
-                target[chapterUrl] = ChapterEntry(
-                    numberText = numberText,
-                    numberValue = numberValue,
-                    url = chapterUrl,
-                    slug = chapterSlug(chapterUrl, numberText),
-                    volumeText = normalizedVolumeText.takeUnless { labelPrefix == "Volume" },
+                target[chapterUrl] = chapterEntry(
+                    anchor = anchor,
+                    chapterUrl = chapterUrl,
+                    numberText = entryMatch.groupValues[2].trim(),
                     labelPrefix = labelPrefix,
-                    // MangaWorld mette la data dentro l'anchor, dopo il nome del capitolo:
-                    // `<i class="chap-date">03 Maggio 2022</i>`. In italiano per esteso.
-                    publishedAtMillis = chapterDateFromItalianDate(
-                        anchor.selectFirst("i.chap-date")?.text(),
-                    ),
+                    volumeText = volumeText,
                 )
             }
         }
 
+        private fun chapterEntry(
+            anchor: Element,
+            chapterUrl: String,
+            numberText: String,
+            labelPrefix: String,
+            volumeText: String?,
+        ): ChapterEntry {
+            val numberValue = DownloadStorage.parseChapterValueOrNull(numberText)
+                ?: numberText.toBigDecimalOrNull()
+                ?: BigDecimal(numberText)
+            val normalizedVolumeText = volumeText?.takeIf(String::isNotBlank)
+            return ChapterEntry(
+                numberText = numberText,
+                numberValue = numberValue,
+                url = chapterUrl,
+                slug = chapterSlug(chapterUrl, numberText),
+                volumeText = normalizedVolumeText.takeUnless { labelPrefix == "Volume" },
+                labelPrefix = labelPrefix,
+                // MangaWorld mette la data dentro l'anchor, dopo il nome del capitolo:
+                // `<span class="ch-date">03 Maggio 2022</span>`. In italiano per esteso.
+                publishedAtMillis = chapterDateFromItalianDate(
+                    anchor.selectFirst(".ch-date")?.text(),
+                ),
+            )
+        }
+
         private fun parsePageImageUrls(document: Document, chapterUrl: String): List<String> {
             val ordered = linkedSetOf<String>()
-            for (image in document.select("""#page img.page-image, img.page-image""")) {
+            for (image in document.select("""img.reader-page""")) {
                 val src = firstNonBlankTrimmed(
                     image.absUrl("data-src"),
                     image.absUrl("src"),

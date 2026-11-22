@@ -32,14 +32,6 @@
 - [ ] **`sources.json` va portato su `main`** ✅ — Impatto Alto · Sforzo Basso
   - L'app lo legge da `raw.githubusercontent.com/…/main/android-app/sources.json`. Finché `dev` non è fuso il file non c'è: l'app riceve un 404 e non cambia nulla. Uso e formato sono nel README.
 
-- [ ] **MangaWorld ha traslocato su `mangaworld.me` e rifatto il sito** ✅ — Impatto Alto · Sforzo Medio
-  - Trovato dal controllo sulle fonti vere il 2026-11-24: `www.mangaworld.mx` risponde 301 verso `www.mangaworld.me`. Il dominio nuovo è già in `android-app/sources.json`.
-  - Il dominio non basta: la ricerca ora è fatta di `article.card` dentro `.archive-grid`, con il titolo in `.card-title a`, e il parser cerca `.manga-title` / `.comics-grid .entry`. Risultato: "nessun risultato". Scheda e lettore vanno ricontrollati allo stesso modo.
-
-- [ ] **MangaWorld: i oneshot non hanno capitoli** ✅ — Impatto Basso · Sforzo Basso
-  - Dove: [MangaWorldSource.kt](android-app/app/src/main/java/com/lorenzo/mangadownloader/data/sources/MangaWorldSource.kt) `collectChapterEntries` accetta solo titoli "Capitolo N" o "Volume N". Una serie con il solo capitolo "Oneshot" (es. `manga/3294`, primo risultato cercando "one piece") finisce in "Nessun capitolo trovato sulla pagina manga".
-  - Cosa fare: trattare "Oneshot" come capitolo 1.
-
 - [ ] **La stabile è ferma al 25 settembre** ✅ — Impatto Alto · Sforzo Basso
   - `main` è alla 1.16.4 (`6c565f7`, 2026-09-25); `dev` è avanti di 11 commit, 118 file, +17.156/−8.265 righe (1.16.6). Chi usa la stabile ha ancora le credenziali SMTP nell'APK, il PIN con l'hash veloce e il login AniList senza `state`.
   - Più `dev` si allontana, più il rilascio diventa un salto unico difficile da diagnosticare se qualcosa si rompe.

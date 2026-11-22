@@ -41,8 +41,7 @@ class FavoriteIdentityResolver(
         val candidates = favoritesNeedingAniListResolution(favorites, attempted)
         if (candidates.isEmpty()) return favorites
 
-        var current = favorites
-        var promotedAny = false
+        val promotions = mutableMapOf<String, String>()
         for (candidate in candidates) {
             val oldKey = candidate.canonicalKey()
             val match = try {
@@ -62,19 +61,22 @@ class FavoriteIdentityResolver(
 
             promoteLink(candidate, oldKey, aniListId)
             rekeyStores(oldKey, newKey)
-            current = current.map { favorite ->
-                if (favorite.canonicalKey() == oldKey) favorite.copy(seriesKey = newKey) else favorite
-            }
-            promotedAny = true
+            promotions[oldKey] = newKey
         }
 
         attemptsStore.write(attempted)
-        if (!promotedAny) return current
+        if (promotions.isEmpty()) return favorites
 
+        // Le promozioni si applicano ai preferiti di ADESSO, non a [favorites]: le ricerche
+        // AniList durano e nel frattempo l'utente può averne aggiunti o tolti.
         // Due preferiti finiti sulla stessa chiave AniList sono la stessa serie: si fondono.
-        val merged = mergeFavoritesBySeries(current).favorites
-        favoritesStore.persist(merged)
-        return merged
+        return favoritesStore.update { stored ->
+            mergeFavoritesBySeries(
+                stored.map { favorite ->
+                    promotions[favorite.canonicalKey()]?.let { favorite.copy(seriesKey = it) } ?: favorite
+                },
+            ).favorites
+        }
     }
 
     private fun promoteLink(favorite: FavoriteManga, oldKey: String, aniListId: Int) {

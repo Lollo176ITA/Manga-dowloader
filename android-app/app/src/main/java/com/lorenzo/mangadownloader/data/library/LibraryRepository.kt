@@ -17,6 +17,9 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
 import java.math.BigDecimal
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.zip.ZipInputStream
@@ -237,9 +240,40 @@ object SeriesMetadataJson {
         explicitNulls = false
     }
 
-    fun write(target: File, metadata: SeriesMetadata) {
+    // Di processo: ViewModel e fonti (nel worker) creano repository distinti, ma il file è uno.
+    private val lock = Any()
+
+    /**
+     * Scrive su un file temporaneo e lo rinomina sopra [target]: se il processo muore a metà
+     * resta il JSON di prima, non un file troncato (che [read] scarterebbe, perdendo fonte,
+     * indirizzo e capitoli letti della serie).
+     */
+    fun write(target: File, metadata: SeriesMetadata): Unit = synchronized(lock) {
         val stableMetadata = metadata.copy(readChapterIds = metadata.readChapterIds.toSortedSet())
-        target.writeText(json.encodeToString(stableMetadata))
+        val temp = File(target.parentFile, "${target.name}.part")
+        temp.writeText(json.encodeToString(stableMetadata))
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    /**
+     * Lettura-modifica-scrittura sotto un unico lock: download, scansione e "segna come
+     * letto" girano su thread diversi e, senza, l'ultima scrittura cancellerebbe le modifiche
+     * dell'altra. [transform] riceve `null` se il file manca o non si legge; se ritorna `null`
+     * (o lo stesso contenuto) non si scrive niente.
+     */
+    fun update(target: File, transform: (SeriesMetadata?) -> SeriesMetadata?): Unit = synchronized(lock) {
+        val existing = read(target)
+        val updated = transform(existing)
+        if (updated != null && updated != existing) write(target, updated)
     }
 
     fun read(target: File): SeriesMetadata? {
@@ -800,24 +834,30 @@ class LibraryRepository(
             .forEach { it.deleteRecursively() }
     }
 
-    private fun backfillMetadata(series: DownloadedSeries, existingMetadata: SeriesMetadata?) {
-        val metadataFile = File(series.directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        if (existingMetadata != null) {
-            val resolvedSourceId = MangaSourceCatalog.resolveSourceId(
-                sourceId = existingMetadata.sourceId,
-                url = existingMetadata.mangaUrl ?: series.mangaUrl,
+    private fun backfillMetadata(series: DownloadedSeries, scannedMetadata: SeriesMetadata?) {
+        if (scannedMetadata != null) {
+            val scannedSourceId = MangaSourceCatalog.resolveSourceId(
+                sourceId = scannedMetadata.sourceId,
+                url = scannedMetadata.mangaUrl ?: series.mangaUrl,
             )
-            if (existingMetadata.sourceId == resolvedSourceId) {
-                return
-            }
-            SeriesMetadataJson.write(
-                metadataFile,
-                existingMetadata.copy(sourceId = resolvedSourceId),
-            )
-            return
+            // Caso normale: niente da correggere, e nemmeno da rileggere.
+            if (scannedMetadata.sourceId == scannedSourceId) return
         }
+        val metadataFile = File(series.directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+        // Si decide sul file com'è adesso, non sulla copia letta dalla scansione: nel
+        // frattempo un download o un "segna come letto" possono averlo riscritto.
+        SeriesMetadataJson.update(metadataFile) { existing ->
+            existing?.copy(
+                sourceId = MangaSourceCatalog.resolveSourceId(
+                    sourceId = existing.sourceId,
+                    url = existing.mangaUrl ?: series.mangaUrl,
+                ),
+            ) ?: metadataFromScan(series)
+        }
+    }
 
-        val metadata = SeriesMetadata(
+    private fun metadataFromScan(series: DownloadedSeries): SeriesMetadata {
+        return SeriesMetadata(
             sourceId = series.sourceId,
             title = series.title,
             mangaUrl = series.mangaUrl,
@@ -838,7 +878,6 @@ class LibraryRepository(
                 )
             },
         )
-        SeriesMetadataJson.write(metadataFile, metadata)
     }
 
     private fun rewriteMetadataForExistingFiles(
@@ -848,14 +887,25 @@ class LibraryRepository(
         fallbackCoverFileName: String?,
     ) {
         val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        val existingMetadata = SeriesMetadataJson.read(metadataFile)
+        SeriesMetadataJson.update(metadataFile) { existingMetadata ->
+            metadataForExistingFiles(directory, existingMetadata, fallbackTitle, fallbackMangaUrl, fallbackCoverFileName)
+        }
+    }
+
+    private fun metadataForExistingFiles(
+        directory: File,
+        existingMetadata: SeriesMetadata?,
+        fallbackTitle: String,
+        fallbackMangaUrl: String?,
+        fallbackCoverFileName: String?,
+    ): SeriesMetadata {
         val existingByFileName = existingMetadata?.chapters?.associateBy { it.fileName }.orEmpty()
         val chapterFiles = directory.listFiles()
             ?.filter { it.isFile && it.extension.equals("cbz", ignoreCase = true) }
             .orEmpty()
             .sortedBy { it.name }
 
-        val updated = SeriesMetadata(
+        return SeriesMetadata(
             sourceId = existingMetadata?.sourceId
                 ?: MangaSourceCatalog.resolveSourceId(null, fallbackMangaUrl),
             title = existingMetadata?.title?.takeIf { it.isNotBlank() } ?: fallbackTitle,
@@ -884,21 +934,15 @@ class LibraryRepository(
                 )
             },
         )
-        SeriesMetadataJson.write(metadataFile, updated)
     }
 
-    /**
-     * Lettura-modifica-scrittura del JSON della serie sotto [METADATA_LOCK]: letto/non letto
-     * ed eliminazioni girano su thread I/O diversi e, senza lock, l'ultima scrittura
-     * cancellerebbe gli id aggiunti dall'altra.
-     */
+    /** Modifica il JSON della serie, se esiste (vedi [SeriesMetadataJson.update]). */
     private fun updateSeriesMetadata(
         directory: File,
         transform: (SeriesMetadata) -> SeriesMetadata,
-    ) = synchronized(METADATA_LOCK) {
+    ) {
         val metadataFile = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
-        val existing = SeriesMetadataJson.read(metadataFile) ?: return@synchronized
-        SeriesMetadataJson.write(metadataFile, transform(existing))
+        SeriesMetadataJson.update(metadataFile) { existing -> existing?.let(transform) }
     }
 
     private fun clearChapterState(relativePath: String, clearReadState: Boolean) {
@@ -940,9 +984,6 @@ class LibraryRepository(
     companion object {
         private const val PREFS_NAME = "manga_library_prefs"
         private const val CACHE_TTL_MS = 5_000L
-
-        // Di processo, non d'istanza: ViewModel e fonti (nel worker) creano repository distinti.
-        private val METADATA_LOCK = Any()
 
         // Massimo di capitoli con le pagine estratte tenuti in cache (LRU): copre il
         // capitolo in lettura e le riletture recenti senza duplicare l'intera libreria.

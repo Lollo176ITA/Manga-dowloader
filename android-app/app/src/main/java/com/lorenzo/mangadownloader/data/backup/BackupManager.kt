@@ -2,6 +2,7 @@ package com.lorenzo.mangadownloader.data.backup
 
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSeenState
 import com.lorenzo.mangadownloader.data.store.FavoriteShelvesStore
@@ -33,6 +34,7 @@ class BackupManager(
     private val settingsStore: SettingsStore,
     private val readingMemoryStore: ReadingMemoryStore,
     private val readingDiaryStore: ReadingDiaryStore,
+    private val adultSeriesStore: AdultSeriesStore,
     private val appVersionName: String,
 ) {
 
@@ -48,6 +50,7 @@ class BackupManager(
         readingMemory = readingMemoryStore.read().mapValues { (_, record) -> record.toBackupEntry() },
         readingDiary = readingDiaryStore.read().mapValues { (_, stats) -> stats.toBackupEntry() },
         favoriteShelves = favoriteShelvesStore.read(),
+        adultSeriesKeys = adultSeriesStore.read(),
     )
 
     /** Scrive il backup come JSON UTF-8 sullo stream fornito (aperto/chiuso dal chiamante). */
@@ -103,6 +106,9 @@ class BackupManager(
         settingsStore.persist(settings)
         readingMemoryStore.persist(readingMemory)
         readingDiaryStore.persist(readingDiary)
+        // Si unisce sempre, anche in REPLACE: togliere serie dal registro le renderebbe di
+        // nuovo visibili col filtro attivo.
+        val adultSeriesKeys = adultSeriesStore.add(backup.adultSeriesKeys)
 
         return BackupRestoreResult(
             favorites = favorites,
@@ -112,6 +118,7 @@ class BackupManager(
             favoriteShelves = favoriteShelves,
             readingMemory = readingMemory,
             readingDiary = readingDiary,
+            adultSeriesKeys = adultSeriesKeys,
             favoritesTotal = favorites.size,
             favoritesAdded = (favorites.size - currentFavorites.size).coerceAtLeast(0),
             mode = mode,
@@ -128,6 +135,7 @@ data class BackupRestoreResult(
     val favoriteShelves: FavoriteShelves,
     val readingMemory: Map<String, ReadChapterMemory>,
     val readingDiary: Map<String, ReadingDayStats>,
+    val adultSeriesKeys: Set<String>,
     val favoritesTotal: Int,
     val favoritesAdded: Int,
     val mode: BackupRestoreMode,

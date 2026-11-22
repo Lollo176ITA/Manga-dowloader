@@ -143,6 +143,30 @@ class AniListClientTest {
             "Tom & Jerry \"say\" hi",
             AniListClient.cleanDescription("Tom &amp; Jerry &quot;say&quot; hi"),
         )
+        // Una sola decodifica: un'entità scritta come testo resta testo, non diventa un tag.
+        assertEquals("a &lt;b&gt; c", AniListClient.cleanDescription("a &amp;lt;b&amp;gt; c"))
+        assertEquals("L'eroe", AniListClient.cleanDescription("L&#39;eroe"))
+    }
+
+    @Test
+    fun parseRecommendationsResponse_skipsAdultAndNullNodes() {
+        val response = """
+            {"data":{"Page":{"media":[{
+              "id": 1,
+              "recommendations": {"nodes": [
+                null,
+                {"rating": 12, "mediaRecommendation": {"id": 5, "title": {"romaji": "Ok"}, "genres": null}},
+                {"rating": 3, "mediaRecommendation": {"id": 6, "title": {"romaji": "Hentai"}, "isAdult": true}},
+                {"rating": 1, "mediaRecommendation": null}
+              ]}
+            }]}}}
+        """.trimIndent()
+
+        val recommendation = AniListClient.parseRecommendationsResponse(response).single()
+        assertEquals(1, recommendation.seedMediaId)
+        assertEquals(12, recommendation.rating)
+        assertEquals(5, recommendation.manga.id)
+        assertTrue(recommendation.manga.genres.isEmpty())
     }
 
     @Test
@@ -297,5 +321,21 @@ class AniListClientTest {
 
         assertTrue(AniListClient.parseToggleFavouriteResponse(added, mediaId = 30002))
         assertEquals(false, AniListClient.parseToggleFavouriteResponse(removed, mediaId = 30002))
+    }
+
+    @Test
+    fun parseAdultFlagsResponse_usesFlagAndAdultGenres() {
+        val flags = AniListClient.parseAdultFlagsResponse(
+            """
+            {"data": {"Page": {"media": [
+              {"id": 1, "isAdult": true, "genres": ["Romance"]},
+              {"id": 2, "isAdult": false, "genres": ["Comedy", "Ecchi"]},
+              {"id": 3, "isAdult": false, "genres": ["Action"]}
+            ]}}}
+            """.trimIndent(),
+        )
+
+        assertEquals(mapOf(1 to true, 2 to true, 3 to false), flags)
+        assertEquals(emptyMap<Int, Boolean>(), AniListClient.parseAdultFlagsResponse("""{"errors": []}"""))
     }
 }

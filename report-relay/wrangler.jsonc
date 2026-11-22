@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "mangapp-report-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // Non segreti: id della lista Trello di arrivo e, facoltativa, la mappa etichetta → id.
+  // TRELLO_KEY e TRELLO_TOKEN invece sono secret: `npx wrangler@4 secret put TRELLO_TOKEN`.
+  "vars": {
+    // Lista "Nuove richieste" della board MangApp (BASFSpoO).
+    "TRELLO_LIST_ID": "6a2a9188daaaf1e3a86d2c67",
+    "TRELLO_LABELS": "{\"bug\":\"6a2aa2e53a5199789d96984f\",\"altro\":\"6a2aa30d6151ccb93cc088a0\",\"feature\":\"6a2aa31b1c3e715ab9d7f8e2\",\"crash\":\"6a2aa3297a6109611b9eb3e9\"}"
+  },
+  // 3 segnalazioni al minuto per IP. Il contatore vale per singola location Cloudflare: è un
+  // freno contro lo spam, non un conteggio esatto.
+  "ratelimits": [
+    {
+      "name": "REPORT_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 3, "period": 60 }
+    }
+  ]
+}

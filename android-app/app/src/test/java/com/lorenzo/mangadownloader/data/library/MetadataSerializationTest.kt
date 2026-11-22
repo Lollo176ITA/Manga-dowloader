@@ -57,6 +57,55 @@ class MetadataSerializationTest {
     }
 
     @Test
+    fun seriesMetadata_writeReplacesExistingFileAndLeavesNoTempFile() {
+        val directory = createTempDirectory("series-metadata-atomic")
+        val target = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+        val first = SeriesMetadata(title = "Berserk", chapters = emptyList())
+
+        SeriesMetadataJson.write(target, first)
+        SeriesMetadataJson.write(target, first.copy(title = "Vagabond"))
+
+        assertEquals("Vagabond", SeriesMetadataJson.read(target)?.title)
+        assertEquals(listOf(target.name), directory.list()?.toList())
+    }
+
+    @Test
+    fun seriesMetadata_updateSkipsWriteWhenTransformReturnsNull() {
+        val directory = createTempDirectory("series-metadata-noop")
+        val target = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+
+        SeriesMetadataJson.update(target) { existing ->
+            assertNull(existing)
+            null
+        }
+
+        assertFalse(target.exists())
+    }
+
+    @Test
+    fun seriesMetadata_concurrentUpdatesDoNotLoseEachOther() {
+        val directory = createTempDirectory("series-metadata-race")
+        val target = File(directory, DownloadStorage.SERIES_METADATA_FILE_NAME)
+        SeriesMetadataJson.write(target, SeriesMetadata(title = "Berserk", chapters = emptyList()))
+
+        // Come "segna come letto" e l'avvio di un download sulla stessa serie: ognuno
+        // aggiunge i suoi id partendo da ciò che c'è sul file in quel momento.
+        val threads = (0 until 8).map { worker ->
+            Thread {
+                repeat(25) { step ->
+                    SeriesMetadataJson.update(target) { existing ->
+                        existing?.copy(readChapterIds = existing.readChapterIds + "chapter:$worker-$step")
+                    }
+                }
+            }
+        }
+        threads.forEach(Thread::start)
+        threads.forEach(Thread::join)
+
+        assertEquals(200, SeriesMetadataJson.read(target)?.readChapterIds?.size)
+    }
+
+    @Test
     fun seriesMetadata_rejectsBlankTitle() {
         assertNull(SeriesMetadataJson.parse("""{"title":"   ","chapters":[]}"""))
     }

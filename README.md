@@ -42,9 +42,27 @@ cd android-app
 ./gradlew testDebugUnitTest assembleRelease
 ```
 
-### Segnalazioni in-app (facoltativo)
+### Segnalazioni in-app
 
-"Segnala un problema" invia un'email via SMTP da un account dedicato. In locale le credenziali vanno in `android-app/local.properties` (non versionato): `smtpHost`, `smtpPort`, `smtpUser`, `smtpPassword`, `reportToEmail`. Se mancano, le segnalazioni restano disattivate e il build funziona lo stesso. Attenzione: user e password finiscono nell'APK e sono estraibili, per questo si usa un account usa-e-getta.
+"Segnala un problema" e l'invio dei crash fanno un POST al Worker Cloudflare in [`report-relay/`](report-relay/README.md), che crea la card sulla board Trello. Le credenziali Trello stanno solo nel Worker; l'app conosce solo l'URL, definito in `android-app/app/build.gradle.kts`.
+
+### Fonti: cambio di dominio e manutenzione senza rilasciare l'app
+
+L'app legge [`android-app/sources.json`](android-app/sources.json) dal branch `main` (all'avvio, al più ogni sei ore, e prima del controllo dei preferiti). Basta modificarlo su GitHub:
+
+```json
+{
+  "sources": {
+    "manga_world": { "domain": "mangaworld.nz" },
+    "tcb_scans": { "maintenance": "Il sito ha cambiato struttura, arriva un aggiornamento." }
+  }
+}
+```
+
+- `domain`: il sito ha traslocato. Le richieste vanno al dominio nuovo; preferiti, download e cronologia restano validi, perché l'app continua a salvarli col dominio di partenza.
+- `maintenance`: l'app smette di interrogare la fonte e mostra il messaggio nelle impostazioni. Ricerca e preferiti ripiegano sulle altre fonti.
+
+Le chiavi sono gli id di `MangaSourceIds`. Contano solo le fonti del catalogo e un dominio deve essere un nome di dominio: il file non può dirottare altre richieste né far eseguire codice.
 
 ## Struttura del codice
 
@@ -67,6 +85,7 @@ I test (`src/test/...`) stanno nello stesso package della classe che verificano;
 | Workflow | Quando parte | Cosa fa |
 | --- | --- | --- |
 | `android-tests.yml` | pull request che toccano `android-app/` | test unitari |
+| `sources-check.yml` | ogni giorno (o avvio manuale) | prova ogni fonte sul sito vero: ricerca, scheda, pagine, prima immagine. Se una fallisce apre l'issue "Fonti da controllare" e la chiude quando tornano tutte a funzionare. In locale: `./gradlew :app:testDebugUnitTest --tests "*LiveSourcesCheckTest" -PliveSources=true` |
 | `android-preview.yml` | push su `dev` che toccano `android-app/` | test + APK firmato, pubblicato come pre-release `android-preview-v<versione>-preview.<n>` |
 | `android.yml` | push su `main` che cambiano `android-app/version.properties` (o avvio manuale) | test + APK firmato, pubblicato nella release `android-v<versionName>` e come artifact `manga-downloader-release` |
 
@@ -80,7 +99,6 @@ Secret richiesti nel repository GitHub:
 - `ANDROID_KEYSTORE_PASSWORD`: password della keystore
 - `ANDROID_KEY_ALIAS`: alias della chiave di release
 - `ANDROID_KEY_PASSWORD`: password della chiave di release
-- facoltativi, per le segnalazioni: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `REPORT_TO_EMAIL`
 
 Genera `ANDROID_KEYSTORE_BASE64` senza a capo extra:
 

@@ -1,6 +1,7 @@
 package com.lorenzo.mangadownloader.data.anilist
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -25,6 +26,18 @@ class AniListTrackingTest {
         assertNull(AniListAuth.extractAccessToken("   "))
         assertNull(AniListAuth.extractAccessToken("error=access_denied"))
         assertNull(AniListAuth.extractAccessToken("access_token="))
+    }
+
+    @Test
+    fun loginState_isRandomAndRoundTripsThroughTheRedirect() {
+        val loginState = AniListAuth.newLoginState()
+        assertEquals(32, loginState.length)
+        assertNotEquals(loginState, AniListAuth.newLoginState())
+
+        val query = AniListAuth.authorizationUrl(loginState).substringAfter('?')
+        assertEquals(loginState, AniListAuth.extractState(query))
+        assertEquals(loginState, AniListAuth.extractState("access_token=abc&state=$loginState"))
+        assertNull(AniListAuth.extractState("access_token=abc"))
     }
 
     @Test

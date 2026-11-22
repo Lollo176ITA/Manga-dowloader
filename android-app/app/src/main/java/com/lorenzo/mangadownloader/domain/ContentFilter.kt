@@ -2,7 +2,9 @@ package com.lorenzo.mangadownloader.domain
 
 import com.lorenzo.mangadownloader.data.anilist.AniListManga
 import com.lorenzo.mangadownloader.data.model.MangaSearchResult
+import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.domain.series.GroupedSearchResult
+import com.lorenzo.mangadownloader.domain.series.SeriesIdentity
 
 /**
  * Filtro dei manga per adulti. I segnali sono tre, in OR:
@@ -54,6 +56,59 @@ fun List<AniListManga>.withoutAdultContent(): List<AniListManga> = filterNot(Ani
 
 private fun MangaSearchResult.looksAdult(): Boolean = isAdult || looksLikeAdultTitle(title)
 
+private fun List<AniListManga>.adultIds(): Set<Int> =
+    filter(AniListManga::isAdultContent).mapTo(mutableSetOf()) { it.id }
+
+private fun GroupedSearchResult.isAdultGroup(adultAniListIds: Set<Int>): Boolean =
+    (aniListId != null && aniListId in adultAniListIds) ||
+        looksLikeAdultTitle(title) ||
+        results.any(MangaSearchResult::isAdult)
+
+/**
+ * Chiavi con cui una serie entra nel registro adulti e con cui la si riconosce nelle schermate:
+ * chiave serie, identità per-fonte e chiave-titolo. Il titolo ce l'hanno tutte (cronologia e
+ * download compresi); le altre servono quando il titolo cambia da una fonte all'altra. Pura.
+ */
+fun adultRegistryKeys(
+    title: String?,
+    sourceId: String? = null,
+    mangaUrl: String? = null,
+    seriesKey: String? = null,
+): Set<String> = buildSet {
+    seriesKey?.trim()?.takeIf(String::isNotBlank)?.let(::add)
+    MangaSourceCatalog.identityKeyOrNull(sourceId, mangaUrl)?.let(::add)
+    title?.let(SeriesIdentity::keyForTitle)?.let(::add)
+}
+
+/** La serie descritta da queste coordinate è nel registro [adultKeys]? Pura. */
+fun isRegisteredAdult(
+    adultKeys: Set<String>,
+    title: String?,
+    sourceId: String? = null,
+    mangaUrl: String? = null,
+    seriesKey: String? = null,
+): Boolean = adultKeys.isNotEmpty() &&
+    adultRegistryKeys(title, sourceId, mangaUrl, seriesKey).any { it in adultKeys }
+
+/**
+ * Chiavi di registro di tutte le serie per adulti viste in una ricerca, a filtro acceso o
+ * spento: servono a ricordarle se poi finiscono tra i preferiti o vengono scaricate. Pura.
+ */
+fun adultSearchRegistryKeys(
+    results: List<MangaSearchResult>,
+    groups: List<GroupedSearchResult>,
+    aniListCandidates: List<AniListManga>,
+): Set<String> {
+    val adultIds = aniListCandidates.adultIds()
+    return buildSet {
+        groups.filter { it.isAdultGroup(adultIds) }.forEach { group ->
+            addAll(adultRegistryKeys(group.title, seriesKey = group.seriesKey))
+            group.results.forEach { addAll(adultRegistryKeys(it.title, it.sourceId, it.mangaUrl)) }
+        }
+        results.filter { it.looksAdult() }.forEach { addAll(adultRegistryKeys(it.title, it.sourceId, it.mangaUrl)) }
+    }
+}
+
 /** Risultati della ricerca aggregata, piatti e raggruppati, dopo il filtro. */
 data class FilteredSearchResults(
     val results: List<MangaSearchResult>,
@@ -71,12 +126,8 @@ fun filterAdultSearchResults(
     groups: List<GroupedSearchResult>,
     aniListCandidates: List<AniListManga>,
 ): FilteredSearchResults {
-    val adultIds = aniListCandidates.filter(AniListManga::isAdultContent).mapTo(mutableSetOf()) { it.id }
-    val (kept, dropped) = groups.partition { group ->
-        (group.aniListId == null || group.aniListId !in adultIds) &&
-            !looksLikeAdultTitle(group.title) &&
-            group.results.none(MangaSearchResult::isAdult)
-    }
+    val adultIds = aniListCandidates.adultIds()
+    val (dropped, kept) = groups.partition { it.isAdultGroup(adultIds) }
     val droppedKeys = dropped.flatMapTo(mutableSetOf()) { group ->
         group.results.map { it.sourceId to it.mangaUrl }
     }

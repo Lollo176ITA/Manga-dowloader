@@ -410,90 +410,118 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangaWorldCanonicalSeriesUrl_keepsTheSavedDomainForLinksFromTheNewSite() {
+        // Il sito è su mangaworld.me: i suoi link devono dare la stessa serie salvata su .mx,
+        // anche prima che sources.json riporti le pagine al dominio di partenza.
+        assertEquals(
+            "https://www.mangaworld.mx/manga/1708",
+            MangaWorldSource.canonicalSeriesUrl("https://www.mangaworld.me/manga/1708/one-piece"),
+        )
+        assertTrue(MangaWorldSource.handlesUrl("https://www.mangaworld.me/manga/1708/one-piece/read/6b03"))
+        assertFalse(MangaWorldSource.handlesUrl("https://www.notmangaworld.me/manga/1708/one-piece"))
+    }
+
+    @Test
     fun mangaWorldSearchResults_readsArchiveEntries() {
+        // Markup reale dell'archivio (2026-11), ridotto.
         val results = MangaWorldSource.parseSearchResults(
             """
-            <div class="comics-grid">
-              <div class="entry">
-                <a class="thumb position-relative" href="https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade" title="Return of the Mount Hua Sect">
-                  <img src="https://cdn.mangaworld.mx/mangas/61b25812c836ab0222289f78.png" alt="Return of the Mount Hua Sect">
+            <div class="archive-grid">
+              <article class="card archive-card">
+                <a class="card-cover" href="https://www.mangaworld.me/manga/1738/solo-leveling" tabindex="-1" title="Solo Leveling">
+                  <img src="https://cdn.mangaworld.me/mangas/5f7a.jpg?1" alt="Solo Leveling" loading="lazy">
                 </a>
-                <div class="content">
-                  <p class="name m-0">
-                    <a class="manga-title" href="https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade" title="Return of the Mount Hua Sect">Return of the Mount Hua Sect</a>
-                  </p>
+                <div class="card-body">
+                  <div class="card-tags">
+                    <a class="tag" href="https://www.mangaworld.me/archive?type=manhwa">Manhwa</a>
+                    <a class="status is-completed" href="https://www.mangaworld.me/archive?status=completed">Finito</a>
+                  </div>
+                  <h3 class="card-title"><a href="https://www.mangaworld.me/manga/1738/solo-leveling" title="Solo Leveling">Solo Leveling</a></h3>
+                  <dl class="fact-list">
+                    <div><dt>Generi:</dt><dd><a href="https://www.mangaworld.me/archive?genre=azione">Azione</a></dd></div>
+                  </dl>
                 </div>
-              </div>
+              </article>
             </div>
             """.trimIndent(),
         )
 
         assertEquals(1, results.size)
         assertEquals(MangaSourceIds.MANGA_WORLD, results.first().sourceId)
-        assertEquals("Return of the Mount Hua Sect", results.first().title)
-        assertEquals("https://www.mangaworld.mx/manga/2604", results.first().mangaUrl)
-        assertTrue(results.first().coverUrl!!.contains("cdn.mangaworld.mx"))
+        assertEquals("Solo Leveling", results.first().title)
+        assertEquals("https://www.mangaworld.mx/manga/1738", results.first().mangaUrl)
+        assertEquals("https://cdn.mangaworld.me/mangas/5f7a.jpg?1", results.first().coverUrl)
+        assertFalse(results.first().isAdult)
+    }
+
+    @Test
+    fun mangaWorldSearchResults_ignoresCardsOutsideTheArchiveGrid() {
+        val results = MangaWorldSource.parseSearchResults(
+            """
+            <aside><article class="card"><h3 class="card-title"><a href="https://www.mangaworld.me/manga/1/berserk">Berserk</a></h3></article></aside>
+            <div class="archive-grid"></div>
+            """.trimIndent(),
+        )
+
+        assertTrue(results.isEmpty())
     }
 
     @Test
     fun mangaWorldMangaDetails_sortsChaptersAscending() {
         val details = MangaWorldSource.parseMangaDetails(
             """
-            <section id="manga-page">
-              <div class="comic-info">
-                <div class="thumb"><img src="https://cdn.mangaworld.mx/mangas/cover.png"></div>
-                <h1 class="name bigger">Return of the Mount Hua Sect</h1>
-              </div>
-              <div class="has-shadow comic-description px-3 mt-4">
-                <div class="heading pt-3">TRAMA</div>
-                <div id="noidungm" class="mb-3">Una seconda vita piena di magia e mostri.</div>
-              </div>
-              <div id="chapterList">
-                <div class="chapters-wrapper">
-                  <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/chapter-2?style=list" title="Return Capitolo 02 Scan ITA"><span>Capitolo 02</span></a></div>
-                  <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/chapter-1?style=list" title="Return Capitolo 01 Scan ITA"><span>Capitolo 01</span></a></div>
-                </div>
-              </div>
-            </section>
+            <head>
+              <meta property="og:image" content="https://cdn.mangaworld.me/mangas/cover.png">
+              <meta property="og:description" content="Descrizione breve dei meta.">
+            </head>
+            <h1 class="manga-title display">Auto Hunting</h1>
+            <dl class="fact-list"><div><dt>Stato:</dt><dd><a href="https://www.mangaworld.me/archive?status=ongoing">In corso</a></dd></div></dl>
+            <section class="panel"><h2 class="panel-title display">Trama</h2><p class="manga-plot">Una seconda vita piena di magia e mostri.</p></section>
+            <a class="btn btn-primary read-next" href="https://www.mangaworld.me/manga/2128/auto-hunting/read/chapter-1" data-read-next>Continua: <span>Capitolo 01</span></a>
+            <div class="volume-list" data-chapters-list>
+              <ul class="ch-list single-chapters">
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2128/auto-hunting/read/chapter-2" title="Auto Hunting Capitolo 02 Scan ITA"><span class="ch-label"><span class="ch-name">Capitolo 02</span></span><span class="ch-date">08 Novembre 2026</span></a></li>
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2128/auto-hunting/read/chapter-1" title="Auto Hunting Capitolo 01 Scan ITA"><span class="ch-label"><span class="ch-name">Capitolo 01</span></span><span class="ch-date">01 Novembre 2026</span></a></li>
+              </ul>
+            </div>
             """.trimIndent(),
-            "https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade",
+            "https://www.mangaworld.me/manga/2128/auto-hunting",
         )
 
         assertEquals(MangaSourceIds.MANGA_WORLD, details.sourceId)
-        assertEquals("https://www.mangaworld.mx/manga/2604", details.mangaUrl)
+        assertEquals("Auto Hunting", details.title)
+        assertEquals("https://www.mangaworld.mx/manga/2128", details.mangaUrl)
+        assertEquals("https://cdn.mangaworld.me/mangas/cover.png", details.coverUrl)
         assertEquals(listOf("01", "02"), details.chapters.map { it.numberText })
         assertEquals(
-            "https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/chapter-1?style=list",
+            "https://www.mangaworld.mx/manga/2128/auto-hunting/read/chapter-1?style=list",
             details.chapters.first().url,
         )
         assertEquals("Una seconda vita piena di magia e mostri.", details.description)
+        assertEquals(MangaPublicationStatus.ONGOING, details.status)
     }
 
     @Test
     fun mangaWorldMangaDetails_readsVolumeGroupsWhenPresent() {
         val details = MangaWorldSource.parseMangaDetails(
             """
-            <section id="manga-page">
-              <h1 class="name bigger">Shingeki no Kyojin</h1>
-              <div id="chapterList">
-                <div class="chapters-wrapper py-2 pl-0">
-                  <div class="volume-element pl-2">
-                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 02</p></div>
-                    <div class="volume-chapters pl-2">
-                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/1816/shingeki-no-kyojin/read/chapter-5" title="Shingeki no Kyojin Capitolo 05 Scan ITA"><span>Capitolo 05</span></a></div>
-                    </div>
-                  </div>
-                  <div class="volume-element pl-2">
-                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 01</p></div>
-                    <div class="volume-chapters pl-2">
-                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/1816/shingeki-no-kyojin/read/chapter-1" title="Shingeki no Kyojin Capitolo 01 Scan ITA"><span>Capitolo 01</span></a></div>
-                    </div>
-                  </div>
-                </div>
+            <h1 class="manga-title display">Shingeki no Kyojin</h1>
+            <div class="volume-list" data-chapters-list>
+              <div class="volume">
+                <div class="volume-row"><button class="volume-head" type="button"><span class="volume-name">Volume 02</span><span class="volume-count">0/1 letti</span></button></div>
+                <ul class="ch-list volume-chapters">
+                  <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/1816/shingeki-no-kyojin/read/chapter-5" title="Shingeki no Kyojin Capitolo 05 Scan ITA"><span class="ch-label"><span class="ch-name">Capitolo 05</span></span></a></li>
+                </ul>
               </div>
-            </section>
+              <div class="volume">
+                <div class="volume-row"><button class="volume-head" type="button"><span class="volume-name">Volume 01</span><span class="volume-count">0/1 letti</span></button></div>
+                <ul class="ch-list volume-chapters">
+                  <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/1816/shingeki-no-kyojin/read/chapter-1" title="Shingeki no Kyojin Capitolo 01 Scan ITA"><span class="ch-label"><span class="ch-name">Capitolo 01</span></span></a></li>
+                </ul>
+              </div>
+            </div>
             """.trimIndent(),
-            "https://www.mangaworld.mx/manga/1816/shingeki-no-kyojin",
+            "https://www.mangaworld.me/manga/1816/shingeki-no-kyojin",
         )
 
         assertEquals(listOf("01", "05"), details.chapters.map { it.numberText })
@@ -505,27 +533,23 @@ class MangaSourcesTest {
     fun mangaWorldMangaDetails_readsVolumeOnlyEntries() {
         val details = MangaWorldSource.parseMangaDetails(
             """
-            <section id="manga-page">
-              <h1 class="name bigger">20th Century Boys</h1>
-              <div id="chapterList">
-                <div class="chapters-wrapper py-2 pl-0">
-                  <div class="volume-element pl-2">
-                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 02</p></div>
-                    <div class="volume-chapters pl-2">
-                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2726/20th-century-boys/read/volume-2" title="20th Century Boys Volume 02 Scan ITA"><span>Volume 02</span></a></div>
-                    </div>
-                  </div>
-                  <div class="volume-element pl-2">
-                    <div class="volume w-100 py-2"><p class="volume-name d-inline">Volume 01</p></div>
-                    <div class="volume-chapters pl-2">
-                      <div class="chapter"><a class="chap" href="https://www.mangaworld.mx/manga/2726/20th-century-boys/read/volume-1" title="20th Century Boys Volume 01 Scan ITA"><span>Volume 01</span></a></div>
-                    </div>
-                  </div>
-                </div>
+            <h1 class="manga-title display">20th Century Boys</h1>
+            <div class="volume-list" data-chapters-list>
+              <div class="volume">
+                <div class="volume-row"><button class="volume-head" type="button"><span class="volume-name">Volume 02</span></button></div>
+                <ul class="ch-list volume-chapters">
+                  <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2726/20th-century-boys/read/volume-2" title="20th Century Boys Volume 02 Scan ITA"><span class="ch-label"><span class="ch-name">Volume 02</span></span></a></li>
+                </ul>
               </div>
-            </section>
+              <div class="volume">
+                <div class="volume-row"><button class="volume-head" type="button"><span class="volume-name">Volume 01</span></button></div>
+                <ul class="ch-list volume-chapters">
+                  <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/2726/20th-century-boys/read/volume-1" title="20th Century Boys Volume 01 Scan ITA"><span class="ch-label"><span class="ch-name">Volume 01</span></span></a></li>
+                </ul>
+              </div>
+            </div>
             """.trimIndent(),
-            "https://www.mangaworld.mx/manga/2726/20th-century-boys",
+            "https://www.mangaworld.me/manga/2726/20th-century-boys",
         )
 
         assertEquals(listOf("01", "02"), details.chapters.map { it.numberText })
@@ -535,13 +559,54 @@ class MangaSourcesTest {
     }
 
     @Test
+    fun mangaWorldMangaDetails_readsAOneshotAsChapterOne() {
+        // manga/3294: l'unico capitolo si chiama "Oneshot", senza numero.
+        val details = MangaWorldSource.parseMangaDetails(
+            """
+            <h1 class="manga-title display">Nami VS Kalifa</h1>
+            <div class="volume-list" data-chapters-list>
+              <ul class="ch-list single-chapters">
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/3294/nami-vs-kalifa/read/649af99e8e54383f7f49f1ff" title="Nami VS Kalifa Oneshot Scan ITA"><span class="ch-label"><span class="ch-name">Oneshot</span></span><span class="ch-date">27 Giugno 2023</span></a></li>
+              </ul>
+            </div>
+            """.trimIndent(),
+            "https://www.mangaworld.me/manga/3294/nami-vs-kalifa",
+        )
+
+        val chapter = details.chapters.single()
+        assertEquals("1", chapter.numberText)
+        assertEquals("Capitolo 1", chapter.displayLabel())
+        assertEquals(
+            "https://www.mangaworld.mx/manga/3294/nami-vs-kalifa/read/649af99e8e54383f7f49f1ff?style=list",
+            chapter.url,
+        )
+    }
+
+    @Test
+    fun mangaWorldMangaDetails_dropsAOneshotNextToNumberedChapters() {
+        val details = MangaWorldSource.parseMangaDetails(
+            """
+            <div class="volume-list" data-chapters-list>
+              <ul class="ch-list single-chapters">
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/5/x/read/b"><span class="ch-label"><span class="ch-name">Oneshot</span></span></a></li>
+                <li class="ch-row"><a class="ch" href="https://www.mangaworld.me/manga/5/x/read/a"><span class="ch-label"><span class="ch-name">Capitolo 1</span></span></a></li>
+              </ul>
+            </div>
+            """.trimIndent(),
+            "https://www.mangaworld.me/manga/5/x",
+        )
+
+        assertEquals("altrimenti ci sarebbero due capitoli 1", listOf("1"), details.chapters.map { it.numberText })
+        assertTrue(details.chapters.single().url.contains("/read/a"))
+    }
+
+    @Test
     fun mangaWorldChapterPages_readsListReaderImages() {
         val pages = MangaWorldSource.parsePageImageUrls(
             """
-            <div class="col-12 text-center position-relative" id="page">
-              <img id="page-0" class="page-image img-fluid" src="https://cdn.mangaworld.mx/chapters/series/chapter/1.jpg"><br>
-              <img id="page-1" class="page-image img-fluid" src="https://cdn.mangaworld.mx/chapters/series/chapter/2.png"><br>
-            </div>
+            <img class="logo-for-dark" src="/assets/mw/img/logo-dark.svg" alt="MangaWorld">
+            <img class="reader-page" src="https://cdn.mangaworld.me/chapters/series/chapter/1.jpg" alt="Pagina 1" decoding="async" data-reader-image>
+            <img class="reader-page" src="https://cdn.mangaworld.me/chapters/series/chapter/2.png" alt="Pagina 2" loading="lazy" decoding="async" data-reader-image>
             """.trimIndent(),
             "https://www.mangaworld.mx/manga/2604/return-of-the-blossoming-blade/read/61b258ba55fbd201aaff53e9/1?style=list",
         )
@@ -696,12 +761,12 @@ class MangaSourcesTest {
 
     @Test
     fun mangaWorldSearchResults_readsMinifiedUnquotedMarkupWithAltTitleMatch() {
-        // Markup reale dell'archivio MangaWorld (minificato, attributi senza virgolette),
-        // risposta a keyword="demon slayer": il server matcha il titolo inglese alternativo
-        // ma espone quello canonico "Kimetsu no Yaiba".
+        // Archivio MangaWorld minificato, con attributi senza virgolette, in risposta a
+        // keyword="demon slayer": il server matcha il titolo inglese alternativo ma espone
+        // quello canonico "Kimetsu no Yaiba".
         val results = MangaWorldSource.parseSearchResults(
             """
-            <div class=comics-grid><!--F#p_16[0]--><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba"><img src=https://cdn.mangaworld.mx/mangas/5f77ef0f640268083d44369e.jpg?178 alt="Kimetsu no Yaiba"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba">Kimetsu no Yaiba</a></p></div></div></div>
+            <div class=archive-grid><article class="card archive-card"><a class=card-cover href=https://www.mangaworld.me/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba"><img src=https://cdn.mangaworld.me/mangas/5f77ef0f640268083d44369e.jpg?178 alt="Kimetsu no Yaiba"></a><div class=card-body><h3 class=card-title><a href=https://www.mangaworld.me/manga/716/kimetsu-no-yaiba title="Kimetsu no Yaiba">Kimetsu no Yaiba</a></h3></div></article></div>
             """.trimIndent(),
         )
 
@@ -1581,7 +1646,10 @@ class MangaSourcesTest {
     fun mangaWorldSearchResults_flagsAdultGenresFromEntryLinks() {
         val results = MangaWorldSource.parseSearchResults(
             """
-            <div class=comics-grid><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/659/to-love-ru title="To Love Ru"><img src=https://cdn.mangaworld.mx/mangas/5f77.png alt="To Love Ru"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/659/to-love-ru title="To Love Ru">To Love Ru</a></p><hr><div class=genre><span>Tipo: </span> <a href=https://www.mangaworld.mx/archive?type=manga>Manga</a></div><div class=genres><span class=font-weight-bold>Generi: </span><a href=https://www.mangaworld.mx/archive?genre=commedia>Commedia</a>, <a href=https://www.mangaworld.mx/archive?genre=ecchi>Ecchi</a></div></div></div><div class=entry><a class="thumb position-relative" href=https://www.mangaworld.mx/manga/1/berserk title="Berserk"><img src=https://cdn.mangaworld.mx/mangas/b.png alt="Berserk"></a><div class=content><p class="name m-0"><a class=manga-title href=https://www.mangaworld.mx/manga/1/berserk title="Berserk">Berserk</a></p><div class=genres><span class=font-weight-bold>Generi: </span><a href=https://www.mangaworld.mx/archive?genre=azione>Azione</a>, <a href=https://www.mangaworld.mx/archive?genre=maturo>Maturo</a></div></div></div></div>
+            <div class="archive-grid">
+              <article class="card archive-card"><a class="card-cover" href="https://www.mangaworld.me/manga/659/to-love-ru" title="To Love Ru"><img src="https://cdn.mangaworld.me/mangas/5f77.png" alt="To Love Ru"></a><div class="card-body"><div class="card-tags"><a class="tag" href="https://www.mangaworld.me/archive?type=manga">Manga</a></div><h3 class="card-title"><a href="https://www.mangaworld.me/manga/659/to-love-ru" title="To Love Ru">To Love Ru</a></h3><dl class="fact-list"><div><dt>Generi:</dt><dd><a href="https://www.mangaworld.me/archive?genre=commedia">Commedia</a>, <a href="https://www.mangaworld.me/archive?genre=ecchi">Ecchi</a></dd></div></dl></div></article>
+              <article class="card archive-card"><a class="card-cover" href="https://www.mangaworld.me/manga/1/berserk" title="Berserk"><img src="https://cdn.mangaworld.me/mangas/b.png" alt="Berserk"></a><div class="card-body"><h3 class="card-title"><a href="https://www.mangaworld.me/manga/1/berserk" title="Berserk">Berserk</a></h3><dl class="fact-list"><div><dt>Generi:</dt><dd><a href="https://www.mangaworld.me/archive?genre=azione">Azione</a>, <a href="https://www.mangaworld.me/archive?genre=maturo">Maturo</a></dd></div></dl></div></article>
+            </div>
             """.trimIndent(),
         )
 

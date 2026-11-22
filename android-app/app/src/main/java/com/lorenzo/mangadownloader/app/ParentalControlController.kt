@@ -5,6 +5,7 @@ import androidx.biometric.BiometricManager
 import com.lorenzo.mangadownloader.data.store.ParentalLockoutStore
 import com.lorenzo.mangadownloader.domain.generateParentalPinSalt
 import com.lorenzo.mangadownloader.domain.hashParentalPin
+import com.lorenzo.mangadownloader.domain.verifyParentalPin
 import com.lorenzo.mangadownloader.domain.parentalLockoutLabel
 import com.lorenzo.mangadownloader.domain.parentalPinLockoutMillis
 import com.lorenzo.mangadownloader.domain.sanitizeParentalPin
@@ -164,6 +165,7 @@ class ParentalControlController(
             else -> {
                 val salt = generateParentalPinSalt()
                 val hash = hashParentalPin(setupState.pin, salt)
+                val wasHidingAdult = state.value.settings.hidesAdultContent()
                 updateSettings {
                     it.copy(
                         parentalControlEnabled = true,
@@ -189,6 +191,7 @@ class ParentalControlController(
                         },
                         parentalPinSetupState = null,
                         isParentalAuthInProgress = false,
+                        errorMessage = if (wasHidingAdult) errorMessage else ADULT_FILTER_ENABLED_NOTICE,
                     )
                 }
                 setupState.completionAction?.let(::completeAction)
@@ -251,25 +254,23 @@ class ParentalControlController(
             return
         }
 
-        val now = System.currentTimeMillis()
-        val lockedUntil = lockoutStore.lockedUntilMillis()
-        if (lockedUntil > now) {
+        val remainingLockout = lockoutStore.remainingLockoutMillis()
+        if (remainingLockout > 0) {
             updateState {
                 copy(
                     parentalPinEntryState = pinEntryState.copy(
                         pin = "",
-                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(lockedUntil - now)}",
+                        errorMessage = "Troppi tentativi. Riprova tra ${parentalLockoutLabel(remainingLockout)}",
                     ),
                 )
             }
             return
         }
 
-        val providedHash = hashParentalPin(pinEntryState.pin, salt)
-        if (providedHash != expectedHash) {
+        if (!verifyParentalPin(pinEntryState.pin, salt, expectedHash)) {
             val attempts = lockoutStore.failedAttempts() + 1
             val lockout = parentalPinLockoutMillis(attempts)
-            lockoutStore.recordFailure(lockedUntilMillis = now + lockout)
+            lockoutStore.recordFailure(lockoutMillis = lockout)
             updateState {
                 copy(
                     parentalPinEntryState = pinEntryState.copy(

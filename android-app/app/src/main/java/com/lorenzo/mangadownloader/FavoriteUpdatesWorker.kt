@@ -22,6 +22,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.lorenzo.mangadownloader.app.AppSettings
 import com.lorenzo.mangadownloader.app.FavoriteManga
+import com.lorenzo.mangadownloader.app.hidesAdultContent
 import com.lorenzo.mangadownloader.data.anilist.AniListAuthException
 import com.lorenzo.mangadownloader.data.anilist.AniListClient
 import com.lorenzo.mangadownloader.data.anilist.AniListFavoritesSyncStore
@@ -30,13 +31,12 @@ import com.lorenzo.mangadownloader.data.anilist.AniListResolutionAttemptsStore
 import com.lorenzo.mangadownloader.data.anilist.AniListStore
 import com.lorenzo.mangadownloader.data.anilist.newAniListFavorites
 import com.lorenzo.mangadownloader.data.anilist.realAniListFavoritesSynchronizer
-import com.lorenzo.mangadownloader.data.model.canonicalKey
-import com.lorenzo.mangadownloader.data.model.identityKey
 import com.lorenzo.mangadownloader.data.network.SharedHttpClient
-import com.lorenzo.mangadownloader.data.sources.MangaSourceCatalog
 import com.lorenzo.mangadownloader.data.sources.MangaSourceRegistry
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
 import com.lorenzo.mangadownloader.data.sources.SourceHealthStore
 import com.lorenzo.mangadownloader.data.sources.isSourceSkipped
+import com.lorenzo.mangadownloader.data.store.AdultSeriesStore
 import com.lorenzo.mangadownloader.data.store.FavoriteDescriptionsStore
 import com.lorenzo.mangadownloader.data.store.FavoriteSourceHealthStore
 import com.lorenzo.mangadownloader.data.store.FavoriteUpdateEvent
@@ -45,15 +45,8 @@ import com.lorenzo.mangadownloader.data.store.FavoriteUpdatesStore
 import com.lorenzo.mangadownloader.data.store.FavoritesStore
 import com.lorenzo.mangadownloader.data.store.SeriesLinksStore
 import com.lorenzo.mangadownloader.data.store.SettingsStore
-import com.lorenzo.mangadownloader.data.store.appendUpdateEvent
-import com.lorenzo.mangadownloader.data.store.computeFavoriteUpdate
-import com.lorenzo.mangadownloader.data.store.recordSourceFailure
-import com.lorenzo.mangadownloader.data.store.recordSourceSuccess
-import com.lorenzo.mangadownloader.data.store.shouldPollFavorite
 import com.lorenzo.mangadownloader.domain.series.FavoriteIdentityResolver
 import com.lorenzo.mangadownloader.domain.series.FavoritesSeriesMigration
-import com.lorenzo.mangadownloader.domain.series.favoriteSourceCandidates
-import com.lorenzo.mangadownloader.domain.series.fetchFromFirstAvailable
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -89,6 +82,10 @@ class FavoriteUpdatesWorker(
         val feedStore = FavoriteUpdatesFeedStore(prefs)
         val seriesLinksStore = SeriesLinksStore(prefs)
         val healthStore = FavoriteSourceHealthStore(prefs)
+        // Col filtro adulti attivo le serie del registro si controllano lo stesso (spegnendo il
+        // filtro lo stato è in pari), ma non si notificano: finiscono solo nel feed, che le
+        // nasconde finché il filtro resta acceso.
+        val adultKeys = if (settings.hidesAdultContent()) AdultSeriesStore(prefs).read() else emptySet()
         // Fonti che l'app sta saltando perché non rispondono (vedi [SourceHealth]): il worker
         // gira in background su rete mobile, ed è l'ultimo posto dove ha senso restare venti
         // secondi appesi a un sito giù per ogni preferito da controllare.
@@ -109,6 +106,8 @@ class FavoriteUpdatesWorker(
             return Result.success()
         }
 
+        // Prima di interrogare le fonti: un dominio cambiato vale anche per il controllo notturno.
+        RemoteSourceConfig.refresh(SharedHttpClient.get(context))
         val registry = sharedSourceRegistry(context)
         val aniListClient = AniListClient(SharedHttpClient.get(context))
 
@@ -134,129 +133,34 @@ class FavoriteUpdatesWorker(
             favoritesStore = favoritesStore,
             seriesLinksStore = seriesLinksStore,
             syncStore = AniListFavoritesSyncStore(prefs),
-            aniListStore = AniListStore(prefs),
+            aniListStore = AniListStore(
+                prefs,
+                context.getSharedPreferences(AniListStore.ACCOUNT_PREFS_NAME, Context.MODE_PRIVATE),
+            ),
             aniListClient = aniListClient,
             registry = registry,
             unavailableSourceIds = unavailableSourceIds,
         )
 
-        val seenMap = store.read().toMutableMap()
-        val descriptions = descriptionsStore.read().toMutableMap()
-        val healthMap = healthStore.read().toMutableMap()
         val notifier = FavoriteUpdateNotifier(context)
-        var notifiedCount = 0
-        var favoritesChanged = false
-        val updatedFavorites = favorites.toMutableList()
-
-        try {
-        for ((index, favorite) in favorites.withIndex()) {
-            val key = favorite.canonicalKey()
-            val seen = seenMap[key]
-            if (!shouldPollFavorite(seen)) {
-                continue
-            }
-            try {
-                val candidates = favoriteSourceCandidates(
-                    favorite = favorite,
-                    link = seriesLinksStore.linkFor(key),
-                    disabledSourceIds = settings.disabledSourceIds,
-                )
-                val fetched = fetchFromFirstAvailable(candidates) { binding ->
-                    withContext(Dispatchers.IO) {
-                        registry.resolve(binding.sourceId, binding.mangaUrl)
-                            .fetchMangaDetails(binding.mangaUrl)
-                    }
+        FavoriteUpdatesRun(
+            favoritesStore = favoritesStore,
+            updatesStore = store,
+            descriptionsStore = descriptionsStore,
+            feedStore = feedStore,
+            seriesLinksStore = seriesLinksStore,
+            healthStore = healthStore,
+            disabledSourceIds = settings.disabledSourceIds,
+            adultKeys = adultKeys,
+            fetchDetails = { binding ->
+                withContext(Dispatchers.IO) {
+                    registry.resolve(binding.sourceId, binding.mangaUrl)
+                        .fetchMangaDetails(binding.mangaUrl)
                 }
-                if (fetched == null) {
-                    // Nessun mirror raggiungibile: NON si cambia la fonte preferita (di
-                    // solito è la rete del telefono, non il sito). Si conta e basta.
-                    healthMap[key] = recordSourceFailure(healthMap[key])
-                    continue
-                }
-                val details = fetched.details
-                val usedBinding = fetched.binding
-                healthMap[key] = recordSourceSuccess(
-                    current = healthMap[key],
-                    previousSourceId = favorite.sourceId,
-                    usedSourceId = usedBinding.sourceId,
-                    nowMillis = System.currentTimeMillis(),
-                )
-                if (usedBinding.sourceId != favorite.sourceId) {
-                    // Ha risposto un mirror diverso: diventa quello da cui leggere la serie.
-                    seriesLinksStore.setPreferredSource(key, usedBinding.sourceId)
-                    updatedFavorites[index] = favorite.copy(
-                        sourceId = usedBinding.sourceId,
-                        mangaUrl = usedBinding.mangaUrl,
-                    )
-                    favoritesChanged = true
-                }
-                // La trama dei preferiti viene scaricata comunque qui: salvala così il
-                // pulsante info è pronto anche dopo il riavvio dell'app (è solo testo).
-                details.description?.trim()?.takeIf(String::isNotBlank)?.let { descriptions[key] = it }
-                val latest = details.chapters.maxByOrNull { it.numberValue } ?: continue
-                val result = computeFavoriteUpdate(
-                    seen = seen,
-                    latestNumber = latest.numberValue,
-                    latestLabel = latest.displayLabel(),
-                    status = details.status,
-                )
-                seenMap[key] = result.newState
-                result.newChapterLabel?.let { label ->
-                    // Persisti baseline e feed PRIMA di notificare: se il processo muore
-                    // subito dopo la notifica, al giro dopo non si rinotifica lo stesso
-                    // capitolo e l'evento è comunque nel feed in-app. L'append è un
-                    // read-merge-write atomico per evento: non si tiene in mano il feed
-                    // durante il giro di rete, così un "segna come visto" fatto
-                    // dall'utente nel frattempo non viene sovrascritto.
-                    store.write(seenMap)
-                    feedStore.update { events ->
-                        appendUpdateEvent(
-                            events,
-                            FavoriteUpdateEvent(
-                                identityKey = MangaSourceCatalog.identityKey(
-                                    usedBinding.sourceId,
-                                    usedBinding.mangaUrl,
-                                ),
-                                title = favorite.title,
-                                // Fonte e URL dell'evento sono quelli del mirror che ha
-                                // risposto: è lì che il tap deve portare.
-                                sourceId = usedBinding.sourceId,
-                                mangaUrl = usedBinding.mangaUrl,
-                                chapterLabel = label,
-                                chapterNumber = latest.numberValue.stripTrailingZeros().toPlainString(),
-                                coverUrl = favorite.coverUrl,
-                                timestampMillis = System.currentTimeMillis(),
-                                seen = false,
-                                seriesKey = key,
-                            ),
-                        )
-                    }
-                    notifier.notifyNewChapter(updatedFavorites[index], key, label)
-                    notifiedCount++
-                }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Exception) {
-                // Best-effort: rete/parsing fallito su un preferito → si riprova al giro dopo.
-            }
-        }
-        // Riepilogo del gruppo: con 2+ capitoli non visti il pannello resta compatto
-        // (una voce sola che espande le singole) invece di N notifiche sparse.
-        if (notifiedCount > 0) {
-            notifier.notifySummary(feedStore.read().filter { !it.seen })
-        }
-        } finally {
-            // Persisti SEMPRE i progressi parziali: se WorkManager interrompe il worker a metà
-            // (es. rete caduta), così non si rinotificano i capitoli già avvisati al giro dopo.
-            // Il feed NON si riscrive qui: ogni evento è già stato persistito al momento
-            // della notifica (vedi sopra).
-            store.write(seenMap)
-            descriptionsStore.write(descriptions)
-            healthStore.write(healthMap)
-            if (favoritesChanged) {
-                favoritesStore.persist(updatedFavorites)
-            }
-        }
+            },
+            notifyNewChapter = notifier::notifyNewChapter,
+            notifySummary = notifier::notifySummary,
+        ).run(favorites)
         return Result.success()
     }
 
@@ -291,13 +195,12 @@ class FavoriteUpdatesWorker(
                 disabledSourceIds = { settings.disabledSourceIds },
                 unavailableSourceIds = { unavailableSourceIds },
             ).sync(favorites)
-            val fresh = newAniListFavorites(imported, favorites)
-            if (fresh.isEmpty()) {
+            if (newAniListFavorites(imported, favorites).isEmpty()) {
                 favorites
             } else {
-                val updated = fresh + favorites
-                favoritesStore.persist(updated)
-                updated
+                // Confronto con i preferiti di ADESSO: la sync dura quanto una ricerca su
+                // tutte le fonti e l'utente può averne aggiunti o tolti nel frattempo.
+                favoritesStore.update { stored -> newAniListFavorites(imported, stored) + stored }
             }
         } catch (e: CancellationException) {
             throw e

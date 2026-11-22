@@ -1,5 +1,7 @@
 package com.lorenzo.mangadownloader.data.network
 
+import com.lorenzo.mangadownloader.data.sources.RemoteSourceConfig
+import com.lorenzo.mangadownloader.data.sources.SourceMaintenanceException
 import java.io.IOException
 import java.io.OutputStream
 import java.net.URI
@@ -8,6 +10,30 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+
+/**
+ * Il server ha risposto, ma con uno stato non-2xx. Resta una [IOException] (e il messaggio resta
+ * "HTTP <codice> …") così chi già la gestiva continua a farlo; il [code] serve a distinguere
+ * un guasto passeggero da una risposta che non cambierà riprovando.
+ */
+class HttpStatusException(val code: Int, message: String) : IOException(message)
+
+/**
+ * Ha senso riprovare più tardi? No per i 4xx (capitolo rimosso, accesso negato): ritentare un
+ * 404 lascia solo il download "in corso" per minuti prima di dire che è fallito. Fanno eccezione
+ * 408 (timeout) e 429 (troppe richieste), che passano da soli. Errori di rete e 5xx: sì.
+ */
+fun isWorthRetrying(error: IOException): Boolean {
+    if (generateSequence<Throwable>(error) { it.cause }.any { it is SourceMaintenanceException }) {
+        return false
+    }
+    val status = generateSequence<Throwable>(error) { it.cause }
+        .filterIsInstance<HttpStatusException>()
+        .firstOrNull()
+        ?.code
+        ?: return true
+    return status !in 400..499 || status == 408 || status == 429
+}
 
 class MangaNetworkClient(
     private val httpClient: OkHttpClient,
@@ -29,7 +55,8 @@ class MangaNetworkClient(
             headers = headers,
         )
         return executeSuccessful(request, "su $url") { response ->
-            response.body.string()
+            // Se la fonte ha traslocato, i link della pagina tornano al dominio salvato.
+            RemoteSourceConfig.current.toSavedDomains(response.body.string())
         }
     }
 
@@ -73,7 +100,7 @@ class MangaNetworkClient(
         headers: Map<String, String> = emptyMap(),
     ): Request = Request.Builder()
         .url(url)
-        .header("User-Agent", USER_AGENT)
+        .header("User-Agent", BrowserUserAgent.value)
         .apply {
             referer?.trim()
                 ?.takeIf(String::isNotBlank)
@@ -89,11 +116,15 @@ class MangaNetworkClient(
         request: Request,
         errorContext: String,
         readBody: (Response) -> T,
-    ): T = executeWithConnectionRetry(request).use { response ->
-        if (!response.isSuccessful) {
-            throw IOException("HTTP ${response.code} $errorContext")
+    ): T {
+        RemoteSourceConfig.current.maintenanceMessageForHost(request.url.host)
+            ?.let { throw SourceMaintenanceException(it) }
+        return executeWithConnectionRetry(request).use { response ->
+            if (!response.isSuccessful) {
+                throw HttpStatusException(response.code, "HTTP ${response.code} $errorContext")
+            }
+            readBody(response)
         }
-        readBody(response)
     }
 
     /**
@@ -129,9 +160,5 @@ class MangaNetworkClient(
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language" to "it,en;q=0.8",
         )
-
-        private const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     }
 }

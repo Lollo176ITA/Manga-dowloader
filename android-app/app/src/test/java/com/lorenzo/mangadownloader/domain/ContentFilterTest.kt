@@ -84,4 +84,31 @@ class ContentFilterTest {
         assertEquals(listOf(safe), filtered.results)
         assertEquals(listOf("One Piece"), filtered.groups.map { it.title })
     }
+
+    @Test
+    fun adultSearchRegistryKeys_rememberAdultGroupsAndResultsOnly() {
+        val flagged = MangaSearchResult("mangapill", "Serie Spinta", "https://mangapill/1", null, isAdult = true)
+        val viaAniList = result("Titolo AniList")
+        val safe = result("One Piece")
+        val results = listOf(flagged, viaAniList, safe)
+        val candidates = listOf(media(9, "Titolo AniList", isAdult = true), media(10, "One Piece"))
+        val groups = SeriesGrouping.groupResults(results, candidates)
+
+        val keys = adultSearchRegistryKeys(results, groups, candidates)
+
+        assertTrue(isRegisteredAdult(keys, flagged.title, flagged.sourceId, flagged.mangaUrl))
+        assertTrue(isRegisteredAdult(keys, viaAniList.title, viaAniList.sourceId, viaAniList.mangaUrl))
+        assertFalse(isRegisteredAdult(keys, safe.title, safe.sourceId, safe.mangaUrl))
+    }
+
+    @Test
+    fun registeredAdult_matchesTheSameSeriesFromAnotherSourceByTitle() {
+        val keys = adultRegistryKeys("Serie Spinta", "mangapill", "https://mangapill/1")
+
+        // Scaricata da un'altra fonte, o vista nella cronologia che conosce solo il titolo.
+        assertTrue(isRegisteredAdult(keys, "serie spinta", "mangaworld", "https://mangaworld/x"))
+        assertTrue(isRegisteredAdult(keys, "Serie Spinta"))
+        assertFalse(isRegisteredAdult(keys, "Altra serie", "mangaworld", "https://mangaworld/y"))
+        assertFalse(isRegisteredAdult(emptySet(), "Serie Spinta"))
+    }
 }

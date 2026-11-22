@@ -3,6 +3,8 @@ package com.lorenzo.mangadownloader.domain
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 private val secureRandom = SecureRandom()
 
@@ -12,11 +14,38 @@ fun generateParentalPinSalt(): String {
     return Base64.getEncoder().encodeToString(bytes)
 }
 
+/**
+ * Hash del PIN per i PIN nuovi: PBKDF2, lento di proposito, perché un PIN di 6 cifre ha solo un
+ * milione di combinazioni e con un hash veloce chi legge le preferenze le prova tutte all'istante.
+ * Il prefisso distingue questi hash da quelli SHA-256 dei PIN impostati prima.
+ */
 fun hashParentalPin(pin: String, salt: String): String {
+    val spec = PBEKeySpec(pin.toCharArray(), salt.toByteArray(Charsets.UTF_8), PBKDF2_ITERATIONS, 256)
+    val hash = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+    return PBKDF2_PREFIX + Base64.getEncoder().encodeToString(hash)
+}
+
+/** Verifica [pin] contro l'hash salvato, sia PBKDF2 sia SHA-256 (PIN impostati prima). */
+fun verifyParentalPin(pin: String, salt: String, expectedHash: String): Boolean {
+    val provided = if (expectedHash.startsWith(PBKDF2_PREFIX)) {
+        hashParentalPin(pin, salt)
+    } else {
+        legacyParentalPinHash(pin, salt)
+    }
+    return MessageDigest.isEqual(
+        provided.toByteArray(Charsets.UTF_8),
+        expectedHash.toByteArray(Charsets.UTF_8),
+    )
+}
+
+internal fun legacyParentalPinHash(pin: String, salt: String): String {
     val digest = MessageDigest.getInstance("SHA-256")
     val hash = digest.digest("$salt:$pin".toByteArray(Charsets.UTF_8))
     return Base64.getEncoder().encodeToString(hash)
 }
+
+private const val PBKDF2_PREFIX = "pbkdf2:"
+private const val PBKDF2_ITERATIONS = 100_000
 
 fun sanitizeParentalPin(input: String): String {
     return input.filter(Char::isDigit).take(6)

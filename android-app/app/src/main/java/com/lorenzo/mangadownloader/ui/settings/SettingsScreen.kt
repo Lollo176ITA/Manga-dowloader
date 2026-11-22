@@ -116,19 +116,22 @@ fun SettingsScreen(
                 onSelect = onSelectReaderPageSpacing,
             )
             SettingsDivider()
-            DoubleTapZoomContent(
-                enabled = settings.doubleTapZoomEnabled,
-                onToggle = onToggleDoubleTapZoom,
+            SettingRow(
+                title = "Doppio tap per zoomare",
+                checked = settings.doubleTapZoomEnabled,
+                onCheckedChange = onToggleDoubleTapZoom,
             )
             SettingsDivider()
-            KeepScreenOnContent(
-                enabled = settings.keepScreenOnEnabled,
-                onToggle = onToggleKeepScreenOn,
+            SettingRow(
+                title = "Mantieni schermo acceso",
+                checked = settings.keepScreenOnEnabled,
+                onCheckedChange = onToggleKeepScreenOn,
             )
             SettingsDivider()
-            ShowHomeTabContent(
-                enabled = settings.showHomeTab,
-                onToggle = onToggleShowHomeTab,
+            SettingRow(
+                title = "Mostra la tab Home",
+                checked = settings.showHomeTab,
+                onCheckedChange = onToggleShowHomeTab,
             )
         }
 

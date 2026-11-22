@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 26-30: stessa esclusione di data_extraction_rules.xml. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="anilist_account_prefs.xml" />
+</full-backup-content>

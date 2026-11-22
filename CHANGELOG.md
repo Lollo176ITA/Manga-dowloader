@@ -4,6 +4,49 @@
 
 > Voci completate, distillate da [MIGLIORIE.md](MIGLIORIE.md) dall'agente `changelog-writer` (Opus). Raggruppate per giorno (dal più recente) e per tipo.
 
+## 2026-11-23
+
+### Migliorato
+
+- Se un capitolo non si scarica (rimosso dal sito, bloccato o con pagine illeggibili), gli altri capitoli della serie vengono scaricati lo stesso, senza attese di minuti, e alla fine il messaggio indica quali capitoli non sono stati scaricati. Se cade la rete, invece, l'app riprova il download della serie più tardi.
+- Quando una fonte cambia indirizzo o va in manutenzione, l'app si adegua da sola, senza bisogno di una nuova versione. Una fonte in manutenzione mostra il motivo nelle impostazioni delle fonti, e ricerca e preferiti usano le altre.
+
+### Corretto
+
+- MangaWorld funziona di nuovo dopo il trasloco su mangaworld.me e il rifacimento del sito. Preferiti e manga già scaricati restano collegati come prima, e le serie oneshot ora si aprono invece di mostrare "nessun capitolo".
+- Hasta Team è temporaneamente in manutenzione, perché il sito blocca le app con il controllo anti-bot di Cloudflare: nel frattempo si usano le altre fonti.
+- Un capitolo segnato come letto mentre parte un download non torna più "non letto", e i dati di una serie scaricata non si rovinano più se l'app si chiude mentre li salva.
+
+### Interno
+
+- Controllo quotidiano automatico di tutte le fonti sui siti reali (workflow GitHub che apre o chiude l'issue "Fonti da controllare"); segnalazioni e crash inviati a Trello tramite Worker Cloudflare al posto dell'email SMTP; i dati salvati illeggibili vengono conservati in copia e segnalati nei report invece di essere sovrascritti; MainActivity suddivisa in host di schermate e dialog; controllo dei preferiti in background estratto in FavoriteUpdatesRun con test; dipendenze aggiornate (Material3 1.5.0-rc01, jsoup 1.24.1, kotlinx-serialization 1.13.0, Gradle wrapper).
+
+## 2026-10-26
+
+### Migliorato
+
+- Il filtro "Nascondi manga per adulti" (sempre attivo con il controllo genitori) ora nasconde le serie per adulti anche da Preferiti, Libreria, Home (Riprendi, cronologia e statistiche), Aggiornamenti, widget e notifiche: queste serie continuano a essere controllate per i nuovi capitoli, ma senza notifica. Le serie già salvate vengono riconosciute tramite AniList e il titolo; quando attivi il filtro un avviso ricorda che quelle non presenti su AniList potrebbero restare visibili. Le serie segnate per adulti sono incluse nel backup.
+- Il controllo degli aggiornamenti dell'app è più affidabile: non si appoggia più al servizio di GitHub che, con molti utenti sulla stessa rete, poteva rifiutare le richieste. Il popup di aggiornamento mostra ora le novità del changelog.
+- Meno blocchi da Cloudflare sui siti delle fonti: l'app si presenta con una versione aggiornata di Chrome, presa dal telefono, e la stessa per pagine, download e copertine.
+
+### Corretto
+
+- Aggiungendo o togliendo un preferito mentre l'app controlla i nuovi capitoli in background, la modifica non va più persa.
+- Un download che fallisce per errori di rete ora si arrende dopo circa 15 minuti (5 tentativi) e mostra "Download non riuscito" con la possibilità di riprovare, invece di ritentare all'infinito bloccando gli altri download della stessa serie.
+- Nelle trame di AniList i caratteri speciali scritti come testo (per esempio "&lt;") non vengono più trasformati per errore.
+- Aggiunti gli accenti mancanti nei testi del tutorial.
+
+### Sicurezza
+
+- Il PIN del controllo genitori impostato da ora in poi è salvato con un metodo più robusto; i PIN già impostati continuano a funzionare.
+- Collegamento ad AniList più sicuro: l'app accetta il ritorno dal browser solo se il collegamento l'ha avviato lei; un link esterno che prova a collegare un altro account viene ignorato con un avviso.
+- Il blocco del controllo genitori dopo troppi PIN sbagliati non si aggira più cambiando l'ora del telefono; dopo un riavvio il blocco riparte da capo.
+- L'account AniList non finisce più nel backup automatico di Android né nel trasferimento a un nuovo telefono, dove va ricollegato. Preferiti e impostazioni restano nel backup.
+
+### Interno
+
+- MangaViewModel suddiviso in controller (Reader, AniList, Home/Scopri, Aggiornamenti app); registro fonti unico tramite MangaSourceSpec; risposte AniList lette con classi @Serializable; selettori a segmenti delle impostazioni unificati; calcoli di zoom del reader condivisi (ReaderZoom.kt); LifecycleEventEffect al posto degli osservatori manuali; skill add-manga-source aggiornata.
+
 ## 2026-10-06
 
 ### Aggiunto

@@ -40,7 +40,18 @@ class FavoritesStore(private val prefs: SharedPreferences) {
             }
     }
 
-    fun persist(favorites: List<FavoriteManga>) {
+    /**
+     * Rilegge i preferiti, applica [transform] e salva, senza che un altro [update] dello stesso
+     * processo si infili in mezzo. Worker e ViewModel scrivono la stessa lista: salvando una copia
+     * presa minuti prima, l'ultimo a scrivere cancellava le modifiche dell'altro. Ritorna la
+     * lista salvata.
+     */
+    fun update(transform: (List<FavoriteManga>) -> List<FavoriteManga>): List<FavoriteManga> =
+        synchronized(LOCK) {
+            transform(read()).also(::persist)
+        }
+
+    fun persist(favorites: List<FavoriteManga>) = synchronized(LOCK) {
         val payload = favorites.map {
             FavoriteEntryJson(
                 sourceId = it.sourceId,
@@ -71,5 +82,8 @@ class FavoritesStore(private val prefs: SharedPreferences) {
 
     private companion object {
         const val KEY_FAVORITES_JSON = "favorites_json"
+
+        /** Di processo: ogni store è un'istanza diversa sulle stesse preferenze. */
+        val LOCK = Any()
     }
 }
